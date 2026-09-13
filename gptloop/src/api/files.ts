@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
+import multer from "multer";
 import type { AppConfig } from "../config.js";
 import { safeResolve, toWorkspaceRelative } from "../utils/paths.js";
 import { mimeTypeFromPath } from "../utils/mime.js";
@@ -17,6 +18,36 @@ export interface FileNode {
 const IGNORED = new Set([".git", "node_modules", ".next", "dist", ".cache"]);
 const MAX_DEPTH = 6;
 const MAX_ENTRIES = 2000;
+
+/** Upload folder (inside the workspace) where prompt attachments are stored. Never in SQLite. */
+export const UPLOADS_DIR = "uploads";
+/** Per-file upload limit: 300 MB. */
+export const MAX_UPLOAD_BYTES = 300 * 1024 * 1024;
+/** Max files accepted in a single upload request. */
+const MAX_UPLOAD_FILES = 10;
+
+/** Strip directories/traversal from a client filename and keep it filesystem-safe. */
+function sanitizeUploadName(raw: string): string {
+  const base = path.basename(String(raw ?? "")).trim().replace(/\\/g, "");
+  const cleaned = base.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^\.+/, "").slice(0, 180);
+  return cleaned || `upload_${Date.now()}`;
+}
+
+/** Unique absolute target inside <workspace>/uploads for a sanitized name (no overwrite). */
+async function uniqueUploadTarget(uploadsAbs: string, name: string): Promise<string> {
+  const ext = path.extname(name);
+  const stem = path.basename(name, ext) || "upload";
+  let candidate = path.join(uploadsAbs, `${stem}${ext}`);
+  for (let i = 1; i < 1000; i += 1) {
+    try {
+      await fsp.access(candidate);
+      candidate = path.join(uploadsAbs, `${stem}_${i}${ext}`);
+    } catch {
+      return candidate;
+    }
+  }
+  return path.join(uploadsAbs, `${stem}_${Date.now()}${ext}`);
+}
 
 export function buildFilesRouter(config: AppConfig): Router {
   const router = Router();
@@ -89,6 +120,59 @@ export function buildFilesRouter(config: AppConfig): Router {
     } catch (error) {
       res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
     }
+  });
+
+  // Upload prompt attachments (any file type, including images) into <workspace>/uploads/.
+  // Stored as plain files on disk — never in the SQLite database. Per-file limit is 300 MB.
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: MAX_UPLOAD_BYTES, files: MAX_UPLOAD_FILES },
+  }).array("files", MAX_UPLOAD_FILES);
+
+  router.post("/upload", (req: Request, res: Response) => {
+    upload(req, res, async (err: unknown) => {
+      if (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const code =
+          (err as { code?: string }).code === "LIMIT_FILE_SIZE"
+            ? "Each uploaded file must be 300 MB or smaller."
+            : `Upload failed: ${message}`;
+        res.status(400).json({ error: code });
+        return;
+      }
+      const files = (req.files ?? []) as Express.Multer.File[];
+      if (files.length === 0) {
+        res.status(400).json({ error: "No files received (field name must be 'files')." });
+        return;
+      }
+      try {
+        const uploadsAbs = path.join(config.workspaceRoot, UPLOADS_DIR);
+        await fsp.mkdir(uploadsAbs, { recursive: true });
+        const saved: Array<{
+          name: string;
+          path: string;
+          absolute_path: string;
+          size: number;
+          content_type: string;
+        }> = [];
+        for (const file of files) {
+          const name = sanitizeUploadName(file.originalname);
+          const target = await uniqueUploadTarget(uploadsAbs, name);
+          await fsp.writeFile(target, file.buffer);
+          const stat = await fsp.stat(target);
+          saved.push({
+            name: path.basename(target),
+            path: toWorkspaceRelative(config.workspaceRoot, target),
+            absolute_path: target,
+            size: stat.size,
+            content_type: mimeTypeFromPath(target),
+          });
+        }
+        res.json({ ok: true, files: saved, file_count: saved.length });
+      } catch (error) {
+        res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+      }
+    });
   });
 
   return router;

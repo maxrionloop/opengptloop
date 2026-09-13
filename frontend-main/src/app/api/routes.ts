@@ -104,6 +104,12 @@ export const API_ROUTES = {
     path: "/api/files/download",
     description: "Download a workspace file as an attachment.",
   },
+  filesUpload: {
+    name: "files.upload",
+    method: "POST",
+    path: "/api/files/upload",
+    description: "Upload prompt attachments (any type, 300 MB per file) into workspace uploads/.",
+  },
   scrapeUrl: {
     name: "scrape.url",
     method: "POST",

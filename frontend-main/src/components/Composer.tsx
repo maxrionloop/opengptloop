@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Paperclip, ArrowUp, Square, FolderOpen } from "lucide-react";
+import { Paperclip, ArrowUp, Square, FolderOpen, X, Loader2 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { isCustomProviderId } from "@/lib/providers";
 import { fetchWorkspace, mkdirWorkspace, setWorkspace } from "@/lib/workspace";
+import { buildAttachmentPrompt, uploadFiles, type UploadedFile } from "@/lib/uploads";
 import { Modal } from "@/components/ui/Modal";
 import { Button, Field, TextInput } from "@/components/ui/primitives";
 import { cn } from "@/utils/cn";
@@ -17,6 +18,10 @@ export function Composer({ onSend, onStop }: { onSend: (text: string) => void; o
   const workspacePath = useStore((s) => s.workspacePath);
   const setWorkspacePath = useStore((s) => s.setWorkspacePath);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [attachments, setAttachments] = useState<UploadedFile[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -34,15 +39,38 @@ export function Composer({ onSend, onStop }: { onSend: (text: string) => void; o
 
   const submit = () => {
     const text = value.trim();
-    if (!text || streaming) return;
+    if (!text || streaming || uploading) return;
     if (!ready) {
       setSettingsOpen(true);
       return;
     }
     setSection("chat");
-    onSend(text);
+    const notice = buildAttachmentPrompt(attachments);
+    onSend(notice ? `${text}\n\n${notice}` : text);
     setValue("");
+    setAttachments([]);
+    setUploadError(null);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
+  };
+
+  const pickFiles = () => {
+    if (streaming || uploading) return;
+    fileInputRef.current?.click();
+  };
+
+  const handleFiles = async (list: FileList | null) => {
+    if (!list || list.length === 0) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const uploaded = await uploadFiles(list);
+      setAttachments((prev) => [...prev, ...uploaded]);
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -99,16 +127,56 @@ export function Composer({ onSend, onStop }: { onSend: (text: string) => void; o
             className="block max-h-[200px] min-h-[4.5rem] w-full resize-none border-0 bg-transparent text-base leading-relaxed text-[var(--fg)] outline-none placeholder:text-[var(--subtle)]"
           />
 
+          {attachments.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {attachments.map((f) => (
+                <span
+                  key={f.path}
+                  className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--chip)] px-2.5 py-1 text-xs text-[var(--fg)]"
+                  title={f.path}
+                >
+                  <Paperclip className="h-3 w-3 shrink-0 text-[var(--muted)]" />
+                  <span className="max-w-[10rem] truncate font-mono">{f.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => setAttachments((prev) => prev.filter((x) => x.path !== f.path))}
+                    className="text-[var(--subtle)] hover:text-[var(--danger)]"
+                    title="Remove attachment"
+                    aria-label={`Remove ${f.name}`}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          {uploadError && (
+            <p className="mt-2 text-xs text-[var(--danger)]">{uploadError}</p>
+          )}
+
           <div className="mt-3 flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-1">
               <button
                 type="button"
-                title="Add attachment"
-                aria-label="Add attachment"
-                className="grid h-11 w-11 place-items-center rounded-[var(--radius-md)] text-[var(--muted)] transition-colors hover:bg-[var(--chip)] hover:text-[var(--fg)]"
+                onClick={pickFiles}
+                title="Upload attachments (any type, 300 MB each)"
+                aria-label="Upload attachments"
+                disabled={uploading}
+                className="grid h-11 w-11 place-items-center rounded-[var(--radius-md)] text-[var(--muted)] transition-colors hover:bg-[var(--chip)] hover:text-[var(--fg)] disabled:opacity-50"
               >
-                <Paperclip className="h-[18px] w-[18px]" strokeWidth={1.8} />
+                {uploading ? (
+                  <Loader2 className="h-[18px] w-[18px] animate-spin" strokeWidth={1.8} />
+                ) : (
+                  <Paperclip className="h-[18px] w-[18px]" strokeWidth={1.8} />
+                )}
               </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                hidden
+                onChange={(e) => void handleFiles(e.target.files)}
+              />
               <button
                 type="button"
                 onClick={() => setWorkspaceOpen(true)}
