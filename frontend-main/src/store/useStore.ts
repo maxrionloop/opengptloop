@@ -10,6 +10,7 @@ import type {
   CeoAgent,
   CustomAgent,
   CustomProvider,
+  CustomTaskMode,
   FetchProvider,
   KnowledgeFile,
   KnowledgeSource,
@@ -51,6 +52,11 @@ import { enforceSingleActive, mergeTeamsWithDefaults } from "@/lib/defaultTeams"
 import { enforceSingleActiveCeo, normalizeCeoAgents } from "@/lib/defaultCeo";
 import { MAIN_AGENT_ID, normalizeCustomAgents } from "@/lib/customAgents";
 import { normalizeMainAgentPrompts } from "@/lib/mainAgentPrompts";
+import {
+  DEFAULT_PLAN_MODE_PROMPT,
+  normalizePlanModePrompt,
+  normalizeTaskModes,
+} from "@/lib/taskModes";
 
 /** The workspace sections the rail switches between. */
 export type Section =
@@ -62,7 +68,8 @@ export type Section =
   | "teams"
   | "ceo"
   | "customagents"
-  | "systemprompts";
+  | "systemprompts"
+  | "taskmodes";
 
 /** Connection state surfaced to the user. Slow ≠ offline; only a lost connection is "offline". */
 export type Connection = "online" | "reconnecting" | "offline";
@@ -109,6 +116,15 @@ interface AppState {
   mainAgentPrompts: MainAgentPrompt[];
   /** The active custom system prompt id for the Main Agent, or null to use the built-in prompt. */
   activeMainAgentPromptId: string | null;
+  /** User-created custom task modes for the prompt box (name + appended prompt). */
+  taskModes: CustomTaskMode[];
+  /**
+   * The active task mode: null / "default" = normal, "plan" = plan-first mode,
+   * otherwise a custom task-mode id whose prompt is appended to the message.
+   */
+  activeTaskModeId: string | null;
+  /** Editable prompt appended in plan task mode (defaults to the built-in plan prompt). */
+  planModePrompt: string;
   activeRun: ActiveRun | null;
 
   // Ephemeral UI
@@ -277,6 +293,15 @@ interface AppState {
   deleteMainAgentPrompt: (id: string) => void;
   /** Activate one custom system prompt for the Main Agent, or null to use the built-in prompt. */
   setActiveMainAgentPrompt: (id: string | null) => void;
+
+  // Task modes for the prompt box (plan / default / custom)
+  addTaskMode: (input: Omit<CustomTaskMode, "id" | "createdAt" | "updatedAt">) => CustomTaskMode;
+  updateTaskMode: (id: string, patch: Partial<Omit<CustomTaskMode, "id" | "createdAt">>) => void;
+  deleteTaskMode: (id: string) => void;
+  /** Select the active task mode: null/"default" = normal, "plan" = plan-first, else a custom id. */
+  setActiveTaskMode: (id: string | null) => void;
+  /** Update the editable plan-mode prompt appended in plan mode. */
+  setPlanModePrompt: (prompt: string) => void;
 
   // Multi-agent team live run (rendered inline in the assistant container message)
   startTeamRun: (
@@ -523,6 +548,9 @@ export const useStore = create<AppState>()(
       activeCustomAgentId: null,
       mainAgentPrompts: [],
       activeMainAgentPromptId: null,
+      taskModes: [],
+      activeTaskModeId: null,
+      planModePrompt: DEFAULT_PLAN_MODE_PROMPT,
       activeRun: null,
 
       hydrated: false,
@@ -608,6 +636,16 @@ export const useStore = create<AppState>()(
             typeof (state as { activeMainAgentPromptId?: unknown }).activeMainAgentPromptId === "string"
               ? ((state as { activeMainAgentPromptId?: string }).activeMainAgentPromptId ?? null)
               : s.activeMainAgentPromptId,
+          taskModes: normalizeTaskModes(
+            (p as { taskModes?: unknown }).taskModes ?? s.taskModes,
+          ),
+          activeTaskModeId:
+            typeof (state as { activeTaskModeId?: unknown }).activeTaskModeId === "string"
+              ? ((state as { activeTaskModeId?: string }).activeTaskModeId ?? null)
+              : s.activeTaskModeId,
+          planModePrompt: normalizePlanModePrompt(
+            (p as { planModePrompt?: unknown }).planModePrompt ?? s.planModePrompt,
+          ),
         }));
       },
 
@@ -1146,6 +1184,31 @@ export const useStore = create<AppState>()(
         })),
 
       setActiveMainAgentPrompt: (id) => set(() => ({ activeMainAgentPromptId: id || null })),
+
+      // ---- Task modes for the prompt box (plan / default / custom) ----------------
+      addTaskMode: (input) => {
+        const now = Date.now();
+        const mode: CustomTaskMode = { id: uid("tmode"), createdAt: now, updatedAt: now, ...input };
+        set((s) => ({ taskModes: [mode, ...s.taskModes] }));
+        return mode;
+      },
+
+      updateTaskMode: (id, patch) =>
+        set((s) => ({
+          taskModes: s.taskModes.map((m) =>
+            m.id === id ? { ...m, ...patch, updatedAt: Date.now() } : m,
+          ),
+        })),
+
+      deleteTaskMode: (id) =>
+        set((s) => ({
+          taskModes: s.taskModes.filter((m) => m.id !== id),
+          activeTaskModeId: s.activeTaskModeId === id ? null : s.activeTaskModeId,
+        })),
+
+      setActiveTaskMode: (id) => set(() => ({ activeTaskModeId: id || null })),
+
+      setPlanModePrompt: (planModePrompt) => set(() => ({ planModePrompt })),
 
       // ---- Multi-agent team live run ---------------------------------------------
       startTeamRun: (convId, msgId, info) =>

@@ -319,6 +319,21 @@ export interface BackendCustomAgent {
   selected_tools: string[];
 }
 
+/**
+ * A user-created custom task mode for the prompt box. When active, its `prompt`
+ * is appended to the user's message before sending (same mechanism as plan mode).
+ * Stored in the backend SQLite database via the shared app-state sync.
+ */
+export interface CustomTaskMode {
+  id: string;
+  /** User-visible mode name (required, unique case-insensitively). */
+  name: string;
+  /** The prompt text appended to the user's message when this mode is active. */
+  prompt: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 /** Agent-team definition in the backend/wire format sent with each turn. */
 export interface BackendTeam {
   id: string;

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Paperclip, ArrowUp, Square, FolderOpen, X, Loader2 } from "lucide-react";
+import { Paperclip, ArrowUp, Square, FolderOpen, X, Loader2, ChevronDown, ListChecks, Plus } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { isCustomProviderId } from "@/lib/providers";
 import { fetchWorkspace, mkdirWorkspace, setWorkspace } from "@/lib/workspace";
 import { buildAttachmentPrompt, uploadFiles, type UploadedFile } from "@/lib/uploads";
+import { PLAN_TASK_MODE_ID, DEFAULT_TASK_MODE_ID } from "@/lib/taskModes";
 import { Modal } from "@/components/ui/Modal";
-import { Button, Field, TextInput } from "@/components/ui/primitives";
+import { Button, Field, TextArea, TextInput } from "@/components/ui/primitives";
 import { cn } from "@/utils/cn";
 
 export function Composer({ onSend, onStop }: { onSend: (text: string) => void; onStop: () => void }) {
@@ -189,6 +190,7 @@ export function Composer({ onSend, onStop }: { onSend: (text: string) => void; o
                   {workspacePath ? workspacePath.split("/").pop() || workspacePath : "Workspace"}
                 </span>
               </button>
+              <TaskModePicker />
             </div>
 
             {streaming ? (
@@ -346,5 +348,189 @@ function WorkspaceModal({ open, onClose }: { open: boolean; onClose: () => void 
         {error && <p className="text-xs text-[var(--danger)]">{error}</p>}
       </div>
     </Modal>
+  );
+}
+
+function TaskModePicker() {
+  const taskModes = useStore((s) => s.taskModes);
+  const activeTaskModeId = useStore((s) => s.activeTaskModeId);
+  const setActiveTaskMode = useStore((s) => s.setActiveTaskMode);
+  const addTaskMode = useStore((s) => s.addTaskMode);
+  const setSection = useStore((s) => s.setSection);
+  const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const activeName =
+    !activeTaskModeId || activeTaskModeId === DEFAULT_TASK_MODE_ID
+      ? "Default"
+      : activeTaskModeId === PLAN_TASK_MODE_ID
+        ? "Plan"
+        : (taskModes.find((m) => m.id === activeTaskModeId)?.name ?? "Default");
+
+  const create = () => {
+    const cleanName = name.trim();
+    if (!cleanName) {
+      setError("A mode name is required.");
+      return;
+    }
+    if (!prompt.trim()) {
+      setError("The prompt to append cannot be empty.");
+      return;
+    }
+    if (cleanName.toLowerCase() === "plan" || cleanName.toLowerCase() === "default") {
+      setError(`"${cleanName}" is reserved for the built-in modes.`);
+      return;
+    }
+    if (taskModes.some((m) => m.name.trim().toLowerCase() === cleanName.toLowerCase())) {
+      setError(`A task mode named "${cleanName}" already exists.`);
+      return;
+    }
+    const created = addTaskMode({ name: cleanName, prompt });
+    setActiveTaskMode(created.id);
+    setCreating(false);
+    setName("");
+    setPrompt("");
+    setError(null);
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        title={`Task mode: ${activeName}`}
+        aria-label="Task mode"
+        className="flex h-11 items-center gap-1 rounded-[var(--radius-md)] px-2 text-xs font-medium text-[var(--muted)] transition-colors hover:bg-[var(--chip)] hover:text-[var(--fg)]"
+      >
+        <ListChecks className="h-[18px] w-[18px] shrink-0" strokeWidth={1.8} />
+        <span className="max-w-[5rem] truncate">{activeName}</span>
+        <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")} />
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div
+            className="absolute bottom-12 left-0 z-50 w-56 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg)] py-1 pop-in"
+            style={{ boxShadow: "var(--shadow-pop)" }}
+          >
+            <ModeOption
+              label="Default"
+              hint="Works normally"
+              active={activeName === "Default"}
+              onClick={() => {
+                setActiveTaskMode(null);
+                setOpen(false);
+              }}
+            />
+            <ModeOption
+              label="Plan"
+              hint="Plan first, then work"
+              active={activeName === "Plan"}
+              onClick={() => {
+                setActiveTaskMode(PLAN_TASK_MODE_ID);
+                setOpen(false);
+              }}
+            />
+            {taskModes.length > 0 && <div className="my-1 border-t border-[var(--border)]" />}
+            {taskModes.map((m) => (
+              <ModeOption
+                key={m.id}
+                label={m.name}
+                hint="Custom"
+                active={m.id === activeTaskModeId}
+                onClick={() => {
+                  setActiveTaskMode(m.id);
+                  setOpen(false);
+                }}
+              />
+            ))}
+            <div className="my-1 border-t border-[var(--border)]" />
+            <button
+              type="button"
+              onClick={() => {
+                setCreating(true);
+                setError(null);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-[var(--secondary)] hover:bg-[var(--chip)]"
+            >
+              <Plus className="h-3.5 w-3.5" /> New custom mode
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                setSection("taskmodes");
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--muted)] hover:bg-[var(--chip)] hover:text-[var(--fg)]"
+            >
+              <ListChecks className="h-3.5 w-3.5" /> Manage modes
+            </button>
+          </div>
+        </>
+      )}
+
+      <Modal
+        open={creating}
+        onClose={() => setCreating(false)}
+        icon={<Plus className="h-4 w-4" />}
+        title="New custom task mode"
+        size="md"
+        footer={<Button onClick={create}>Create & use</Button>}
+      >
+        <div className="space-y-4 p-5">
+          <Field label="Mode name">
+            <TextInput
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Review"
+            />
+          </Field>
+          <Field label="Prompt appended to your message" hint="appended verbatim">
+            <TextArea
+              rows={5}
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              className="font-mono text-xs"
+              placeholder="e.g. Review the following for bugs and list findings by severity…"
+            />
+          </Field>
+          {error && <p className="text-xs text-[var(--danger)]">{error}</p>}
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+function ModeOption({
+  label,
+  hint,
+  active,
+  onClick,
+}: {
+  label: string;
+  hint: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--chip)]",
+        active && "bg-[var(--chip)]",
+      )}
+    >
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-xs font-medium text-[var(--fg)]">{label}</span>
+        <span className="block text-[10px] text-[var(--subtle)]">{hint}</span>
+      </span>
+      {active && <span className="text-[10px] font-semibold text-[var(--secondary)]">Active</span>}
+    </button>
   );
 }

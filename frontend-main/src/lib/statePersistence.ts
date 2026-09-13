@@ -38,6 +38,9 @@ const SYNC_KEYS = [
   "activeCustomAgentId",
   "mainAgentPrompts",
   "activeMainAgentPromptId",
+  "taskModes",
+  "activeTaskModeId",
+  "planModePrompt",
 ] as const;
 
 type SyncKey = (typeof SYNC_KEYS)[number];

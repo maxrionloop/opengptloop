@@ -12,6 +12,7 @@ import { TeamsPanel } from "@/components/panels/TeamsPanel";
 import { CeoPanel } from "@/components/panels/CeoPanel";
 import { CustomAgentsPanel } from "@/components/panels/CustomAgentsPanel";
 import { MainAgentPromptsPanel } from "@/components/panels/MainAgentPromptsPanel";
+import { TaskModesPanel } from "@/components/panels/TaskModesPanel";
 import { SettingsModal } from "@/components/editors/SettingsModal";
 import { TodoPanel } from "@/components/overlays/TodoPanel";
 import { FilesPanel } from "@/components/overlays/FilesPanel";
@@ -104,6 +105,7 @@ export function App() {
               {section === "ceo" && <CeoPanel />}
               {section === "customagents" && <CustomAgentsPanel />}
               {section === "systemprompts" && <MainAgentPromptsPanel />}
+              {section === "taskmodes" && <TaskModesPanel />}
             </div>
           )}
         </main>

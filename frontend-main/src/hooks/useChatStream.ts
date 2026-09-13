@@ -9,6 +9,7 @@ import { activeTeam } from "@/lib/defaultTeams";
 import { activeCeo, toBackendCeo } from "@/lib/defaultCeo";
 import { findActiveCustomAgent, toBackendCustomAgent } from "@/lib/customAgents";
 import { findActiveMainAgentPrompt } from "@/lib/mainAgentPrompts";
+import { taskModePromptFor } from "@/lib/taskModes";
 import { useStore, type ActiveRun } from "@/store/useStore";
 import { uid } from "@/utils/id";
 import type {
@@ -73,6 +74,18 @@ function buildStartRequest(convId: string, text: string): StreamRequest {
   const memory: MemoryFile[] = store.memory;
   const knowledge: KnowledgeFile[] = store.knowledge;
 
+  // Task mode: plan / custom modes append their prompt to the user's message so the
+  // model approaches the task accordingly. Default mode appends nothing (normal work).
+  const taskModePrompt = taskModePromptFor(
+    store.activeTaskModeId,
+    store.taskModes,
+    store.planModePrompt,
+  );
+  const userMessageWithMode =
+    taskModePrompt && taskModePrompt.trim().length > 0
+      ? `${text}\n\n${taskModePrompt}`
+      : text;
+
   // Custom Agent mode: when a top-level Custom Agent is the active agent, this turn runs as that
   // independent Main Agent (its own system prompt + selected tools). It takes precedence over team
   // mode — a Custom Agent is a single top-level agent, not a team.
@@ -117,7 +130,7 @@ function buildStartRequest(convId: string, text: string): StreamRequest {
 
   return {
     chat_id: convId,
-    user_message: text,
+    user_message: userMessageWithMode,
     history,
     provider: settings.provider,
     model: settings.model,

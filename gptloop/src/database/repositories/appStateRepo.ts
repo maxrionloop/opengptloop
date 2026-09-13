@@ -24,6 +24,9 @@ export const APP_STATE_KEYS = [
   "activeCustomAgentId",
   "mainAgentPrompts",
   "activeMainAgentPromptId",
+  "taskModes",
+  "activeTaskModeId",
+  "planModePrompt",
 ] as const;
 
 export type AppStateKey = (typeof APP_STATE_KEYS)[number];
