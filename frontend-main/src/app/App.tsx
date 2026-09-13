@@ -22,6 +22,7 @@ import { TeamMonitorPanel } from "@/components/overlays/TeamMonitorPanel";
 import { useStore } from "@/store/useStore";
 import { useChatStream, useConnectionWatch } from "@/hooks/useChatStream";
 import { fetchProviders } from "@/lib/api";
+import { fetchWorkspace } from "@/lib/workspace";
 import { attachLatestMemoryAgentRun } from "@/lib/memoryAgent";
 import {
   bootstrapFromBackend,
@@ -47,6 +48,9 @@ export function App() {
     bootedRef.current = true;
 
     fetchProviders().then(setProviders).catch(() => {});
+    fetchWorkspace()
+      .then((workspace) => useStore.getState().setWorkspacePath(workspace))
+      .catch(() => {});
 
     void (async () => {
       const payload = await bootstrapFromBackend();

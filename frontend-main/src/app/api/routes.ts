@@ -158,6 +158,24 @@ export const API_ROUTES = {
     path: "/api/memory-agent/runs/:id/stream",
     description: "Attach to a memory-agent run's SSE stream (live) or replay a finished run.",
   },
+  workspaceGet: {
+    name: "workspace.get",
+    method: "GET",
+    path: "/api/workspace",
+    description: "Read the agent's current workspace root (absolute path).",
+  },
+  workspaceSet: {
+    name: "workspace.set",
+    method: "POST",
+    path: "/api/workspace",
+    description: "Switch the agent's workspace root (absolute or relative to the current workspace).",
+  },
+  workspaceMkdir: {
+    name: "workspace.mkdir",
+    method: "POST",
+    path: "/api/workspace/mkdir",
+    description: "Create a folder (nested a/b/c supported) inside the current workspace.",
+  },
 } as const satisfies Record<string, ApiRoute>;
 
 export type ApiRouteName = keyof typeof API_ROUTES;

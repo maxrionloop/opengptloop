@@ -3,6 +3,6 @@ dist/
 .env
 .env.local
 *.log
-workspace/*
-!workspace/.gitkeep
+.gptloop/
+uploads/
 .DS_Store

@@ -125,6 +125,8 @@ interface AppState {
   streaming: boolean;
   connection: Connection;
   filesVersion: number;
+  /** The agent's current workspace root (absolute path, fetched from the backend). */
+  workspacePath: string;
   preview: BrowserPreview;
   attachedFiles: AttachedFile[];
 
@@ -351,6 +353,7 @@ interface AppState {
   setStreaming: (v: boolean) => void;
   setConnection: (c: Connection) => void;
   bumpFiles: () => void;
+  setWorkspacePath: (path: string) => void;
 
   // Background memory agent (watch-only)
   setMemoryAgentOpen: (v: boolean) => void;
@@ -534,6 +537,7 @@ export const useStore = create<AppState>()(
       streaming: false,
       connection: "online",
       filesVersion: 0,
+      workspacePath: "",
       preview: { url: "", open: false },
       attachedFiles: [],
 
@@ -1540,6 +1544,7 @@ export const useStore = create<AppState>()(
         }),
       setFilesOpen: (filesOpen) => set({ filesOpen }),
       bumpFiles: () => set((s) => ({ filesVersion: s.filesVersion + 1 })),
+      setWorkspacePath: (workspacePath) => set({ workspacePath }),
 
       // ---- Background memory agent (watch-only) ----------------------------------
       setMemoryAgentOpen: (memoryAgentOpen) => set({ memoryAgentOpen }),

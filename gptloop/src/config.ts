@@ -13,11 +13,14 @@ export const PROJECT_ROOT = path.resolve(currentDir, "..");
 function resolveWorkspaceRoot(): string {
   const configured = process.env.WORKSPACE_ROOT?.trim();
   if (configured) {
+    // An explicit WORKSPACE_ROOT may be absolute or relative to where gptloop was started.
     return path.isAbsolute(configured)
       ? path.normalize(configured)
-      : path.resolve(PROJECT_ROOT, configured);
+      : path.resolve(process.cwd(), configured);
   }
-  return path.join(PROJECT_ROOT, "workspace");
+  // No pre-added workspace folder: the workspace is wherever gptloop is started/running.
+  // e.g. running `npm run dev` in example/example/example makes that directory the workspace.
+  return path.normalize(process.cwd());
 }
 
 export interface AppConfig {
@@ -113,4 +116,20 @@ export const config: AppConfig = {
 /** Ensure the workspace directory exists so file tools never hit permission/ENOENT errors. */
 export function ensureWorkspace(): void {
   fs.mkdirSync(config.workspaceRoot, { recursive: true });
+  // The ".gptloop" dir is initialized where the workspace is set (holds the SQLite
+  // database, sub-agent outputs, skills materializations, uploads, ...).
+  fs.mkdirSync(path.join(config.workspaceRoot, ".gptloop"), { recursive: true });
+}
+
+/**
+ * Switch the active workspace at runtime (used by the custom workspace picker).
+ * Creates the directory (and its ".gptloop" dir) when missing and points all
+ * workspace-sandboxed file tools at the new root from now on.
+ */
+export function setWorkspaceRoot(next: string): string {
+  const resolved = path.normalize(next);
+  fs.mkdirSync(resolved, { recursive: true });
+  fs.mkdirSync(path.join(resolved, ".gptloop"), { recursive: true });
+  config.workspaceRoot = resolved;
+  return resolved;
 }
