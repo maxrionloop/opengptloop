@@ -147,6 +147,8 @@ function snapshotToConversation(snapshot: unknown, stub: Conversation): Conversa
     messages: messages.map((m) => ({ ...m, streaming: false })),
     createdAt: typeof s.createdAt === "number" ? s.createdAt : stub.createdAt,
     updatedAt: typeof s.updatedAt === "number" ? s.updatedAt : stub.updatedAt,
+    parentId:
+      typeof s.parentId === "string" && s.parentId.length > 0 ? s.parentId : stub.parentId ?? null,
     loaded: true,
   };
 }

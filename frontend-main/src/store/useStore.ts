@@ -162,6 +162,13 @@ interface AppState {
 
   // Conversations
   newConversation: () => string;
+  /**
+   * Start a new branch inside the current chat session. The branch is a brand-new
+   * backend session (fresh context for every agent — main, custom, team, CEO, and
+   * sub-agents all start clean, exactly like a new chat) grouped under its parent
+   * in the UI. Returns the new branch id, or null when there is nothing to branch.
+   */
+  branchConversation: () => string | null;
   selectConversation: (id: string) => void;
   deleteConversation: (id: string) => void;
   renameConversation: (id: string, title: string) => void;
@@ -658,6 +665,27 @@ export const useStore = create<AppState>()(
           messages: [],
           createdAt: Date.now(),
           updatedAt: Date.now(),
+          loaded: true,
+        };
+        set((s) => ({ conversations: [conv, ...s.conversations], currentId: id, section: "chat" }));
+        return id;
+      },
+
+      branchConversation: () => {
+        const { currentId, conversations } = get();
+        const parent = conversations.find((c) => c.id === currentId);
+        if (!parent) return null;
+        // A fresh backend session id: no past context is ever sent for it, so the main
+        // agent, custom agents, team/CEO agents, and sub-agents all start clean.
+        const id = newSessionId();
+        const siblingCount = conversations.filter((c) => c.parentId === parent.id).length;
+        const conv: Conversation = {
+          id,
+          title: `${parent.title} (branch ${siblingCount + 1})`,
+          messages: [],
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          parentId: parent.id,
           loaded: true,
         };
         set((s) => ({ conversations: [conv, ...s.conversations], currentId: id, section: "chat" }));

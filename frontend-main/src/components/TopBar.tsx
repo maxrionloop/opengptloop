@@ -1,4 +1,5 @@
-import { Plus, Settings, ListTodo, Paperclip, Brain, History, Boxes, Crown } from "lucide-react";
+import { useState } from "react";
+import { Plus, Settings, ListTodo, Paperclip, Brain, History, Boxes, Crown, MoreVertical, GitBranch } from "lucide-react";
 import { useStore, type Section } from "@/store/useStore";
 import { cn } from "@/utils/cn";
 
@@ -68,11 +69,24 @@ export function TopBar() {
     settings.enableCeoAgents === "yes" && !activeAgent
       ? (ceoAgents.find((c) => c.enabled) ?? null)
       : null;
+  const currentId = useStore((s) => s.currentId);
+  const conversations = useStore((s) => s.conversations);
+  const currentConv = conversations.find((c) => c.id === currentId) ?? null;
+  const isBranch = Boolean(currentConv?.parentId);
 
   return (
     <header className="flex h-14 shrink-0 items-center justify-between px-6 max-[640px]:px-4">
       <div className="flex min-w-0 items-center gap-2.5">
         <p className="m-0 text-sm font-medium">Haku</p>
+        {isBranch && (
+          <span
+            title="This thread is a fresh branch — no past context is sent for any agent."
+            className="inline-flex min-w-0 items-center gap-1.5 rounded-full bg-[var(--chip)] px-2.5 py-1 text-xs font-medium text-[var(--muted)]"
+          >
+            <GitBranch className="h-3.5 w-3.5 shrink-0 text-[var(--secondary)]" />
+            <span className="truncate max-w-[10rem]">Branch</span>
+          </span>
+        )}
         {/* Which top-level agent chat turns run as (only shown when a Custom Agent is active). */}
         {activeAgent && (
           <button
@@ -140,6 +154,7 @@ export function TopBar() {
         <TopIcon title="Settings" onClick={() => setSettingsOpen(true)}>
           <Settings className="h-5 w-5" strokeWidth={1.7} />
         </TopIcon>
+        <BranchMenu />
       </div>
     </header>
   );
@@ -173,5 +188,108 @@ function TopIcon({
         </span>
       )}
     </button>
+  );
+}
+
+/**
+ * Branch menu (top-right "..."): start a fresh branch inside the current chat
+ * session and switch between a thread and its branches. A branch is a brand-new
+ * backend session — no past context is sent for it, so every agent (main,
+ * custom, team/CEO members, sub-agents) starts clean, exactly like a new chat.
+ */
+function BranchMenu() {
+  const [open, setOpen] = useState(false);
+  const currentId = useStore((s) => s.currentId);
+  const conversations = useStore((s) => s.conversations);
+  const selectConversation = useStore((s) => s.selectConversation);
+  const branchConversation = useStore((s) => s.branchConversation);
+
+  const current = conversations.find((c) => c.id === currentId) ?? null;
+  const parentId = current?.parentId ?? null;
+  // Family = the parent (when inside a branch) plus all of its branches.
+  const family = parentId
+    ? conversations.filter((c) => c.id === parentId || c.parentId === parentId)
+    : conversations.filter((c) => c.parentId === currentId);
+  const branchCount = conversations.filter((c) => c.parentId === currentId).length;
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        title="Conversation branches"
+        aria-label="Conversation branches"
+        className={cn(
+          "relative grid h-11 w-11 place-items-center rounded-[var(--radius-md)] text-[var(--muted)] transition-colors hover:bg-[var(--chip)] hover:text-[var(--fg)]",
+        )}
+      >
+        <MoreVertical className="h-5 w-5" strokeWidth={1.7} />
+        {branchCount > 0 && (
+          <span className="absolute right-1 top-1 grid h-4 min-w-4 place-items-center rounded-full bg-[var(--secondary)] px-1 text-[10px] font-semibold tabular-nums text-[var(--secondary-fg)]">
+            {branchCount}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div
+            className="absolute right-0 top-12 z-50 w-64 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg)] py-1 pop-in"
+            style={{ boxShadow: "var(--shadow-pop)" }}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                branchConversation();
+                setOpen(false);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs font-medium text-[var(--secondary)] hover:bg-[var(--chip)]"
+            >
+              <span className="grid h-7 w-7 place-items-center rounded-full bg-[var(--secondary)] text-[var(--secondary-fg)]">
+                <Plus className="h-4 w-4" strokeWidth={2} />
+              </span>
+              New branch — start fresh here
+            </button>
+
+            {current?.parentId && (
+              <p className="m-0 px-3 pb-1 pt-2 text-[10px] uppercase tracking-wide text-[var(--subtle)]">
+                Branched from {conversations.find((c) => c.id === current.parentId)?.title ?? "parent"}
+              </p>
+            )}
+
+            {family.length > 0 && (
+              <>
+                <div className="my-1 border-t border-[var(--border)]" />
+                <p className="m-0 px-3 pb-1 pt-2 text-[10px] uppercase tracking-wide text-[var(--subtle)]">
+                  Branches
+                </p>
+                {family.slice(0, 8).map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => {
+                      selectConversation(c.id);
+                      setOpen(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--chip)]"
+                  >
+                    <GitBranch className="h-3.5 w-3.5 shrink-0 text-[var(--muted)]" />
+                    <span className="min-w-0 flex-1 truncate text-xs text-[var(--fg)]">
+                      {c.title}
+                      {c.id === currentId ? " (current)" : ""}
+                    </span>
+                  </button>
+                ))}
+              </>
+            )}
+
+            <p className="m-0 px-3 py-2 text-[10px] leading-relaxed text-[var(--subtle)]">
+              A branch starts from fresh with no past context for any agent.
+            </p>
+          </div>
+        </>
+      )}
+    </div>
   );
 }

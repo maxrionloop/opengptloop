@@ -418,6 +418,12 @@ export interface Conversation {
   createdAt: number;
   updatedAt: number;
   /**
+   * Branch parent: the conversation this branch was started from, if any. A branch
+   * is a brand-new backend session (fresh context for every agent) grouped under
+   * its parent in the UI.
+   */
+  parentId?: string | null;
+  /**
    * Server-reported message count for sessions whose full snapshot has not been
    * fetched yet (conversation stubs listed from the database at boot).
    */
