@@ -1,8 +1,0 @@
-# Node
-node_modules/
-dist/
-*.local
-
-# Environment (keep .env but it's for local dev)
-.env.local
-.env.*.local
