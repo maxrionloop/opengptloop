@@ -52,6 +52,26 @@ function effectiveApiKey(body: StreamBody): string {
   return "";
 }
 
+/**
+ * Parse the memory-agent on/off switch. Accepts booleans and "yes"/"no" strings (frontend
+ * Settings shape); falls back to the server default when omitted/unrecognized. Default is on.
+ */
+function parseMemoryAgentEnabled(value: unknown, fallback: boolean): boolean {
+  if (value === false || value === "no" || value === "off" || value === 0) return false;
+  if (value === true || value === "yes" || value === "on" || value === 1) return true;
+  return fallback;
+}
+
+/**
+ * Parse the memory-agent interval (after how many completed tasks it builds memory).
+ * Clamped to 1–50; falls back to the server default (3) when omitted/invalid.
+ */
+function parseMemoryAgentInterval(value: unknown, fallback: number): number {
+  const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(50, Math.max(1, Math.floor(n)));
+}
+
 interface StreamBody {
   chat_id?: string;
   user_message?: string;
@@ -106,6 +126,13 @@ interface StreamBody {
    * prompt from the MainAgentPromptManager; when neither yields text, the built-in prompt is used.
    */
   system_prompt_override?: unknown;
+  /**
+   * Background memory-agent schedule for this turn (from frontend Settings).
+   * `memory_agent_enabled` false turns the memory agent off entirely (no run, no extra tokens).
+   * `memory_agent_interval` (default 3) builds memory after every N completed user tasks.
+   */
+  memory_agent_enabled?: unknown;
+  memory_agent_interval?: unknown;
 }
 
 /**
@@ -559,6 +586,8 @@ export function buildChatRouter(
         // Custom Agents override this below with their own prompt, so it only affects the default
         // Main Agent path and never changes the Main Agent architecture.
         systemPromptOverride: resolveMainAgentSystemPrompt(body),
+        memoryAgentEnabled: parseMemoryAgentEnabled(body.memory_agent_enabled, config.memoryAgentEnabled),
+        memoryAgentInterval: parseMemoryAgentInterval(body.memory_agent_interval, config.memoryAgentInterval),
       };
 
       // Custom Agent mode: when the active agent is a user-created top-level Custom Agent, run this

@@ -387,6 +387,8 @@ const defaultSettings: Settings = {
   enableAgentTeams: "no",
   enableSendMessageToTeam: "no",
   enableCeoAgents: "no",
+  memoryAgentEnabled: "yes",
+  memoryAgentInterval: 3,
 };
 
 function touch(conv: Conversation): Conversation {

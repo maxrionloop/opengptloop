@@ -26,6 +26,8 @@ const fakeConfig: AppConfig = {
   firecrawlApiKey: "",
   visionModelPatterns: [],
   textOnlyModelPatterns: [],
+  memoryAgentEnabled: true,
+  memoryAgentInterval: 3,
 };
 
 const team: AgentTeamDefinition = {

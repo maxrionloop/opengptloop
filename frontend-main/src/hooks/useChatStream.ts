@@ -140,6 +140,11 @@ function buildStartRequest(convId: string, text: string): StreamRequest {
     memory,
     knowledge,
     enable_reuse_sub_agent_session: settings.enableReuseSubAgentSession === "yes" ? "yes" : "no",
+    memory_agent_enabled: settings.memoryAgentEnabled !== "no",
+    memory_agent_interval:
+      typeof settings.memoryAgentInterval === "number" && Number.isFinite(settings.memoryAgentInterval)
+        ? Math.min(50, Math.max(1, Math.floor(settings.memoryAgentInterval)))
+        : 3,
     multi_agent: Boolean(backendTeam),
     agent_team: backendTeam,
     enable_send_message_to_team: settings.enableSendMessageToTeam === "yes" ? "yes" : "no",

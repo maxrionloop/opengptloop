@@ -89,6 +89,19 @@ export interface RunAgentRequest {
    * Informational — the actual behavior is driven by `systemPromptOverride` and `allowedToolNames`.
    */
   customAgent?: CustomAgentInfo | null;
+  /**
+   * Whether the background memory agent may run after this turn. Mirrors the user's Settings
+   * choice ("Memory agent" on/off). Defaults to true (on) — when false the memory agent never
+   * starts, so no extra LLM tokens are spent on memory building.
+   */
+  memoryAgentEnabled?: boolean;
+  /**
+   * After how many completed user tasks the background memory agent runs. The memory agent
+   * starts only when the completed-task count for the chat reaches a multiple of this interval.
+   * Defaults to 3 (system default): e.g. it stays idle for tasks 1–2 and builds memory after
+   * task 3, then again after task 6, 9, ... Clamped to >= 1.
+   */
+  memoryAgentInterval?: number;
 }
 
 /** Lightweight identity of the Custom Agent handling a turn (see agents/customagent/configuration). */
@@ -423,10 +436,18 @@ export class AgentRunner {
     } finally {
       // The main agent's turn is over — hand the COMPLETE turn context (full untruncated
       // transcript, the triggering user prompt, and the FINAL memory state) to the background
-      // memory agent. Every trigger starts a brand-new memory-agent session; the service's
-      // FIFO queue serializes overlapping requests. Enqueued BEFORE the buffer closes so the
+      // memory agent, but ONLY when its schedule allows it. By default the memory agent builds
+      // memory after every N completed user tasks (N = memoryAgentInterval, default 3) and stays
+      // idle before that; when memoryAgentEnabled is false it never runs, so no extra LLM tokens
+      // are spent. Every trigger starts a brand-new memory-agent session; the service's FIFO queue
+      // serializes overlapping requests. Enqueued BEFORE the buffer closes so the
       // `memory_agent_queued` notice still reaches any attached client.
-      if (this.memoryAgent && memoryRuntime && session.messages.some((m) => m.role === "user")) {
+      if (
+        this.memoryAgent &&
+        memoryRuntime &&
+        session.messages.some((m) => m.role === "user") &&
+        shouldRunMemoryAgent(session.messages, request.memoryAgentEnabled, request.memoryAgentInterval)
+      ) {
         try {
           const runId = this.memoryAgent.enqueue({
             chatId: request.chatId,
@@ -474,6 +495,33 @@ export class AgentRunner {
     }
     return built;
   }
+}
+
+/**
+ * Decide whether the background memory agent should run after the just-finished turn.
+ *
+ * System default: the memory agent builds memory after every N completed user tasks
+ * (N = `interval`, default 3) and stays idle before that — e.g. tasks 1–2 produce no run,
+ * task 3 triggers a build, then tasks 4–5 are idle and task 6 triggers again. When `enabled`
+ * is explicitly false the memory agent never runs, so no extra LLM tokens are spent.
+ * The completed-task count is the number of user-role messages in the session transcript,
+ * which survives backend restarts (rehydrated from SQLite) and covers Custom Agents too
+ * (they execute through this same runtime).
+ */
+export function shouldRunMemoryAgent(
+  messages: Array<{ role: string }>,
+  enabled?: boolean,
+  interval?: number,
+): boolean {
+  if (enabled === false) return false;
+  const every = Math.floor(interval ?? 3);
+  const n = every >= 1 ? every : 3;
+  let userTasks = 0;
+  for (const m of messages) {
+    if (m.role === "user") userTasks += 1;
+  }
+  if (userTasks <= 0) return false;
+  return userTasks % n === 0;
 }
 
 /**

@@ -693,6 +693,16 @@ export interface Settings {
    * the head/leaders of the teams it manages. Takes precedence over an active team when both are on.
    */
   enableCeoAgents: "no" | "yes";
+  /**
+   * Whether the background memory agent may run. "yes" (default, on) lets it build memory after
+   * every N completed tasks; "no" (off) disables it entirely so no extra LLM tokens are spent.
+   */
+  memoryAgentEnabled: "no" | "yes";
+  /**
+   * After how many completed user tasks the background memory agent builds memory.
+   * System default is 3: tasks 1–2 stay idle, task 3 triggers a build, then 6, 9, ...
+   */
+  memoryAgentInterval: number;
 }
 
 /** The four built-in reasoning-effort presets shown in Settings. */
@@ -733,6 +743,10 @@ export interface StreamRequest {
   knowledge?: KnowledgeFile[];
   /** Mirrors settings.enableReuseSubAgentSession; gates the sub-agent session tools this turn. */
   enable_reuse_sub_agent_session?: "no" | "yes";
+  /** Background memory-agent schedule: false turns it off (no run, no extra tokens). */
+  memory_agent_enabled?: boolean;
+  /** After how many completed user tasks the memory agent builds memory (default 3). */
+  memory_agent_interval?: number;
   /** When true, run this turn as a multi-agent team (with agent_team) instead of a single agent. */
   multi_agent?: boolean;
   /** The active agent team definition sent when multi_agent is true. */

@@ -42,6 +42,10 @@ export interface AppConfig {
   visionModelPatterns: string[];
   /** Model-id substrings that are always treated as text-only (read_image tool). */
   textOnlyModelPatterns: string[];
+  /** Server default for the background memory agent on/off switch (frontend Settings overrides per turn). */
+  memoryAgentEnabled: boolean;
+  /** Server default for after how many completed user tasks the memory agent builds memory. */
+  memoryAgentInterval: number;
 }
 
 function parseCorsOrigins(raw: string | undefined): string[] | "*" {
@@ -74,6 +78,18 @@ function parsePatterns(raw: string | undefined): string[] {
     .filter((p) => p.length > 0);
 }
 
+function parseMemoryAgentEnabled(raw: string | undefined): boolean {
+  const value = (raw ?? "").trim().toLowerCase();
+  if (value === "0" || value === "false" || value === "no" || value === "off") return false;
+  return true;
+}
+
+function parseMemoryAgentInterval(raw: string | undefined): number {
+  const n = Number(raw ?? 3);
+  if (!Number.isFinite(n)) return 3;
+  return Math.min(50, Math.max(1, Math.floor(n)));
+}
+
 export const config: AppConfig = {
   port: Number(process.env.PORT ?? 8787),
   workspaceRoot: resolveWorkspaceRoot(),
@@ -90,6 +106,8 @@ export const config: AppConfig = {
   firecrawlApiKey: process.env.FIRECRAWL_API_KEY?.trim() ?? "",
   visionModelPatterns: parsePatterns(process.env.VISION_MODEL_PATTERNS),
   textOnlyModelPatterns: parsePatterns(process.env.TEXT_ONLY_MODEL_PATTERNS),
+  memoryAgentEnabled: parseMemoryAgentEnabled(process.env.MEMORY_AGENT_ENABLED),
+  memoryAgentInterval: parseMemoryAgentInterval(process.env.MEMORY_AGENT_INTERVAL),
 };
 
 /** Ensure the workspace directory exists so file tools never hit permission/ENOENT errors. */

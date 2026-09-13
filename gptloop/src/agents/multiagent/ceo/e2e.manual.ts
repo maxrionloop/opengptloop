@@ -33,6 +33,8 @@ const config: AppConfig = {
   firecrawlApiKey: "",
   visionModelPatterns: [],
   textOnlyModelPatterns: [],
+  memoryAgentEnabled: true,
+  memoryAgentInterval: 3,
 } as AppConfig;
 
 function has(msgs: ReadonlyArray<Record<string, unknown>>, tool: string): boolean {

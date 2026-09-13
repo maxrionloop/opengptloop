@@ -329,6 +329,43 @@ export function SettingsModal() {
             </p>
           </section>
 
+          {/* Memory agent */}
+          <section className="space-y-3 border-t border-[var(--border)] pt-5">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--subtle)]">Memory agent</h3>
+            <Field label="Memory agent">
+              <Select
+                value={settings.memoryAgentEnabled ?? "yes"}
+                onChange={(e) => setSettings({ memoryAgentEnabled: e.target.value === "yes" ? "yes" : "no" })}
+              >
+                <option value="yes">On — build memory (default)</option>
+                <option value="no">Off — never build memory</option>
+              </Select>
+            </Field>
+            <p className="text-xs text-[var(--muted)]">
+              When off, the background memory agent never starts, so no extra LLM tokens are spent
+              on memory building. Default is on.
+            </p>
+            <Field label="Build memory after every N tasks" hint="default 3">
+              <TextInput
+                type="number"
+                min={1}
+                max={50}
+                value={settings.memoryAgentInterval ?? 3}
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  setSettings({
+                    memoryAgentInterval: Number.isFinite(n) ? Math.min(50, Math.max(1, Math.floor(n))) : 3,
+                  });
+                }}
+                placeholder="3"
+              />
+            </Field>
+            <p className="text-xs text-[var(--muted)]">
+              The memory agent stays idle before that — e.g. with 3, tasks 1–2 produce no run and
+              task 3 triggers a memory build, then again after tasks 6, 9, …
+            </p>
+          </section>
+
           {/* Multi-agent teams */}
           <section className="space-y-3 border-t border-[var(--border)] pt-5">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--subtle)]">Agent teams (multi-agent)</h3>
