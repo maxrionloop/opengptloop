@@ -132,14 +132,14 @@ export function frameCeoMailbox(batch: MailboxMessage[]): string {
  */
 export function buildCeoReportReminder(leaderName: string, ceoName: string): string {
   return [
-    "SYSTEM NOTICE — automatic coordination check (not from a teammate).",
+    "SYSTEM NOTICE — missing completion report to the CEO (automatic coordination check, not from a teammate).",
     "",
-    `Your last run ended without you reporting back to the CEO ("${ceoName}"), but a task the CEO assigned to your team is still open. The CEO is NOT notified automatically — a CEO-assigned task is only considered complete once you explicitly report it, so the organization is now waiting on you.`,
+    `Hi "${leaderName}", the CEO ("${ceoName}") assigned a task to your team, but your last run finished without sending your task-completion summary to the CEO. The CEO is NOT notified automatically — a CEO-assigned task stays open until you explicitly report it with report_task_completion_to_ceo, so the whole organization is now waiting on you.`,
     "",
-    "Take exactly one of these actions now:",
-    `1. If your team's task is DONE (members finished and you reviewed their work): call report_task_completion_to_ceo with a concise summary — what your team accomplished, the exact file paths, the key results, and anything the CEO needs to review or hand to the user.`,
-    "2. If the task is NOT finished yet: keep coordinating your members (delegate_task_or_send_message / get_team_members_status) until it is genuinely complete, then report to the CEO.",
+    "Please report that your task is complete to the CEO now — take exactly one of these actions:",
+    `1. If your team's task is DONE (your members finished and you reviewed their work): call report_task_completion_to_ceo right now with a clear completion summary — what your team accomplished, the exact file paths you created or changed, the key results or findings, and anything the CEO needs to review or hand to the user.`,
+    "2. If your team's task is NOT finished yet: keep coordinating your members (delegate_task_or_send_message / get_team_members_status) until it is genuinely complete, then call report_task_completion_to_ceo.",
     "",
-    "Do not stay silent and do not end your turn without contacting the CEO — the organization cannot move forward until the CEO hears from you.",
+    "Do not stay silent and do not end your turn without contacting the CEO — either report completion now or keep working toward it. The organization cannot move forward until the CEO hears from you.",
   ].join("\n");
 }
