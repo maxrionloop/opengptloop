@@ -245,14 +245,18 @@ function WorkspaceModal({ open, onClose }: { open: boolean; onClose: () => void 
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  useEffect(() => {
+  // Reset the form whenever the modal opens (derived during render so opening
+  // never triggers a cascading effect render).
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
     if (open) {
       setPath(workspacePath);
       setFolder("");
       setError(null);
       setNotice(null);
     }
-  }, [open, workspacePath]);
+  }
 
   const switchWorkspace = async () => {
     const next = path.trim();
