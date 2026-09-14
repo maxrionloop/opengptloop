@@ -20,7 +20,7 @@ export const DEFAULT_SUB_AGENT_DISALLOWED_TOOLS: readonly string[] = SUB_AGENT_R
 
 /**
  * Every tool name currently registered in the agent's tool registry (the same set the main agent
- * sees). Kept in sync with createToolRegistry in ../tools/index.js — 43 tools total.
+ * sees). Kept in sync with createToolRegistry in ../tools/index.js — 44 tools total.
  */
 const ALL_AGENT_TOOLS: readonly string[] = [
   "file_read",
@@ -36,6 +36,7 @@ const ALL_AGENT_TOOLS: readonly string[] = [
   "image_search",
   "fatch_web_urls",
   "read_image",
+  "scan_qr_code",
   "call_sub_agent",
   "call_multiple_sub_agents",
   "list_sub_agents",
@@ -70,7 +71,7 @@ const ALL_AGENT_TOOLS: readonly string[] = [
 
 /**
  * The canonical allowed-tool set granted to every pre-added default sub-agent: all registered
- * tools except the restricted sub-agent tools above (29 tools). This is the same effective set the
+ * tools except the restricted sub-agent tools above (30 tools). This is the same effective set the
  * sub-agent runner (../subagents.js SUB_AGENT_EXCLUDED_TOOLS) enforces at runtime.
  */
 export const DEFAULT_SUB_AGENT_TOOLS: readonly string[] = ALL_AGENT_TOOLS.filter(

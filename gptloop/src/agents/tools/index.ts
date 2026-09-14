@@ -12,6 +12,7 @@ import { webSearchTool } from "./webSearch.js";
 import { imageSearchTool } from "./imagesearch.js";
 import { fetchWebUrlsTool } from "./fetchWebUrls.js";
 import { readImageTool } from "./readImage.js";
+import { scanQrCodeTool } from "./scanQrCode.js";
 import { callSubAgentTool } from "./call_sub_agent.js";
 import { callMultipleSubAgentsTool } from "./call_multiple_sub_agents.js";
 import { listSubAgentsTool } from "./list_sub_agents.js";
@@ -85,6 +86,7 @@ export { fetchWebUrlsTool } from "./fetchWebUrls.js";
 export { applyMultipleEditsTool } from "./applyMultipleEdits.js";
 export { applyPatchTool, parsePatch, summarizePatch, PatchError } from "./applyPatch.js";
 export { readImageTool, SUPPORTED_IMAGE_EXTENSIONS } from "./readImage.js";
+export { scanQrCodeTool, SUPPORTED_QR_EXTENSIONS, MAX_QR_IMAGE_BYTES } from "./scanQrCode.js";
 export { callSubAgentTool } from "./call_sub_agent.js";
 export { callMultipleSubAgentsTool } from "./call_multiple_sub_agents.js";
 export { listSubAgentsTool } from "./list_sub_agents.js";
@@ -165,6 +167,7 @@ export function createToolRegistry(): ToolRegistry {
     imageSearchTool,
     fetchWebUrlsTool,
     readImageTool,
+    scanQrCodeTool,
     callSubAgentTool,
     callMultipleSubAgentsTool,
     listSubAgentsTool,
@@ -220,6 +223,7 @@ export const tools = {
   imageSearchTool,
   fetchWebUrlsTool,
   readImageTool,
+  scanQrCodeTool,
   callSubAgentTool,
   callMultipleSubAgentsTool,
   listSubAgentsTool,

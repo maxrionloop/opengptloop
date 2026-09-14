@@ -30,6 +30,7 @@ import {
   Paperclip,
   Pencil,
   PencilLine,
+  QrCode,
   Repeat2,
   Search,
   Terminal,
@@ -89,6 +90,7 @@ const ICONS: Record<string, typeof Terminal> = {
   web_search: Globe,
   fatch_web_urls: Globe,
   read_image: ImageIcon,
+  scan_qr_code: QrCode,
   image_search: ImageIcon,
   call_sub_agent: Bot,
   call_multiple_sub_agents: Bot,
@@ -232,6 +234,7 @@ export function ToolChip({ tool }: { tool: ToolActivity }) {
   if (tool.name === "apply_multiple_edits") return <ApplyEditsChip tool={tool} />;
   if (tool.name === "apply_patch") return <ApplyPatchChip tool={tool} />;
   if (tool.name === "read_image") return <ReadImageChip tool={tool} />;
+  if (tool.name === "scan_qr_code") return <ScanQrCodeChip tool={tool} />;
   if (tool.name === "image_search") return <ImageSearchChip tool={tool} />;
   if (tool.name === "fatch_web_urls") return <FetchChip tool={tool} />;
   if (tool.name === "web_search") return <WebSearchChip tool={tool} />;
@@ -736,6 +739,54 @@ function ReadImageChip({ tool }: { tool: ToolActivity }) {
                 <img src={filePath} alt="Read image" className="max-h-64 rounded-[var(--radius-sm)] border border-[var(--border)]" referrerPolicy="no-referrer" />
               )}
               <div className="text-[var(--muted)]">The image was attached to the model's vision input for analysis.</div>
+            </>
+          )}
+        </>
+      )}
+    />
+  );
+}
+
+function ScanQrCodeChip({ tool }: { tool: ToolActivity }) {
+  const { data, error, args, hasResult } = parts(tool);
+  const imagePath: string = (data?.image_path as string) ?? (args.image_path as string) ?? "";
+  const content: string = (data?.content as string) ?? "";
+  return (
+    <Shell
+      icon={<QrCode className="h-3.5 w-3.5" />}
+      label={tool.label}
+      status={tool.status}
+      expandable={hasResult}
+      pills={
+        data?.content ? (
+          <Pill tone="accent">decoded</Pill>
+        ) : undefined
+      }
+      panel={() => (
+        <>
+          {error?.message && <div className="text-[var(--danger)]">Scan failed: {error.message}</div>}
+          {data && (
+            <>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Pill>
+                  <QrCode className="h-2.5 w-2.5" />
+                  <span className="font-mono">{imagePath}</span>
+                </Pill>
+                {data.format && <Pill>{String(data.format)}</Pill>}
+                {data.width != null && data.height != null && (
+                  <Pill>
+                    {String(data.width)}×{String(data.height)}
+                  </Pill>
+                )}
+              </div>
+              {content ? (
+                <div>
+                  <Label>Decoded QR content</Label>
+                  <Pre className="mt-1">{content}</Pre>
+                </div>
+              ) : (
+                !error && <div className="text-[var(--muted)]">No QR content decoded.</div>
+              )}
             </>
           )}
         </>
