@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Paperclip, ArrowUp, Square, FolderOpen, X, Loader2, ChevronDown, ListChecks, Plus } from "lucide-react";
 import { useStore } from "@/store/useStore";
-import { isCustomProviderId } from "@/lib/providers";
+import { isCustomProviderId, isLocalProviderId } from "@/lib/providers";
 import { fetchWorkspace, mkdirWorkspace, setWorkspace } from "@/lib/workspace";
 import { buildAttachmentPrompt, uploadFiles, type UploadedFile } from "@/lib/uploads";
 import { PLAN_TASK_MODE_ID, DEFAULT_TASK_MODE_ID } from "@/lib/taskModes";
@@ -36,7 +36,9 @@ export function Composer({ onSend, onStop }: { onSend: (text: string) => void; o
   const customProvider = customProviders.find((p) => p.id === settings.provider);
   const ready = isCustom
     ? Boolean(customProvider && settings.model)
-    : Boolean(settings.apiKeys[settings.provider] && settings.model);
+    : isLocalProviderId(settings.provider)
+      ? Boolean(settings.model)
+      : Boolean(settings.apiKeys[settings.provider] && settings.model);
 
   const submit = () => {
     const text = value.trim();

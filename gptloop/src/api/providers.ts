@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import type { ProviderRegistry } from "../agents/providers/registry.js";
+import { isLocalProviderId } from "../agents/providers/local.js";
 
 interface ModelsBody {
   provider?: string;
@@ -20,13 +21,14 @@ export function buildProviderRouter(providers: ProviderRegistry): Router {
       res.status(400).json({ error: "provider is required." });
       return;
     }
-    if (!body.api_key) {
+    // Local model servers (Ollama, LM Studio, ...) usually need no API key.
+    if (!body.api_key && !isLocalProviderId(body.provider)) {
       res.status(400).json({ error: "api_key is required." });
       return;
     }
     try {
       const provider = providers.get(body.provider);
-      const models = await provider.listModels(body.api_key, body.base_url);
+      const models = await provider.listModels(body.api_key ?? "", body.base_url);
       res.json({ provider: body.provider, models });
     } catch (error) {
       res.status(500).json({

@@ -5,6 +5,7 @@ import { groqProvider } from "./groq.js";
 import { nvidiaProvider } from "./nvidia.js";
 import { fireworksProvider } from "./fireworks.js";
 import { ollamaCloudProvider } from "./ollamaCloud.js";
+import { localProvider } from "./local.js";
 import { opencodeZenProvider } from "./opencodeZen.js";
 import { aihubmixProvider } from "./aihubmix.js";
 import { blueclawProvider } from "./blueclaw.js";
@@ -76,6 +77,7 @@ export const ALL_PROVIDERS: Provider[] = [
   nvidiaProvider,
   fireworksProvider,
   ollamaCloudProvider,
+  localProvider,
   opencodeZenProvider,
   aihubmixProvider,
   blueclawProvider,

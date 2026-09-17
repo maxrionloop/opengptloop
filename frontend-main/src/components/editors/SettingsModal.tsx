@@ -3,7 +3,13 @@ import { Check, Pencil, Plug, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { fetchModels, fetchProviders } from "@/lib/api";
 import { validateComposioKey } from "@/lib/connectors";
-import { FALLBACK_PROVIDERS, isCustomProviderId } from "@/lib/providers";
+import {
+  FALLBACK_PROVIDERS,
+  LMSTUDIO_DEFAULT_BASE_URL,
+  OLLAMA_DEFAULT_BASE_URL,
+  isCustomProviderId,
+  isLocalProviderId,
+} from "@/lib/providers";
 import { EFFORT_PRESETS, type CustomHeader, type CustomProvider } from "@/types";
 import { Modal } from "@/components/ui/Modal";
 import { Button, Field, Select, TextInput } from "@/components/ui/primitives";
@@ -71,8 +77,10 @@ export function SettingsModal() {
     }
   };
 
+  const isLocal = isLocalProviderId(settings.provider);
+
   const loadModels = async () => {
-    if (!currentKey) {
+    if (!currentKey && !isLocal) {
       setError("Enter an API key first.");
       return;
     }
@@ -160,11 +168,36 @@ export function SettingsModal() {
               </div>
             ) : (
               <>
-                <Field label={`API key (${settings.provider})`}>
-                  <TextInput type="password" value={currentKey} onChange={(e) => setApiKey(settings.provider, e.target.value)} placeholder="sk-…" />
+                {isLocal ? (
+                  <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--chip)] p-3 text-xs leading-relaxed text-[var(--muted)]">
+                    Use models running on your own computer — no API key needed. Start Ollama
+                    (`ollama serve`, then `ollama pull llama3.1`) or LM Studio (start its local
+                    server), then Load models or type the model id below.
+                  </div>
+                ) : null}
+                <Field label={isLocal ? `API key (${settings.provider}, optional)` : `API key (${settings.provider})`}>
+                  <TextInput type="password" value={currentKey} onChange={(e) => setApiKey(settings.provider, e.target.value)} placeholder={isLocal ? "Not needed for local servers" : "sk-…"} />
                 </Field>
-                <Field label="Base URL (optional override)">
+                <Field label={isLocal ? "Server URL (Ollama / LM Studio / any local server)" : "Base URL (optional override)"}>
                   <TextInput value={settings.baseUrl} onChange={(e) => setSettings({ baseUrl: e.target.value })} placeholder={defaultBaseUrl ? `Default: ${defaultBaseUrl}` : "https://…/v1"} />
+                  {isLocal && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setSettings({ baseUrl: OLLAMA_DEFAULT_BASE_URL })}
+                        className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] text-[var(--fg)] hover:border-[var(--secondary)]"
+                      >
+                        Ollama · localhost:11434
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSettings({ baseUrl: LMSTUDIO_DEFAULT_BASE_URL })}
+                        className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] text-[var(--fg)] hover:border-[var(--secondary)]"
+                      >
+                        LM Studio · localhost:1234
+                      </button>
+                    </div>
+                  )}
                 </Field>
                 <Field label="Model">
                   <div className="flex gap-2">

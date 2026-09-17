@@ -460,11 +460,13 @@ export function buildChatRouter(
       return;
     }
 
+    // Local model servers (Ollama, LM Studio, ...) usually need no API key.
+    const isLocalProvider = body.provider === "local";
     const startNew = Boolean(
       body.user_message &&
         body.provider &&
         body.model &&
-        (body.api_key || Boolean(body.custom_provider)),
+        (body.api_key || Boolean(body.custom_provider) || isLocalProvider),
     );
 
     if (startNew) {

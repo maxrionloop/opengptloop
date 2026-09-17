@@ -8,6 +8,18 @@ export function isCustomProviderId(id: string | undefined): boolean {
   return Boolean(id && id.startsWith(CUSTOM_PROVIDER_PREFIX));
 }
 
+/** Stable id of the built-in local-models provider (Ollama / LM Studio / any local server). */
+export const LOCAL_PROVIDER_ID = "local";
+
+/** Whether a provider id refers to local running models (no API key needed). */
+export function isLocalProviderId(id: string | undefined): boolean {
+  return id === LOCAL_PROVIDER_ID;
+}
+
+/** Default base URLs offered for local model servers. */
+export const OLLAMA_DEFAULT_BASE_URL = "http://localhost:11434/v1";
+export const LMSTUDIO_DEFAULT_BASE_URL = "http://localhost:1234/v1";
+
 /**
  * Build the flat wire-format config sent to the backend for a given custom provider
  * and one of its models. Custom headers collapse from key/value pairs into a record.
@@ -43,6 +55,7 @@ export const FALLBACK_PROVIDERS: ProviderMeta[] = [
   { id: "nvidia", label: "NVIDIA NIM", defaultBaseUrl: "https://integrate.api.nvidia.com/v1" },
   { id: "fireworks", label: "Fireworks AI", defaultBaseUrl: "https://api.fireworks.ai/inference/v1" },
   { id: "ollama_cloud", label: "Ollama Cloud", defaultBaseUrl: "https://ollama.com/api/v1" },
+  { id: "local", label: "Local Models", defaultBaseUrl: "http://localhost:11434/v1" },
   { id: "opencode_zen", label: "OpenCode Zen", defaultBaseUrl: "https://opencode.ai/zen/v1" },
   { id: "aihubmix", label: "AIHubMix", defaultBaseUrl: "https://api.aihubmix.com/v1" },
   { id: "blueclaw", label: "Blue Claw", defaultBaseUrl: "https://openai.blueclaw.network/v1" },
