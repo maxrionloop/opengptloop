@@ -14,6 +14,7 @@ import { CustomAgentsPanel } from "@/components/panels/CustomAgentsPanel";
 import { MainAgentPromptsPanel } from "@/components/panels/MainAgentPromptsPanel";
 import { TaskModesPanel } from "@/components/panels/TaskModesPanel";
 import { ConnectorsPanel } from "@/components/panels/ConnectorsPanel";
+import { ProfilesPanel } from "@/components/panels/ProfilesPanel";
 import { SettingsModal } from "@/components/editors/SettingsModal";
 import { TodoPanel } from "@/components/overlays/TodoPanel";
 import { FilesPanel } from "@/components/overlays/FilesPanel";
@@ -67,16 +68,22 @@ export function App() {
       // queue is still executing (the agent keeps running regardless of the browser).
       void attachLatestMemoryAgentRun();
 
-      // Re-attach to a still-running stream (survives refresh/close/reconnect).
+      // Re-attach to a still-running stream (survives refresh/close/reconnect) —
+      // but only when that run belongs to the active profile. Profiles are strictly
+      // isolated: another profile's running turn must never surface here.
       const running = payload.sessions.find((s) => s.running);
       if (running) {
-        await loadConversationIfNeeded(running.id);
-        void resume({
-          chatId: running.id,
-          assistantId: "", // rebuilt by resume(): a fresh placeholder receives the replay
-          lastEventId: -1,
-          startedAt: Date.now(),
-        });
+        const peer = useStore.getState();
+        const owner = peer.conversations.find((c) => c.id === running.id);
+        if (owner && (owner.profileId ?? null) === (peer.activeUserProfileId ?? null)) {
+          await loadConversationIfNeeded(running.id);
+          void resume({
+            chatId: running.id,
+            assistantId: "", // rebuilt by resume(): a fresh placeholder receives the replay
+            lastEventId: -1,
+            startedAt: Date.now(),
+          });
+        }
       }
     })();
   }, [resume, setProviders]);
@@ -108,6 +115,7 @@ export function App() {
               {section === "systemprompts" && <MainAgentPromptsPanel />}
               {section === "taskmodes" && <TaskModesPanel />}
               {section === "connectors" && <ConnectorsPanel />}
+              {section === "profiles" && <ProfilesPanel />}
             </div>
           )}
         </main>

@@ -56,6 +56,24 @@ export const API_ROUTES = {
     path: "/api/custom-agents",
     description: "List the persisted Custom Agents (top-level, user-created Main Agents).",
   },
+  userProfilesList: {
+    name: "profiles.list",
+    method: "GET",
+    path: "/api/profiles",
+    description: "List the user profiles (account identities) with the active selection.",
+  },
+  userProfilesCreate: {
+    name: "profiles.create",
+    method: "POST",
+    path: "/api/profiles",
+    description: "Create a new user profile (username, description, logo avatar).",
+  },
+  userProfilesActive: {
+    name: "profiles.active",
+    method: "PUT",
+    path: "/api/profiles/active",
+    description: "Get or set the active user profile.",
+  },
   chatStream: {
     name: "chat.stream",
     method: "POST",

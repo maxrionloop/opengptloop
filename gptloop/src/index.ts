@@ -18,11 +18,13 @@ import { buildMemoryAgentRouter } from "./api/memoryagent.js";
 import { buildConnectorsRouter } from "./api/connectors.js";
 import { buildSystemPromptRouter } from "./api/systemprompt.js";
 import { buildCustomAgentsRouter } from "./api/customagents.js";
+import { buildUserProfilesRouter } from "./api/profiles.js";
 import { buildMainAgentPromptsRouter } from "./api/mainagentprompts.js";
 import { MemoryAgentService } from "./agents/memoryagent/index.js";
 import { MultiAgentRunner } from "./agents/multiagent/index.js";
 import { CeoAgentRunner } from "./agents/multiagent/ceo/index.js";
 import { CustomAgentManager, CustomAgentRunner } from "./agents/customagent/index.js";
+import { UserProfileManager } from "./agents/profiles/index.js";
 import { MainAgentPromptManager } from "./agents/mainagentprompt/index.js";
 import { ConnectorManager } from "./agents/connectors/index.js";
 import { GptLoopDatabase } from "./database/index.js";
@@ -53,6 +55,12 @@ function main(): void {
   // runtime as the Main Agent (parameterized with each agent's system prompt + selected tools).
   const customAgents = new CustomAgentManager(db.appState);
   const customAgentRunner = new CustomAgentRunner(agent, tools, config);
+  // User Profiles: identity records (name, description, logo avatar) plus the active
+  // selection, persisted in the SQLite app_state repository. Each profile owns a fully
+  // isolated workspace state (fresh chats/settings/memory/...); the isolation snapshots
+  // live in the `profileStates` / `profileSessions` documents owned by the frontend.
+  const userProfiles = new UserProfileManager(db.appState);
+  userProfiles.ensureDefault();
   // Custom System Prompts for the built-in Main Agent: the manager persists named prompts + the
   // active selection in the SQLite app_state repository and is the source of truth for which prompt
   // the Main Agent runs with. It never creates a new agent — it only changes the Main Agent's system
@@ -88,6 +96,7 @@ function main(): void {
   app.use("/api/tools", buildToolsRouter(tools));
   app.use("/api/system-prompt", buildSystemPromptRouter(config));
   app.use("/api/custom-agents", buildCustomAgentsRouter(customAgents));
+  app.use("/api/profiles", buildUserProfilesRouter(userProfiles));
   app.use("/api/main-agent-prompts", buildMainAgentPromptsRouter(mainAgentPrompts, config));
   app.use(
     "/api/chat",

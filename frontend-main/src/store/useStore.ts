@@ -36,9 +36,11 @@ import type {
   TeamRunState,
   TodoItem,
   ToolActivity,
+  UserProfile,
 } from "@/types";
 import { uid, newSessionId } from "@/utils/id";
 import type { BackendBootPayload } from "@/lib/backendState";
+import { forkSessionData } from "@/lib/backendState";
 import { CUSTOM_PROVIDER_PREFIX } from "@/lib/providers";
 import { DEFAULT_SUB_AGENTS, mergeSubAgentsWithDefaults } from "@/lib/defaultSubAgents";
 import { DEFAULT_SKILLS, mergeSkillsWithDefaults } from "@/lib/defaultSkills";
@@ -59,6 +61,15 @@ import {
   normalizePlanModePrompt,
   normalizeTaskModes,
 } from "@/lib/taskModes";
+import {
+  DEFAULT_PROFILE_ID,
+  findActiveProfile,
+  isDefaultProfile,
+  mergeProfilesWithDefaults,
+  normalizeProfileSessions,
+  normalizeProfileStates,
+  type ProfileSnapshot,
+} from "@/lib/userProfiles";
 
 /** The workspace sections the rail switches between. */
 export type Section =
@@ -72,7 +83,8 @@ export type Section =
   | "customagents"
   | "systemprompts"
   | "taskmodes"
-  | "connectors";
+  | "connectors"
+  | "profiles";
 
 /** Connection state surfaced to the user. Slow ≠ offline; only a lost connection is "offline". */
 export type Connection = "online" | "reconnecting" | "offline";
@@ -134,6 +146,21 @@ interface AppState {
   activeTaskModeId: string | null;
   /** Editable prompt appended in plan task mode (defaults to the built-in plan prompt). */
   planModePrompt: string;
+  /**
+   * User profiles (account identities). A default profile is always present. Each
+   * profile owns a completely isolated workspace state — switching profiles starts
+   * fresh with no data carried over.
+   */
+  userProfiles: UserProfile[];
+  /** The active profile id; null means the built-in default profile. */
+  activeUserProfileId: string | null;
+  /**
+   * Isolated per-profile workspace snapshots, keyed by profile id. Written when
+   * switching away from a profile; applied when switching back to it.
+   */
+  profileStates: Record<string, ProfileSnapshot>;
+  /** Per-profile chat session id lists, keyed by profile id. */
+  profileSessions: Record<string, string[]>;
   activeRun: ActiveRun | null;
 
   // Ephemeral UI
@@ -335,6 +362,32 @@ interface AppState {
   setConnector: (connection: ConnectorConnection) => void;
   /** Drop one connection by connector id. */
   removeConnector: (connectorId: string) => void;
+
+  // User profiles (account identities with fully isolated workspace state)
+  addUserProfile: (input: Omit<UserProfile, "id" | "createdAt" | "updatedAt">) => UserProfile;
+  updateUserProfile: (id: string, patch: Partial<Omit<UserProfile, "id" | "createdAt">>) => void;
+  /**
+   * Delete a profile and ALL of its isolated data (chats, settings, memory, ...).
+   * The default profile and the last remaining profile cannot be deleted.
+   * Returns an error message, or null on success.
+   */
+  deleteUserProfile: (id: string) => string | null;
+  /**
+   * Switch to another profile, stashing the current profile's full workspace state
+   * and restoring the target's (fresh defaults when it has no snapshot yet).
+   * Blocked while an agent is streaming. Returns an error message, or null.
+   */
+  switchUserProfile: (id: string) => string | null;
+  /**
+   * Duplicate a profile (identity + full workspace state + a copy of every chat)
+   * and switch to the copy. Blocked while streaming. Returns the new id, or null.
+   */
+  duplicateUserProfile: (id: string) => Promise<string | null>;
+  /**
+   * Reset a profile to a brand-new state: all of its chats/settings/memory/... are
+   * cleared to fresh defaults. Blocked while streaming. Returns an error, or null.
+   */
+  resetUserProfile: (id: string) => string | null;
 
   // Multi-agent team live run (rendered inline in the assistant container message)
   startTeamRun: (
@@ -556,6 +609,104 @@ function currentSegment(block: TeamAgentBlock): TeamAgentSegment {
   return { id: `${block.id}-seg-0`, reasoning: "", output: "", tools: [] };
 }
 
+/** Deep-clone plain state (snapshots, profiles) without sharing references. */
+function cloneJson<T>(value: T): T {
+  try {
+    if (typeof structuredClone === "function") return structuredClone(value);
+  } catch {
+    // fall through to JSON
+  }
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+/** The resolved id of the currently active profile (never empty). */
+function activeProfileIdOf(s: Pick<AppState, "activeUserProfileId">): string {
+  return s.activeUserProfileId && s.activeUserProfileId.trim().length > 0
+    ? s.activeUserProfileId
+    : DEFAULT_PROFILE_ID;
+}
+
+/**
+ * A brand-new, empty workspace snapshot: fresh defaults for every user-owned slice,
+ * exactly matching the store's initial state. A new profile starts from this — no
+ * past profile data of any kind is carried over.
+ */
+function freshProfileSnapshot(): ProfileSnapshot {
+  return {
+    settings: {
+      provider: "openrouter",
+      model: "",
+      apiKeys: {},
+      baseUrl: "",
+      searchProvider: "duckduckgo",
+      fetchProvider: "builtin",
+      tavilyApiKey: "",
+      exaApiKey: "",
+      serpapiApiKey: "",
+      firecrawlApiKey: "",
+      composioApiKey: "",
+      enableReuseSubAgentSession: "no",
+      effort: "high",
+      temperature: 0.6,
+      enableAgentTeams: "no",
+      enableSendMessageToTeam: "no",
+      enableCeoAgents: "no",
+      memoryAgentEnabled: "yes",
+      memoryAgentInterval: 3,
+    },
+    subAgents: DEFAULT_SUB_AGENTS.map((a) => ({ ...a })),
+    skills: DEFAULT_SKILLS.map((sk) => ({ ...sk })),
+    todos: [],
+    memory: DEFAULT_MEMORY_FILES.map((f) => ({ ...f })),
+    knowledge: [],
+    knowledgeSources: {},
+    customProviders: [],
+    agentTeams: mergeTeamsWithDefaults([]),
+    ceoAgents: [],
+    customAgents: [],
+    activeCustomAgentId: null,
+    mainAgentPrompts: [],
+    activeMainAgentPromptId: null,
+    taskModes: [],
+    activeTaskModeId: null,
+    planModePrompt: DEFAULT_PLAN_MODE_PROMPT,
+    connectors: [],
+    currentId: null,
+  };
+}
+
+/** Capture the live workspace slices of the current profile into a storable snapshot. */
+function captureProfileSnapshot(s: AppState): ProfileSnapshot {
+  return {
+    settings: cloneJson(s.settings),
+    subAgents: cloneJson(s.subAgents),
+    skills: cloneJson(s.skills),
+    todos: cloneJson(s.todos),
+    memory: cloneJson(s.memory),
+    knowledge: cloneJson(s.knowledge),
+    knowledgeSources: cloneJson(s.knowledgeSources),
+    customProviders: cloneJson(s.customProviders),
+    agentTeams: cloneJson(s.agentTeams),
+    ceoAgents: cloneJson(s.ceoAgents),
+    customAgents: cloneJson(s.customAgents),
+    activeCustomAgentId: s.activeCustomAgentId,
+    mainAgentPrompts: cloneJson(s.mainAgentPrompts),
+    activeMainAgentPromptId: s.activeMainAgentPromptId,
+    taskModes: cloneJson(s.taskModes),
+    activeTaskModeId: s.activeTaskModeId,
+    planModePrompt: s.planModePrompt,
+    connectors: cloneJson(s.connectors),
+    currentId: s.currentId,
+  };
+}
+
+/** Session ids of one profile's conversations currently in memory. */
+function sessionIdsOf(conversations: Conversation[], profileId: string): string[] {
+  return conversations
+    .filter((c) => (c.profileId ?? DEFAULT_PROFILE_ID) === profileId)
+    .map((c) => c.id);
+}
+
 /**
  * Runtime store. NOTHING here touches browser storage (no localStorage, no
  * sessionStorage, no IndexedDB, no cookies): all durable data lives in the backend
@@ -586,6 +737,10 @@ export const useStore = create<AppState>()(
       activeTaskModeId: null,
       planModePrompt: DEFAULT_PLAN_MODE_PROMPT,
       connectors: [],
+      userProfiles: mergeProfilesWithDefaults([]),
+      activeUserProfileId: null,
+      profileStates: {},
+      profileSessions: {},
       activeRun: null,
 
       hydrated: false,
@@ -614,9 +769,50 @@ export const useStore = create<AppState>()(
       hydrateFromBackend: (payload) => {
         const state = payload.state ?? {};
         const p = state as Partial<AppState>;
+        const defaults = get();
+
+        // --- User profiles (a default profile is always present) ---
+        const userProfiles = mergeProfilesWithDefaults(
+          Array.isArray((p as { userProfiles?: unknown }).userProfiles)
+            ? ((p as { userProfiles?: UserProfile[] }).userProfiles as UserProfile[])
+            : [],
+        );
+        const storedActiveId =
+          typeof (state as { activeUserProfileId?: unknown }).activeUserProfileId === "string"
+            ? ((state as { activeUserProfileId?: string }).activeUserProfileId ?? null)
+            : null;
+        const activeProfile = findActiveProfile(userProfiles, storedActiveId);
+        const activePid = activeProfile.id;
+
+        let profileStates = normalizeProfileStates(
+          (p as { profileStates?: unknown }).profileStates,
+        );
+        let profileSessions = normalizeProfileSessions(
+          (p as { profileSessions?: unknown }).profileSessions,
+        );
+
+        // Drop session references the database no longer knows (deleted elsewhere).
+        const serverIds = new Set(payload.sessions.map((s) => s.id));
+        for (const pid of Object.keys(profileSessions)) {
+          profileSessions[pid] = (profileSessions[pid] ?? []).filter((id) => serverIds.has(id));
+        }
+        // First run with profiles: every existing session belongs to the default profile.
+        const hasAnyMapped = Object.values(profileSessions).some((list) => list.length > 0);
+        if (!hasAnyMapped && payload.sessions.length > 0) {
+          const defId =
+            userProfiles.find((pr) => isDefaultProfile(pr.id))?.id ?? DEFAULT_PROFILE_ID;
+          profileSessions = { ...profileSessions, [defId]: payload.sessions.map((s) => s.id) };
+        }
+        const membership = new Map<string, string>();
+        for (const [pid, ids] of Object.entries(profileSessions)) {
+          for (const id of ids) {
+            if (!membership.has(id)) membership.set(id, pid);
+          }
+        }
 
         // Sessions from the database become conversation stubs; their full snapshots
-        // are fetched lazily when selected (see lib/statePersistence.ts).
+        // are fetched lazily when selected (see lib/statePersistence.ts). Each stub
+        // is tagged with its owning profile; unknown sessions heal into the active one.
         const conversations: Conversation[] = payload.sessions.map((s) => ({
           id: s.id,
           title: s.title.trim().length > 0 ? s.title : "New thread",
@@ -624,67 +820,149 @@ export const useStore = create<AppState>()(
           createdAt: s.createdAt,
           updatedAt: s.updatedAt,
           messageCount: s.messageCount,
+          profileId: membership.get(s.id) ?? activePid,
           loaded: false,
         }));
+        const healed = conversations.filter((c) => !membership.has(c.id)).map((c) => c.id);
+        if (healed.length > 0) {
+          profileSessions = {
+            ...profileSessions,
+            [activePid]: [...(profileSessions[activePid] ?? []), ...healed],
+          };
+        }
 
-        const storedCurrent =
-          typeof state.currentSessionId === "string" ? (state.currentSessionId as string) : null;
-        const currentId =
-          storedCurrent && conversations.some((c) => c.id === storedCurrent)
-            ? storedCurrent
-            : (conversations[0]?.id ?? null);
-
-        set((s) => ({
-          hydrated: true,
-          conversations,
-          currentId,
-          settings: { ...s.settings, ...(p.settings && typeof p.settings === "object" ? p.settings : {}) },
-          subAgents: mergeSubAgentsWithDefaults(Array.isArray(p.subAgents) ? p.subAgents : s.subAgents),
-          skills: mergeSkillsWithDefaults(Array.isArray(p.skills) ? p.skills : s.skills),
-          todos: Array.isArray(p.todos) ? p.todos : s.todos,
-          memory: mergeMemoryWithDefaults(Array.isArray(p.memory) ? p.memory : s.memory),
-          knowledge: sanitizeKnowledge(Array.isArray(p.knowledge) ? p.knowledge : s.knowledge),
+        // Working-copy slices from the top-level documents (last-written state).
+        const base = {
+          settings: {
+            ...defaults.settings,
+            ...(p.settings && typeof p.settings === "object" ? p.settings : {}),
+          },
+          subAgents: mergeSubAgentsWithDefaults(
+            Array.isArray(p.subAgents) ? p.subAgents : defaults.subAgents,
+          ),
+          skills: mergeSkillsWithDefaults(
+            Array.isArray(p.skills) ? p.skills : defaults.skills,
+          ),
+          todos: Array.isArray(p.todos) ? p.todos : defaults.todos,
+          memory: mergeMemoryWithDefaults(
+            Array.isArray(p.memory) ? p.memory : defaults.memory,
+          ),
+          knowledge: sanitizeKnowledge(
+            Array.isArray(p.knowledge) ? p.knowledge : defaults.knowledge,
+          ),
           knowledgeSources:
             p.knowledgeSources && typeof p.knowledgeSources === "object"
               ? (p.knowledgeSources as Record<string, KnowledgeSource>)
-              : s.knowledgeSources,
-          customProviders: Array.isArray(p.customProviders) ? p.customProviders : s.customProviders,
+              : defaults.knowledgeSources,
+          customProviders: Array.isArray(p.customProviders)
+            ? p.customProviders
+            : defaults.customProviders,
           agentTeams: mergeTeamsWithDefaults(
             Array.isArray((p as { agentTeams?: unknown }).agentTeams)
               ? ((p as { agentTeams?: AgentTeam[] }).agentTeams as AgentTeam[])
-              : s.agentTeams,
+              : defaults.agentTeams,
           ),
           ceoAgents: normalizeCeoAgents(
-            (p as { ceoAgents?: unknown }).ceoAgents ?? s.ceoAgents,
+            (p as { ceoAgents?: unknown }).ceoAgents ?? defaults.ceoAgents,
           ),
           customAgents: normalizeCustomAgents(
-            (p as { customAgents?: unknown }).customAgents ?? s.customAgents,
+            (p as { customAgents?: unknown }).customAgents ?? defaults.customAgents,
           ),
           activeCustomAgentId:
             typeof (state as { activeCustomAgentId?: unknown }).activeCustomAgentId === "string"
               ? ((state as { activeCustomAgentId?: string }).activeCustomAgentId ?? null)
-              : s.activeCustomAgentId,
+              : defaults.activeCustomAgentId,
           mainAgentPrompts: normalizeMainAgentPrompts(
-            (p as { mainAgentPrompts?: unknown }).mainAgentPrompts ?? s.mainAgentPrompts,
+            (p as { mainAgentPrompts?: unknown }).mainAgentPrompts ?? defaults.mainAgentPrompts,
           ),
           activeMainAgentPromptId:
-            typeof (state as { activeMainAgentPromptId?: unknown }).activeMainAgentPromptId === "string"
+            typeof (state as { activeMainAgentPromptId?: unknown }).activeMainAgentPromptId ===
+            "string"
               ? ((state as { activeMainAgentPromptId?: string }).activeMainAgentPromptId ?? null)
-              : s.activeMainAgentPromptId,
+              : defaults.activeMainAgentPromptId,
           taskModes: normalizeTaskModes(
-            (p as { taskModes?: unknown }).taskModes ?? s.taskModes,
+            (p as { taskModes?: unknown }).taskModes ?? defaults.taskModes,
           ),
           activeTaskModeId:
             typeof (state as { activeTaskModeId?: unknown }).activeTaskModeId === "string"
               ? ((state as { activeTaskModeId?: string }).activeTaskModeId ?? null)
-              : s.activeTaskModeId,
+              : defaults.activeTaskModeId,
           planModePrompt: normalizePlanModePrompt(
-            (p as { planModePrompt?: unknown }).planModePrompt ?? s.planModePrompt,
+            (p as { planModePrompt?: unknown }).planModePrompt ?? defaults.planModePrompt,
           ),
           connectors: normalizeConnectors(
-            (p as { connectors?: unknown }).connectors ?? s.connectors,
+            (p as { connectors?: unknown }).connectors ?? defaults.connectors,
           ),
-        }));
+        };
+
+        // Seed the active profile's snapshot from the working copy when it has none
+        // (first run — preserves all pre-existing data under the default profile).
+        if (!profileStates[activePid]) {
+          profileStates = {
+            ...profileStates,
+            [activePid]: { ...cloneJson(base), currentId: null },
+          };
+        }
+        // The active snapshot wins over the working copy (it is newer by construction:
+        // it was captured the last time this profile was switched away from).
+        const snap = profileStates[activePid]!;
+        const fromSnap = {
+          settings: snap.settings && typeof snap.settings === "object" ? { ...base.settings, ...snap.settings } : base.settings,
+          subAgents: mergeSubAgentsWithDefaults(Array.isArray(snap.subAgents) ? snap.subAgents : base.subAgents),
+          skills: mergeSkillsWithDefaults(Array.isArray(snap.skills) ? snap.skills : base.skills),
+          todos: Array.isArray(snap.todos) ? snap.todos : base.todos,
+          memory: mergeMemoryWithDefaults(Array.isArray(snap.memory) ? snap.memory : base.memory),
+          knowledge: sanitizeKnowledge(Array.isArray(snap.knowledge) ? snap.knowledge : base.knowledge),
+          knowledgeSources:
+            snap.knowledgeSources && typeof snap.knowledgeSources === "object"
+              ? (snap.knowledgeSources as Record<string, KnowledgeSource>)
+              : base.knowledgeSources,
+          customProviders: Array.isArray(snap.customProviders) ? snap.customProviders : base.customProviders,
+          agentTeams: mergeTeamsWithDefaults(
+            Array.isArray(snap.agentTeams) ? (snap.agentTeams as AgentTeam[]) : base.agentTeams,
+          ),
+          ceoAgents: normalizeCeoAgents(snap.ceoAgents ?? base.ceoAgents),
+          customAgents: normalizeCustomAgents(snap.customAgents ?? base.customAgents),
+          activeCustomAgentId:
+            typeof snap.activeCustomAgentId === "string" ? snap.activeCustomAgentId : null,
+          mainAgentPrompts: normalizeMainAgentPrompts(snap.mainAgentPrompts ?? base.mainAgentPrompts),
+          activeMainAgentPromptId:
+            typeof snap.activeMainAgentPromptId === "string" ? snap.activeMainAgentPromptId : null,
+          taskModes: normalizeTaskModes(snap.taskModes ?? base.taskModes),
+          activeTaskModeId:
+            typeof snap.activeTaskModeId === "string" ? snap.activeTaskModeId : null,
+          planModePrompt: normalizePlanModePrompt(snap.planModePrompt ?? base.planModePrompt),
+          connectors: normalizeConnectors(snap.connectors ?? base.connectors),
+        };
+
+        const profileConvs = conversations.filter(
+          (c) => (c.profileId ?? activePid) === activePid,
+        );
+        const storedCurrent =
+          typeof snap.currentId === "string" ? snap.currentId : null;
+        const legacyCurrent =
+          typeof state.currentSessionId === "string" ? (state.currentSessionId as string) : null;
+        const currentId =
+          storedCurrent && profileConvs.some((c) => c.id === storedCurrent)
+            ? storedCurrent
+            : legacyCurrent && profileConvs.some((c) => c.id === legacyCurrent)
+              ? legacyCurrent
+              : (profileConvs[0]?.id ?? null);
+        profileStates = {
+          ...profileStates,
+          [activePid]: { ...cloneJson(fromSnap), currentId },
+        };
+
+        set({
+          hydrated: true,
+          conversations,
+          currentId,
+          ...fromSnap,
+          userProfiles,
+          activeUserProfileId: activePid,
+          profileStates,
+          profileSessions,
+        });
       },
 
       newConversation: () => {
@@ -696,6 +974,7 @@ export const useStore = create<AppState>()(
           messages: [],
           createdAt: Date.now(),
           updatedAt: Date.now(),
+          profileId: activeProfileIdOf(get()),
           loaded: true,
         };
         set((s) => ({ conversations: [conv, ...s.conversations], currentId: id, section: "chat" }));
@@ -716,6 +995,7 @@ export const useStore = create<AppState>()(
           messages: [],
           createdAt: Date.now(),
           updatedAt: Date.now(),
+          profileId: parent.profileId ?? activeProfileIdOf(get()),
           parentId: parent.id,
           loaded: true,
         };
@@ -748,6 +1028,7 @@ export const useStore = create<AppState>()(
           messages,
           createdAt: now,
           updatedAt: now,
+          profileId: source.profileId ?? activeProfileIdOf(get()),
           parentId: source.id,
           messageCount: source.messageCount,
           loaded: true,
@@ -1319,6 +1600,285 @@ export const useStore = create<AppState>()(
             (c) => c.connectorId !== connectorId.trim().toLowerCase(),
           ),
         })),
+
+      // ---- User profiles (account identities with fully isolated state) --------
+      addUserProfile: (input) => {
+        const now = Date.now();
+        const profile: UserProfile = {
+          id: uid("profile"),
+          createdAt: now,
+          updatedAt: now,
+          ...input,
+          name: input.name.trim().slice(0, 70),
+          description: input.description.trim().slice(0, 300),
+        };
+        set((s) => ({ userProfiles: mergeProfilesWithDefaults([profile, ...s.userProfiles]) }));
+        return profile;
+      },
+
+      updateUserProfile: (id, patch) =>
+        set((s) => ({
+          userProfiles: mergeProfilesWithDefaults(
+            s.userProfiles.map((pr) =>
+              pr.id === id
+                ? {
+                    ...pr,
+                    ...(patch.name !== undefined
+                      ? { name: patch.name.trim().slice(0, 70) || pr.name }
+                      : {}),
+                    ...(patch.description !== undefined
+                      ? { description: patch.description.trim().slice(0, 300) }
+                      : {}),
+                    ...(patch.avatar !== undefined ? { avatar: patch.avatar } : {}),
+                    updatedAt: Date.now(),
+                  }
+                : pr,
+            ),
+          ),
+        })),
+
+      deleteUserProfile: (id) => {
+        const s = get();
+        if (s.streaming) return "Stop the running agent before deleting a profile.";
+        if (isDefaultProfile(id)) return "The default profile cannot be deleted.";
+        if (s.userProfiles.length <= 1) return "At least one profile must remain.";
+        if (!s.userProfiles.some((pr) => pr.id === id)) return "Profile not found.";
+        const remaining = s.userProfiles.filter((pr) => pr.id !== id);
+        const wasActive = activeProfileIdOf(s) === id;
+        const fallback = remaining.find((pr) => isDefaultProfile(pr.id)) ?? remaining[0]!;
+        // Dropping its conversations deletes their server rows via the sync bridge.
+        const conversations = s.conversations.filter(
+          (c) => (c.profileId ?? DEFAULT_PROFILE_ID) !== id,
+        );
+        const profileStates = { ...s.profileStates };
+        delete profileStates[id];
+        const profileSessions = { ...s.profileSessions };
+        delete profileSessions[id];
+        if (!wasActive) {
+          set({
+            userProfiles: mergeProfilesWithDefaults(remaining),
+            conversations,
+            profileStates,
+            profileSessions,
+          });
+          return null;
+        }
+        // The active profile is gone: restore the fallback profile's stashed state
+        // (fresh defaults when it has none) so no deleted data lingers on screen.
+        const stored = profileStates[fallback.id] ?? freshProfileSnapshot();
+        const next = cloneJson(stored);
+        const owned = conversations.filter(
+          (c) => (c.profileId ?? DEFAULT_PROFILE_ID) === fallback.id,
+        );
+        const currentId = owned[0]?.id ?? null;
+        set({
+          ...next,
+          subAgents: mergeSubAgentsWithDefaults(next.subAgents),
+          skills: mergeSkillsWithDefaults(next.skills),
+          memory: mergeMemoryWithDefaults(next.memory),
+          knowledge: sanitizeKnowledge(next.knowledge),
+          agentTeams: mergeTeamsWithDefaults(next.agentTeams),
+          ceoAgents: normalizeCeoAgents(next.ceoAgents),
+          customAgents: normalizeCustomAgents(next.customAgents),
+          mainAgentPrompts: normalizeMainAgentPrompts(next.mainAgentPrompts),
+          taskModes: normalizeTaskModes(next.taskModes),
+          planModePrompt: normalizePlanModePrompt(next.planModePrompt),
+          connectors: normalizeConnectors(next.connectors),
+          userProfiles: mergeProfilesWithDefaults(remaining),
+          activeUserProfileId: fallback.id,
+          conversations,
+          currentId,
+          activeRun: null,
+          attachedFiles: [],
+          preview: { url: "", open: false },
+          section: "chat",
+          profileStates: { ...profileStates, [fallback.id]: { ...next, currentId } },
+          profileSessions: {
+            ...profileSessions,
+            [fallback.id]: owned.map((c) => c.id),
+          },
+        });
+        return null;
+      },
+
+      switchUserProfile: (id) => {
+        const s = get();
+        if (s.streaming || s.activeRun) return "Stop the running agent before switching profiles.";
+        const target = s.userProfiles.find((pr) => pr.id === id);
+        if (!target) return "Profile not found.";
+        const fromId = activeProfileIdOf(s);
+        if (fromId === id) return null;
+        // Stash the current profile's full workspace state + session list first, so
+        // nothing is lost and nothing leaks into the target profile.
+        const snapshot = captureProfileSnapshot(s);
+        const profileStates = { ...s.profileStates, [fromId]: snapshot };
+        const profileSessions = {
+          ...s.profileSessions,
+          [fromId]: sessionIdsOf(s.conversations, fromId),
+        };
+        // Restore the target (fresh defaults when it has never been opened).
+        const stored = profileStates[id] ?? freshProfileSnapshot();
+        const next = cloneJson(stored);
+        const owned = s.conversations.filter((c) => (c.profileId ?? DEFAULT_PROFILE_ID) === id);
+        const currentId =
+          next.currentId && owned.some((c) => c.id === next.currentId)
+            ? next.currentId
+            : (owned[0]?.id ?? null);
+        set({
+          ...next,
+          subAgents: mergeSubAgentsWithDefaults(next.subAgents),
+          skills: mergeSkillsWithDefaults(next.skills),
+          memory: mergeMemoryWithDefaults(next.memory),
+          knowledge: sanitizeKnowledge(next.knowledge),
+          agentTeams: mergeTeamsWithDefaults(next.agentTeams),
+          ceoAgents: normalizeCeoAgents(next.ceoAgents),
+          customAgents: normalizeCustomAgents(next.customAgents),
+          mainAgentPrompts: normalizeMainAgentPrompts(next.mainAgentPrompts),
+          taskModes: normalizeTaskModes(next.taskModes),
+          planModePrompt: normalizePlanModePrompt(next.planModePrompt),
+          connectors: normalizeConnectors(next.connectors),
+          currentId,
+          activeUserProfileId: id,
+          profileStates: { ...profileStates, [id]: { ...next, currentId } },
+          profileSessions: { ...profileSessions, [id]: sessionIdsOf(s.conversations, id) },
+          attachedFiles: [],
+          preview: { url: "", open: false },
+          activeRun: null,
+          section: "chat",
+        });
+        return null;
+      },
+
+      duplicateUserProfile: async (id) => {
+        const s = get();
+        if (s.streaming || s.activeRun) return null;
+        const source = s.userProfiles.find((pr) => pr.id === id);
+        if (!source) return null;
+        const now = Date.now();
+        const copy: UserProfile = {
+          id: uid("profile"),
+          name: `${source.name} (copy)`.slice(0, 70),
+          description: source.description,
+          avatar: source.avatar,
+          createdAt: now,
+          updatedAt: now,
+        };
+        // Deep-copy the workspace snapshot (or the live slices when duplicating the
+        // active profile, whose snapshot slot holds its previously stashed state).
+        const fromId = activeProfileIdOf(s);
+        const liveSnap = fromId === id ? captureProfileSnapshot(s) : null;
+        const stored = liveSnap ?? s.profileStates[id] ?? freshProfileSnapshot();
+        const snap = cloneJson(stored);
+        // Copy every chat: brand-new session ids under the new profile. Server-side
+        // forks are best-effort (the snapshot sync recreates any missing server row).
+        const sources = s.conversations.filter((c) => (c.profileId ?? DEFAULT_PROFILE_ID) === id);
+        const copies: Conversation[] = [];
+        for (const src of sources) {
+          if (src.loaded === false) continue;
+          const nid = newSessionId();
+          try {
+            await forkSessionData(src.id, nid, `${src.title} (copy)`.slice(0, 200));
+          } catch {
+            // best effort — the local copy below still syncs up on its own
+          }
+          let messages: Conversation["messages"];
+          try {
+            messages =
+              typeof structuredClone === "function"
+                ? structuredClone(src.messages)
+                : JSON.parse(JSON.stringify(src.messages));
+          } catch {
+            messages = JSON.parse(JSON.stringify(src.messages));
+          }
+          copies.push({
+            ...cloneJson(src),
+            id: nid,
+            title: `${src.title} (copy)`.slice(0, 200),
+            messages,
+            createdAt: now,
+            updatedAt: now,
+            profileId: copy.id,
+            parentId: src.id,
+            loaded: true,
+          });
+        }
+        snap.currentId = copies[0]?.id ?? null;
+        set((prev) => ({
+          userProfiles: mergeProfilesWithDefaults([copy, ...prev.userProfiles]),
+          activeUserProfileId: copy.id,
+          conversations: [...copies, ...prev.conversations],
+          ...cloneJson(snap),
+          subAgents: mergeSubAgentsWithDefaults(snap.subAgents),
+          skills: mergeSkillsWithDefaults(snap.skills),
+          memory: mergeMemoryWithDefaults(snap.memory),
+          knowledge: sanitizeKnowledge(snap.knowledge),
+          agentTeams: mergeTeamsWithDefaults(snap.agentTeams),
+          ceoAgents: normalizeCeoAgents(snap.ceoAgents),
+          customAgents: normalizeCustomAgents(snap.customAgents),
+          mainAgentPrompts: normalizeMainAgentPrompts(snap.mainAgentPrompts),
+          taskModes: normalizeTaskModes(snap.taskModes),
+          planModePrompt: normalizePlanModePrompt(snap.planModePrompt),
+          connectors: normalizeConnectors(snap.connectors),
+          profileStates: {
+            ...prev.profileStates,
+            ...(fromId === id ? { [fromId]: captureProfileSnapshot(prev as AppState) } : {}),
+            [copy.id]: { ...cloneJson(snap) },
+          },
+          profileSessions: {
+            ...prev.profileSessions,
+            ...(fromId === id ? { [fromId]: sessionIdsOf(prev.conversations, fromId) } : {}),
+            [copy.id]: copies.map((c) => c.id),
+          },
+          attachedFiles: [],
+          preview: { url: "", open: false },
+          activeRun: null,
+          section: "chat",
+        }));
+        return copy.id;
+      },
+
+      resetUserProfile: (id) => {
+        const s = get();
+        if (s.streaming || s.activeRun) return "Stop the running agent before resetting a profile.";
+        if (!s.userProfiles.some((pr) => pr.id === id)) return "Profile not found.";
+        const fresh = freshProfileSnapshot();
+        const isActive = activeProfileIdOf(s) === id;
+        // Dropping its conversations deletes their server rows via the sync bridge.
+        const conversations = s.conversations.filter(
+          (c) => (c.profileId ?? DEFAULT_PROFILE_ID) !== id,
+        );
+        if (!isActive) {
+          set({
+            conversations,
+            profileStates: { ...s.profileStates, [id]: { ...fresh, currentId: null } },
+            profileSessions: { ...s.profileSessions, [id]: [] },
+          });
+          return null;
+        }
+        set({
+          ...cloneJson(fresh),
+          subAgents: mergeSubAgentsWithDefaults(fresh.subAgents),
+          skills: mergeSkillsWithDefaults(fresh.skills),
+          memory: mergeMemoryWithDefaults(fresh.memory),
+          knowledge: sanitizeKnowledge(fresh.knowledge),
+          agentTeams: mergeTeamsWithDefaults(fresh.agentTeams),
+          ceoAgents: normalizeCeoAgents(fresh.ceoAgents),
+          customAgents: normalizeCustomAgents(fresh.customAgents),
+          mainAgentPrompts: normalizeMainAgentPrompts(fresh.mainAgentPrompts),
+          taskModes: normalizeTaskModes(fresh.taskModes),
+          planModePrompt: normalizePlanModePrompt(fresh.planModePrompt),
+          connectors: normalizeConnectors(fresh.connectors),
+          conversations,
+          currentId: null,
+          attachedFiles: [],
+          preview: { url: "", open: false },
+          activeRun: null,
+          section: "chat",
+          profileStates: { ...s.profileStates, [id]: { ...cloneJson(fresh), currentId: null } },
+          profileSessions: { ...s.profileSessions, [id]: [] },
+        });
+        return null;
+      },
 
       // ---- Multi-agent team live run ---------------------------------------------
       startTeamRun: (convId, msgId, info) =>

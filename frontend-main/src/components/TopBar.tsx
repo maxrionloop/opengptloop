@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Plus, Settings, ListTodo, Paperclip, Brain, History, Boxes, Crown, MoreVertical, GitBranch, Copy, Pencil } from "lucide-react";
 import { useStore, type Section } from "@/store/useStore";
+import { DEFAULT_PROFILE_ID } from "@/lib/userProfiles";
 import { cn } from "@/utils/cn";
 import { newSessionId } from "@/utils/id";
 import { forkSessionData, renameSessionData, saveSessionSnapshot } from "@/lib/backendState";
@@ -30,6 +31,8 @@ function contextLabel(section: Section, counts: Record<string, number>): string 
       return `${counts.taskmodes} mode${counts.taskmodes === 1 ? "" : "s"}`;
     case "connectors":
       return `${counts.connectors} app${counts.connectors === 1 ? "" : "s"}`;
+    case "profiles":
+      return `${counts.profiles} profile${counts.profiles === 1 ? "" : "s"}`;
     default:
       return null;
   }
@@ -57,6 +60,7 @@ export function TopBar() {
   const mainAgentPrompts = useStore((s) => s.mainAgentPrompts);
   const taskModes = useStore((s) => s.taskModes);
   const connectors = useStore((s) => s.connectors);
+  const userProfiles = useStore((s) => s.userProfiles);
   const setSection = useStore((s) => s.setSection);
 
   const label = contextLabel(section, {
@@ -69,6 +73,7 @@ export function TopBar() {
     systemprompts: mainAgentPrompts.length,
     taskmodes: taskModes.length,
     connectors: connectors.filter((c) => c.status === "active").length,
+    profiles: userProfiles.length,
   });
   const isChat = section === "chat";
   const activeAgent = customAgents.find((a) => a.id === activeCustomAgentId) ?? null;
@@ -222,11 +227,17 @@ function BranchMenu() {
 
   const current = conversations.find((c) => c.id === currentId) ?? null;
   const parentId = current?.parentId ?? null;
-  // Family = the parent (when inside a branch/fork) plus all of its branches/forks.
+  const profileId = current?.profileId ?? null;
+  // Family = the parent (when inside a branch/fork) plus all of its branches/forks —
+  // scoped to the current profile so other profiles' chats never leak in.
+  const inProfile = (c: { profileId?: string | null }) =>
+    (c.profileId ?? DEFAULT_PROFILE_ID) === (profileId ?? DEFAULT_PROFILE_ID);
   const family = parentId
-    ? conversations.filter((c) => c.id === parentId || c.parentId === parentId)
-    : conversations.filter((c) => c.parentId === currentId);
-  const branchCount = conversations.filter((c) => c.parentId === currentId).length;
+    ? conversations.filter((c) => inProfile(c) && (c.id === parentId || c.parentId === parentId))
+    : conversations.filter((c) => inProfile(c) && c.parentId === currentId);
+  const branchCount = conversations.filter(
+    (c) => inProfile(c) && c.parentId === currentId,
+  ).length;
 
   const forkCurrent = async () => {
     if (!currentId || forking) return;

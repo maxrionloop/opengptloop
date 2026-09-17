@@ -28,6 +28,10 @@ export const APP_STATE_KEYS = [
   "activeTaskModeId",
   "planModePrompt",
   "connectors",
+  "userProfiles",
+  "activeUserProfileId",
+  "profileStates",
+  "profileSessions",
 ] as const;
 
 export type AppStateKey = (typeof APP_STATE_KEYS)[number];

@@ -1,5 +1,6 @@
 import { MessageCircle, Brain, Library, Bot, Sparkles, Users, Boxes, FileText, Crown, ListChecks, Plug } from "lucide-react";
 import { useStore, type Section } from "@/store/useStore";
+import { findActiveProfile, isUsableAvatar, profileInitials } from "@/lib/userProfiles";
 import { cn } from "@/utils/cn";
 
 const NAV: Array<{ id: Section; label: string; Icon: typeof MessageCircle }> = [
@@ -19,6 +20,11 @@ const NAV: Array<{ id: Section; label: string; Icon: typeof MessageCircle }> = [
 export function Rail() {
   const section = useStore((s) => s.section);
   const setSection = useStore((s) => s.setSection);
+  const userProfiles = useStore((s) => s.userProfiles);
+  const activeUserProfileId = useStore((s) => s.activeUserProfileId);
+  const activeProfile = findActiveProfile(userProfiles, activeUserProfileId);
+  const showAvatar = isUsableAvatar(activeProfile.avatar);
+  const profilesActive = section === "profiles";
 
   return (
     <aside
@@ -67,22 +73,45 @@ export function Rail() {
       </div>
 
       <div className="mt-auto flex flex-col items-center pb-4">
-        <div
-          className="grid h-10 w-10 place-items-center rounded-full bg-[var(--chip)] text-[var(--muted)]"
+        <button
+          type="button"
+          onClick={() => setSection("profiles")}
+          aria-current={profilesActive ? "page" : undefined}
+          title={activeProfile.name ? `Profiles — ${activeProfile.name}` : "Profiles"}
+          aria-label="Profiles"
+          className={cn(
+            "group relative grid h-10 w-10 place-items-center overflow-hidden rounded-full transition-all duration-150 active:scale-95",
+            profilesActive
+              ? "bg-[var(--secondary)] text-[var(--secondary-fg)]"
+              : "bg-[var(--chip)] text-[var(--muted)] hover:text-[var(--fg)]",
+          )}
           style={{ boxShadow: "var(--shadow-chip)" }}
-          aria-label="Account"
-          title="Account"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <circle cx="12" cy="9" r="3.2" stroke="currentColor" strokeWidth="1.7" />
-            <path
-              d="M6.5 19c.8-2.8 2.8-4.2 5.5-4.2s4.7 1.4 5.5 4.2"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              strokeLinecap="round"
+          {showAvatar ? (
+            <img
+              src={activeProfile.avatar}
+              alt={activeProfile.name}
+              className="h-full w-full object-cover"
             />
-          </svg>
-        </div>
+          ) : activeProfile.name ? (
+            <span className="text-xs font-semibold uppercase tracking-wide">
+              {profileInitials(activeProfile.name)}
+            </span>
+          ) : (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <circle cx="12" cy="9" r="3.2" stroke="currentColor" strokeWidth="1.7" />
+              <path
+                d="M6.5 19c.8-2.8 2.8-4.2 5.5-4.2s4.7 1.4 5.5 4.2"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+              />
+            </svg>
+          )}
+          <span className="pointer-events-none absolute left-[calc(100%+0.75rem)] top-1/2 z-40 -translate-y-1/2 translate-x-[-4px] whitespace-nowrap rounded-[var(--radius-sm)] bg-[var(--secondary)] px-2.5 py-1.5 text-xs font-medium text-[var(--secondary-fg)] opacity-0 transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100 max-[640px]:hidden" style={{ boxShadow: "var(--shadow-card)" }}>
+            {activeProfile.name ? `Profiles — ${activeProfile.name}` : "Profiles"}
+          </span>
+        </button>
       </div>
     </aside>
   );

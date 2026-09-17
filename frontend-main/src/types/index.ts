@@ -369,6 +369,32 @@ export interface BackendCustomAgent {
 }
 
 /**
+ * A user profile (account identity), stored in the backend SQLite database
+ * (app_state `userProfiles`).
+ *
+ * A profile owns a completely isolated workspace state: switching profiles gives a
+ * fresh start — no chats, settings, memory, knowledge, sub-agents, skills, teams,
+ * or any other data carries over. The isolated per-profile snapshots live in the
+ * `profileStates` / `profileSessions` documents; this interface is only the identity
+ * record (username, logo avatar, short description) shown on the profile cards and
+ * the sidebar account button.
+ */
+export interface UserProfile {
+  id: string;
+  /** Username shown on the profile card and the sidebar (required). */
+  name: string;
+  /** Short description of the profile. */
+  description: string;
+  /**
+   * Logo image: a `data:image/...` URL, an `https?://...` URL, or `""` for no logo
+   * (the UI renders the name initial instead).
+   */
+  avatar: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
  * A user-created custom task mode for the prompt box. When active, its `prompt`
  * is appended to the user's message before sending (same mechanism as plan mode).
  * Stored in the backend SQLite database via the shared app-state sync.
@@ -466,6 +492,12 @@ export interface Conversation {
   messages: ChatMessage[];
   createdAt: number;
   updatedAt: number;
+  /**
+   * The user profile (account) this conversation belongs to. Conversations are
+   * strictly isolated per profile — switching profiles shows only that profile's
+   * chats. Missing (legacy) values are treated as the default profile.
+   */
+  profileId?: string | null;
   /**
    * Branch parent: the conversation this branch was started from, if any. A branch
    * is a brand-new backend session (fresh context for every agent) grouped under

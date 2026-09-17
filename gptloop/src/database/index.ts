@@ -16,6 +16,7 @@ export {
   createSubAgentSessionId,
   createCustomAgentId,
   createMainAgentPromptId,
+  createUserProfileId,
   isSafeSessionId,
 } from "./ids.js";
 import { createChatSessionId as createChatSessionIdFn, isSafeSessionId as isSafeSessionIdFn } from "./ids.js";

@@ -42,6 +42,10 @@ const SYNC_KEYS = [
   "activeTaskModeId",
   "planModePrompt",
   "connectors",
+  "userProfiles",
+  "activeUserProfileId",
+  "profileStates",
+  "profileSessions",
 ] as const;
 
 type SyncKey = (typeof SYNC_KEYS)[number];
@@ -148,6 +152,10 @@ function snapshotToConversation(snapshot: unknown, stub: Conversation): Conversa
     messages: messages.map((m) => ({ ...m, streaming: false })),
     createdAt: typeof s.createdAt === "number" ? s.createdAt : stub.createdAt,
     updatedAt: typeof s.updatedAt === "number" ? s.updatedAt : stub.updatedAt,
+    profileId:
+      typeof s.profileId === "string" && s.profileId.length > 0
+        ? s.profileId
+        : (stub.profileId ?? null),
     parentId:
       typeof s.parentId === "string" && s.parentId.length > 0 ? s.parentId : stub.parentId ?? null,
     loaded: true,

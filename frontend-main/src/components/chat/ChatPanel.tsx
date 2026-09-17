@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { MessageSquare, Trash2 } from "lucide-react";
 import { useStore } from "@/store/useStore";
+import { DEFAULT_PROFILE_ID } from "@/lib/userProfiles";
 import { greeting, timeAgo } from "@/utils/format";
 import { MessageList } from "./MessageList";
 
@@ -14,6 +15,7 @@ const PROMPTS = [
 export function ChatPanel({ onSend }: { onSend: (text: string) => void }) {
   const conversations = useStore((s) => s.conversations);
   const currentId = useStore((s) => s.currentId);
+  const activeUserProfileId = useStore((s) => s.activeUserProfileId);
   const selectConversation = useStore((s) => s.selectConversation);
   const deleteConversation = useStore((s) => s.deleteConversation);
 
@@ -25,10 +27,14 @@ export function ChatPanel({ onSend }: { onSend: (text: string) => void }) {
   const recents = useMemo(
     () =>
       conversations
+        // Only this profile's chats — profiles are strictly isolated.
+        .filter(
+          (c) => (c.profileId ?? DEFAULT_PROFILE_ID) === (activeUserProfileId ?? DEFAULT_PROFILE_ID),
+        )
         // Unloaded stubs from the database report their size via messageCount.
         .filter((c) => c.id !== currentId && Math.max(c.messages.length, c.messageCount ?? 0) > 0)
         .slice(0, 5),
-    [conversations, currentId],
+    [conversations, currentId, activeUserProfileId],
   );
 
   if (messages.length > 0) {

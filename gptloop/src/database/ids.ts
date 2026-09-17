@@ -21,6 +21,9 @@ export const SUB_AGENT_SESSION_ID_LENGTH = 10;
 /** Custom agents carry a 16-character alphanumeric ID. */
 export const CUSTOM_AGENT_ID_LENGTH = 16;
 
+/** User profiles carry a 16-character alphanumeric ID (`"default"` for the built-in profile). */
+export const USER_PROFILE_ID_LENGTH = 16;
+
 /** Main-agent custom system prompts carry a 16-character alphanumeric ID. */
 export const MAIN_AGENT_PROMPT_ID_LENGTH = 16;
 
@@ -58,6 +61,16 @@ export function createCustomAgentId(): string {
  */
 export function createMainAgentPromptId(): string {
   return randomId(MAIN_AGENT_PROMPT_ID_LENGTH);
+}
+
+/**
+ * Create a new 16-character user-profile ID (all numbers + all letters). Never returns the
+ * reserved `"default"` id used by the built-in profile.
+ */
+export function createUserProfileId(): string {
+  let id = randomId(USER_PROFILE_ID_LENGTH);
+  while (id === "default") id = randomId(USER_PROFILE_ID_LENGTH);
+  return id;
 }
 
 /** True when `value` looks like a usable session id (bounded, printable, path-safe). */
