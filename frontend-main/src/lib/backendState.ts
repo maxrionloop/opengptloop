@@ -88,6 +88,41 @@ export async function deleteSessionData(id: string): Promise<void> {
 }
 
 /**
+ * Fork a session on the backend into a full copy (transcript, events, tool
+ * calls, UI snapshot) under `newId`. Returns the forked id, or null when the
+ * source has no server row yet (a fresh local-only chat — the caller should
+ * still fork locally and let the snapshot sync create the server row).
+ */
+export async function forkSessionData(
+  sourceId: string,
+  newId: string,
+  title: string,
+): Promise<string | null> {
+  try {
+    const data = await requestJson<{ ok?: boolean; id?: string }>(
+      routeUrl(API_ROUTES.sessionFork, { params: { id: sourceId } }),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, new_id: newId }),
+      },
+    );
+    return typeof data.id === "string" && data.id.length > 0 ? data.id : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Rename a session title on the backend (title-only, never touches the snapshot). */
+export async function renameSessionData(id: string, title: string): Promise<void> {
+  await requestJson(routeUrl(API_ROUTES.sessionSave, { params: { id } }), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  }).catch(() => {});
+}
+
+/**
  * Fire a persistence write during page unload. `navigator.sendBeacon` survives the
  * page teardown; falls back to a keepalive fetch where beacons are unavailable.
  */

@@ -18,6 +18,7 @@ export {
   createMainAgentPromptId,
   isSafeSessionId,
 } from "./ids.js";
+import { createChatSessionId as createChatSessionIdFn, isSafeSessionId as isSafeSessionIdFn } from "./ids.js";
 export { resolveDatabasePath, GPTLOOP_DATA_DIR, DATABASE_FILE_NAME } from "./connection.js";
 export { APP_STATE_KEYS, isAppStateKey, type AppStateKey } from "./repositories/appStateRepo.js";
 export type { SessionRow } from "./repositories/sessionsRepo.js";
@@ -86,6 +87,86 @@ export class GptLoopDatabase {
   /** SQLite library version in use. */
   get version(): string {
     return sqliteVersion(this.db);
+  }
+
+  /**
+   * Fork a chat session: create a new session that is a full 100% copy of the
+   * source session's stored data (transcript, stream events, tool calls, UI
+   * snapshot). Global app-state (settings, memory, skills, teams, ...) is shared
+   * by design, so the fork automatically runs with the same settings.
+   *
+   * Sub-agent run rows are intentionally NOT copied: their ids are globally
+   * unique (PK on id alone) and the UI snapshot already embeds the full inline
+   * sub-agent history, so the fork renders identically without PK conflicts.
+   * Returns the new session row, or null when the source does not exist.
+   */
+  forkSession(sourceId: string, opts?: { newId?: string; title?: string }): import("./repositories/sessionsRepo.js").SessionRow | null {
+    try {
+      this.queue.flushSync();
+    } catch {
+      // best effort — copy whatever is already persisted
+    }
+    const source = this.sessions.get(sourceId);
+    if (!source) return null;
+
+    let newId = typeof opts?.newId === "string" ? opts.newId.trim() : "";
+    if (!isSafeSessionIdFn(newId) || this.sessions.get(newId)) {
+      do {
+        newId = createChatSessionIdFn();
+      } while (this.sessions.get(newId));
+    }
+    const title =
+      typeof opts?.title === "string" && opts.title.trim().length > 0
+        ? opts.title.slice(0, 200)
+        : source.title;
+    const now = Date.now();
+
+    const db = this.db;
+    const copyTx = db.transaction(() => {
+      db.prepare(
+        `INSERT INTO sessions (id, title, running, turn_count, last_event_id, message_count, created_at, updated_at)
+         VALUES (?, ?, 0, ?, ?, ?, ?, ?)`,
+      ).run(newId, title, source.turnCount, source.lastEventId, source.messageCount, now, now);
+      db.prepare(
+        `INSERT INTO messages (session_id, seq, role, data, created_at)
+         SELECT ?, seq, role, data, created_at FROM messages WHERE session_id = ?`,
+      ).run(newId, sourceId);
+      db.prepare(
+        `INSERT INTO stream_events (session_id, turn, event_id, first_event_id, event, data, created_at)
+         SELECT ?, turn, event_id, first_event_id, event, data, created_at
+         FROM stream_events WHERE session_id = ?`,
+      ).run(newId, sourceId);
+      db.prepare(
+        `INSERT INTO tool_calls (session_id, tool_call_id, sub_agent_run_id, name, label, args, ok, result, created_at, finished_at)
+         SELECT ?, tool_call_id, sub_agent_run_id, name, label, args, ok, result, created_at, finished_at
+         FROM tool_calls WHERE session_id = ?`,
+      ).run(newId, sourceId);
+    });
+    try {
+      copyTx();
+    } catch {
+      return null;
+    }
+
+    try {
+      const snapshot = this.snapshots.get(sourceId) as unknown as Record<string, unknown> | null;
+      if (snapshot && typeof snapshot === "object") {
+        let cloned: Record<string, unknown>;
+        try {
+          cloned = JSON.parse(JSON.stringify(snapshot)) as Record<string, unknown>;
+        } catch {
+          cloned = { ...(snapshot as Record<string, unknown>) };
+        }
+        cloned.id = newId;
+        if (typeof cloned.title === "string") cloned.title = title;
+        cloned.updatedAt = now;
+        this.snapshots.set(newId, cloned);
+      }
+    } catch {
+      // snapshot copy is best-effort — transcript + session row already copied
+    }
+
+    return this.sessions.get(newId) ?? null;
   }
 
   /** Flush pending writes and close cleanly (safe to call multiple times). */

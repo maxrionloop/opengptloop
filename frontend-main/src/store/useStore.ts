@@ -178,6 +178,15 @@ interface AppState {
    * in the UI. Returns the new branch id, or null when there is nothing to branch.
    */
   branchConversation: () => string | null;
+  /**
+   * Fork a conversation into a full 100% local copy: every message (content,
+   * reasoning, tool chips, sub-agent runs, team runs) is deep-cloned into a new
+   * backend session id grouped under its parent. Global settings/memory/skills/
+   * teams are shared by design, so the fork automatically inherits them. The
+   * caller is responsible for copying the server-side transcript/snapshot via
+   * `forkSessionData` with the same new id (best-effort). Returns the fork id.
+   */
+  forkConversation: (sourceId?: string, newId?: string) => string | null;
   selectConversation: (id: string) => void;
   deleteConversation: (id: string) => void;
   renameConversation: (id: string, title: string) => void;
@@ -708,6 +717,39 @@ export const useStore = create<AppState>()(
           createdAt: Date.now(),
           updatedAt: Date.now(),
           parentId: parent.id,
+          loaded: true,
+        };
+        set((s) => ({ conversations: [conv, ...s.conversations], currentId: id, section: "chat" }));
+        return id;
+      },
+
+      forkConversation: (sourceId, newId) => {
+        const { currentId, conversations } = get();
+        const source = conversations.find((c) => c.id === (sourceId ?? currentId));
+        if (!source) return null;
+        // Stubs (loaded=false) carry no messages yet — forking them would silently
+        // drop history, so refuse and let the caller load first.
+        if (source.loaded === false) return null;
+        const id = newId && newId.trim().length > 0 ? newId.trim() : newSessionId();
+        if (conversations.some((c) => c.id === id)) return null;
+        let messages: Conversation["messages"];
+        try {
+          messages =
+            typeof structuredClone === "function"
+              ? structuredClone(source.messages)
+              : JSON.parse(JSON.stringify(source.messages));
+        } catch {
+          messages = JSON.parse(JSON.stringify(source.messages));
+        }
+        const now = Date.now();
+        const conv: Conversation = {
+          id,
+          title: `${source.title} (fork)`.slice(0, 200),
+          messages,
+          createdAt: now,
+          updatedAt: now,
+          parentId: source.id,
+          messageCount: source.messageCount,
           loaded: true,
         };
         set((s) => ({ conversations: [conv, ...s.conversations], currentId: id, section: "chat" }));

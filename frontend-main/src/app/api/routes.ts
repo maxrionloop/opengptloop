@@ -146,6 +146,12 @@ export const API_ROUTES = {
     path: "/api/sessions/:id",
     description: "Delete a session and all of its stored data from SQLite.",
   },
+  sessionFork: {
+    name: "session.fork",
+    method: "POST",
+    path: "/api/sessions/:id/fork",
+    description: "Fork a session into a full 100% copy (transcript, events, snapshot) under a new id.",
+  },
   memoryAgentRuns: {
     name: "memoryAgent.runs",
     method: "GET",

@@ -121,6 +121,31 @@ export function buildSessionsRouter(db: GptLoopDatabase): Router {
     res.json({ ok: true });
   });
 
+  /**
+   * Fork a session: full 100% copy of the source session's stored chat data
+   * (transcript, events, tool calls, UI snapshot) into a new session.
+   * Body: { title?: string, new_id?: string }. When new_id is a valid unused
+   * session id it is used verbatim so the frontend and backend stay in sync;
+   * otherwise a server-generated 20-char id is used. Global settings/memory/
+   * skills/teams are shared by design, so the fork automatically inherits them.
+   */
+  router.post("/:id/fork", (req: Request, res: Response) => {
+    const id = String(req.params.id);
+    if (!isSafeSessionId(id)) {
+      res.status(400).json({ error: "Invalid session id." });
+      return;
+    }
+    const body = (req.body ?? {}) as { title?: unknown; new_id?: unknown; newId?: unknown };
+    const title = typeof body.title === "string" ? body.title.slice(0, 200) : undefined;
+    const rawNewId = typeof body.new_id === "string" ? body.new_id : typeof body.newId === "string" ? body.newId : undefined;
+    const forked = db.forkSession(id, { title, newId: rawNewId });
+    if (!forked) {
+      res.status(404).json({ error: "Session not found." });
+      return;
+    }
+    res.json({ ok: true, id: forked.id, session: forked });
+  });
+
   return router;
 }
 

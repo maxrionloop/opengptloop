@@ -1,7 +1,12 @@
 import { useState } from "react";
-import { Plus, Settings, ListTodo, Paperclip, Brain, History, Boxes, Crown, MoreVertical, GitBranch } from "lucide-react";
+import { Plus, Settings, ListTodo, Paperclip, Brain, History, Boxes, Crown, MoreVertical, GitBranch, Copy, Pencil } from "lucide-react";
 import { useStore, type Section } from "@/store/useStore";
 import { cn } from "@/utils/cn";
+import { newSessionId } from "@/utils/id";
+import { forkSessionData, renameSessionData, saveSessionSnapshot } from "@/lib/backendState";
+import { loadConversationIfNeeded } from "@/lib/statePersistence";
+import { Modal } from "@/components/ui/Modal";
+import { Button, Field, TextInput } from "@/components/ui/primitives";
 
 function contextLabel(section: Section, counts: Record<string, number>): string | null {
   switch (section) {
@@ -196,13 +201,20 @@ function TopIcon({
 }
 
 /**
- * Branch menu (top-right "..."): start a fresh branch inside the current chat
- * session and switch between a thread and its branches. A branch is a brand-new
- * backend session — no past context is sent for it, so every agent (main,
- * custom, team/CEO members, sub-agents) starts clean, exactly like a new chat.
+ * Conversation options menu (top-right "..."): branch, fork (full copy), rename,
+ * and switch between a thread and its branches/forks. A branch is a brand-new
+ * backend session — no past context is sent for it, so every agent starts clean.
+ * A fork is a full 100% copy of the chat (every message, tool run, team run)
+ * plus the backend transcript/snapshot, grouped under its parent. Settings and
+ * all global things are shared by design, so the fork automatically inherits them.
  */
 function BranchMenu() {
   const [open, setOpen] = useState(false);
+  const [forking, setForking] = useState(false);
+  const [forkError, setForkError] = useState<string | null>(null);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameError, setRenameError] = useState<string | null>(null);
   const currentId = useStore((s) => s.currentId);
   const conversations = useStore((s) => s.conversations);
   const selectConversation = useStore((s) => s.selectConversation);
@@ -210,19 +222,72 @@ function BranchMenu() {
 
   const current = conversations.find((c) => c.id === currentId) ?? null;
   const parentId = current?.parentId ?? null;
-  // Family = the parent (when inside a branch) plus all of its branches.
+  // Family = the parent (when inside a branch/fork) plus all of its branches/forks.
   const family = parentId
     ? conversations.filter((c) => c.id === parentId || c.parentId === parentId)
     : conversations.filter((c) => c.parentId === currentId);
   const branchCount = conversations.filter((c) => c.parentId === currentId).length;
+
+  const forkCurrent = async () => {
+    if (!currentId || forking) return;
+    setForking(true);
+    setForkError(null);
+    try {
+      await loadConversationIfNeeded(currentId);
+      const source = useStore.getState().conversations.find((c) => c.id === currentId);
+      if (!source || source.loaded === false) {
+        setForkError("Load the chat first, then fork it.");
+        return;
+      }
+      const newId = newSessionId();
+      const forkTitle = `${source.title} (fork)`.slice(0, 200);
+      // Copy the server-side transcript/snapshot/events (best-effort: a fresh
+      // local-only chat has no server row yet and is still forked locally).
+      await forkSessionData(source.id, newId, forkTitle);
+      const forkedId = useStore.getState().forkConversation(source.id, newId);
+      if (!forkedId) {
+        setForkError("Could not fork this chat.");
+        return;
+      }
+      const forked = useStore.getState().conversations.find((c) => c.id === forkedId);
+      if (forked) await saveSessionSnapshot(forked);
+      setOpen(false);
+    } finally {
+      setForking(false);
+    }
+  };
+
+  const openRename = () => {
+    if (!current) return;
+    setRenameValue(current.title);
+    setRenameError(null);
+    setRenameOpen(true);
+  };
+
+  const saveRename = async () => {
+    if (!current) return;
+    const title = renameValue.trim();
+    if (!title) {
+      setRenameError("A chat name is required.");
+      return;
+    }
+    if (title.length > 200) {
+      setRenameError("Keep the name to 200 characters or fewer.");
+      return;
+    }
+    useStore.getState().renameConversation(current.id, title);
+    await renameSessionData(current.id, title);
+    setRenameOpen(false);
+    setOpen(false);
+  };
 
   return (
     <div className="relative">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        title="Conversation branches"
-        aria-label="Conversation branches"
+        title="Conversation options"
+        aria-label="Conversation options"
         className={cn(
           "relative grid h-11 w-11 place-items-center rounded-[var(--radius-md)] text-[var(--muted)] transition-colors hover:bg-[var(--chip)] hover:text-[var(--fg)]",
         )}
@@ -255,6 +320,29 @@ function BranchMenu() {
               </span>
               New branch — start fresh here
             </button>
+            <button
+              type="button"
+              onClick={() => void forkCurrent()}
+              disabled={!current || forking}
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs font-medium text-[var(--fg)] hover:bg-[var(--chip)] disabled:opacity-50"
+            >
+              <span className="grid h-7 w-7 place-items-center rounded-full bg-[var(--chip)] text-[var(--muted)]">
+                <Copy className="h-4 w-4" strokeWidth={1.8} />
+              </span>
+              {forking ? "Forking chat…" : "Fork chat — full copy here"}
+            </button>
+            <button
+              type="button"
+              onClick={openRename}
+              disabled={!current}
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs font-medium text-[var(--fg)] hover:bg-[var(--chip)] disabled:opacity-50"
+            >
+              <span className="grid h-7 w-7 place-items-center rounded-full bg-[var(--chip)] text-[var(--muted)]">
+                <Pencil className="h-4 w-4" strokeWidth={1.8} />
+              </span>
+              Rename chat
+            </button>
+            {forkError && <p className="m-0 px-3 py-1 text-[11px] text-[var(--danger)]">{forkError}</p>}
 
             {current?.parentId && (
               <p className="m-0 px-3 pb-1 pt-2 text-[10px] uppercase tracking-wide text-[var(--subtle)]">
@@ -289,11 +377,35 @@ function BranchMenu() {
             )}
 
             <p className="m-0 px-3 py-2 text-[10px] leading-relaxed text-[var(--subtle)]">
-              A branch starts from fresh with no past context for any agent.
+              A branch starts from fresh with no past context for any agent. A fork copies this chat
+              fully and continues from the copy.
             </p>
           </div>
         </>
       )}
+
+      <Modal
+        open={renameOpen}
+        onClose={() => setRenameOpen(false)}
+        title="Rename chat"
+        size="sm"
+        footer={<Button onClick={() => void saveRename()}>Save</Button>}
+      >
+        <div className="space-y-3 p-5">
+          <Field label="Chat name" hint={`${renameValue.trim().length}/200`}>
+            <TextInput
+              value={renameValue}
+              maxLength={200}
+              onChange={(e) => setRenameValue(e.target.value)}
+              placeholder="e.g. Landing page plan"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void saveRename();
+              }}
+            />
+          </Field>
+          {renameError && <p className="m-0 text-xs text-[var(--danger)]">{renameError}</p>}
+        </div>
+      </Modal>
     </div>
   );
 }
