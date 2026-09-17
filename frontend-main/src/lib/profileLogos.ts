@@ -1,15 +1,14 @@
 import { PROFILE_LOGOS_A } from "./profileLogosA";
 import { PROFILE_LOGOS_B } from "./profileLogosB";
-import { PROFILE_LOGOS_C } from "./profileLogosC";
 
 /**
  * Curated profile logo gallery.
  *
- * 50+ cute, professional, high-quality SVG logos (animals, faces & bots, space,
- * nature, food, objects). Every logo is a self-contained ASCII-only 64x64 SVG so
- * it can be stored as a base64 data URL directly in the profile's `avatar` field —
- * no new storage, no new endpoints, and the existing avatar validation already
- * accepts the format. Rendered through <img>, so gradient ids never collide.
+ * Cute, professional, high-quality SVG logos — animals plus faces & bots only.
+ * Every logo is a self-contained ASCII-only 64x64 SVG so it can be stored as a
+ * base64 data URL directly in the profile's `avatar` field — no new storage, no
+ * new endpoints, and the existing avatar validation already accepts the format.
+ * Rendered through <img>, so gradient ids never collide.
  */
 
 /** One curated logo: a stable id, a display name, a gallery category, and its SVG. */
@@ -24,12 +23,8 @@ export interface ProfileLogo {
   svg: string;
 }
 
-/** The full curated gallery (animals + faces/bots + space + nature + food + objects). */
-export const PROFILE_LOGOS: ProfileLogo[] = [
-  ...PROFILE_LOGOS_A,
-  ...PROFILE_LOGOS_B,
-  ...PROFILE_LOGOS_C,
-];
+/** The full curated gallery (animals + faces & bots). A logo is required per profile. */
+export const PROFILE_LOGOS: ProfileLogo[] = [...PROFILE_LOGOS_A, ...PROFILE_LOGOS_B];
 
 /** Gallery categories in display order. */
 export const PROFILE_LOGO_CATEGORIES: string[] = Array.from(

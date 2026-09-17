@@ -66,6 +66,10 @@ export function buildUserProfilesRouter(manager: UserProfileManager): Router {
         : typeof body.logo === "string"
           ? (body.logo as string)
           : "";
+    if (!avatar.trim()) {
+      res.status(400).json({ error: "A profile logo is required. Choose one from the gallery or upload an image." });
+      return;
+    }
     try {
       const profile = manager.create({
         name,
@@ -86,6 +90,10 @@ export function buildUserProfilesRouter(manager: UserProfileManager): Router {
     if (typeof body.description === "string") patch.description = body.description;
     if (typeof body.avatar === "string") patch.avatar = body.avatar;
     else if (typeof body.logo === "string") patch.avatar = body.logo as string;
+    if (patch.avatar !== undefined && !patch.avatar.trim()) {
+      res.status(400).json({ error: "A profile logo is required. Choose one from the gallery or upload an image." });
+      return;
+    }
 
     try {
       const profile = manager.update(String(req.params.id), patch);

@@ -124,7 +124,7 @@ export class UserProfileManager {
     return this.ensureDefault();
   }
 
-  /** Create and persist a new profile. Throws when the name is empty or avatar too large. */
+  /** Create and persist a new profile. Throws when the name/logo is missing or avatar too large. */
   create(input: CreateUserProfileInput): UserProfileConfig {
     const name = (input.name ?? "").trim().slice(0, MAX_PROFILE_NAME_CHARS);
     if (!name) throw new Error("A profile name is required.");
@@ -133,6 +133,9 @@ export class UserProfileManager {
       throw new Error(
         `The logo image is too large (max ${MAX_PROFILE_AVATAR_CHARS} characters). Use a smaller image.`,
       );
+    }
+    if (!avatar) {
+      throw new Error("A profile logo is required. Choose one from the gallery or upload an image.");
     }
     const now = Date.now();
     const config: UserProfileConfig = {
@@ -161,6 +164,9 @@ export class UserProfileManager {
         throw new Error(
           `The logo image is too large (max ${MAX_PROFILE_AVATAR_CHARS} characters). Use a smaller image.`,
         );
+      }
+      if (!normalized) {
+        throw new Error("A profile logo is required. Choose one from the gallery or upload an image.");
       }
       avatar = normalized;
     }

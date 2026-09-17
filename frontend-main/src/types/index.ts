@@ -386,8 +386,9 @@ export interface UserProfile {
   /** Short description of the profile. */
   description: string;
   /**
-   * Logo image: a `data:image/...` URL, an `https?://...` URL, or `""` for no logo
-   * (the UI renders the name initial instead).
+   * Logo image (required): a `data:image/...` URL or an `https?://...` URL — pick
+   * one from the curated gallery or upload a custom image. Legacy records without
+   * one fall back to the name initial in the UI.
    */
   avatar: string;
   createdAt: number;

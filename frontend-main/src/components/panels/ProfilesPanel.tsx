@@ -9,7 +9,6 @@ import {
   RotateCcw,
   Trash2,
   UserRound,
-  X,
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import type { UserProfile } from "@/types";
@@ -88,6 +87,7 @@ export function ProfilesPanel() {
     if (!draft) return;
     const name = draft.name.trim();
     if (!name) return setError("A username is required.");
+    if (!draft.avatar) return setError("Please choose a logo below — a logo is required.");
     if (name.length > MAX_PROFILE_NAME_CHARS) {
       return setError(`Username must be ${MAX_PROFILE_NAME_CHARS} characters or fewer.`);
     }
@@ -438,11 +438,6 @@ function ProfileEditor({
             <ImagePlus className="h-3.5 w-3.5" />
             {uploading ? "Processing…" : "Upload custom"}
           </Button>
-          {draft.avatar && (
-            <Button variant="ghost" onClick={() => setDraft({ ...draft, avatar: "" })}>
-              <X className="h-3.5 w-3.5" /> Remove
-            </Button>
-          )}
           <input
             ref={fileRef}
             type="file"
@@ -487,9 +482,10 @@ function ProfileEditor({
 }
 
 /**
- * Curated logo gallery: 50+ cute, professional SVG logos grouped by category.
- * Picking one stores its data URL as the profile avatar (high-quality at any
- * size, since it stays vector). Uploading a custom image remains available above.
+ * Curated logo gallery: cute, professional SVG logos (animals + faces & bots),
+ * grouped by category. Picking one stores its data URL as the profile avatar
+ * (high-quality at any size, since it stays vector). A logo is required — the
+ * editor cannot be saved without one. Uploading a custom image stays available.
  */
 function LogoPicker({ value, onChange }: { value: string; onChange: (avatar: string) => void }) {
   const previews = useMemo(
@@ -524,7 +520,7 @@ function LogoPicker({ value, onChange }: { value: string; onChange: (avatar: str
                     <button
                       key={logo.id}
                       type="button"
-                      onClick={() => onChange(selected ? "" : url)}
+                      onClick={() => onChange(url)}
                       title={logo.name}
                       aria-label={`Use the ${logo.name} logo`}
                       aria-pressed={selected}

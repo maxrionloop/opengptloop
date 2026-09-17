@@ -113,7 +113,11 @@ describe("user profiles — persistent manager (existing SQLite app_state repo)"
   });
 
   it("creates, lists, gets, updates and deletes", () => {
-    const created = manager.create({ name: "Ada", description: "Researcher", avatar: "" });
+    const created = manager.create({
+      name: "Ada",
+      description: "Researcher",
+      avatar: DEFAULT_PROFILE_AVATAR,
+    });
     assert.ok(created.id.length > 0);
     assert.notEqual(created.id, DEFAULT_PROFILE_ID);
 
@@ -132,7 +136,7 @@ describe("user profiles — persistent manager (existing SQLite app_state repo)"
   });
 
   it("persists profiles into the shared `userProfiles` app_state document", () => {
-    const created = manager.create({ name: "Grace" });
+    const created = manager.create({ name: "Grace", avatar: DEFAULT_PROFILE_AVATAR });
     const reopened = new UserProfileManager(repo);
     assert.equal(reopened.get(created.id)!.name, "Grace");
     const raw = repo.get("userProfiles") as unknown[];
@@ -143,19 +147,30 @@ describe("user profiles — persistent manager (existing SQLite app_state repo)"
     assert.equal(manager.delete(DEFAULT_PROFILE_ID), false);
     assert.equal(manager.list().length, 1);
     // A single non-default profile cannot be removed while it is the only extra one...
-    const created = manager.create({ name: "Solo" });
+    const created = manager.create({ name: "Solo", avatar: DEFAULT_PROFILE_AVATAR });
     assert.equal(manager.list().length, 2);
     assert.equal(manager.delete(created.id), true);
     assert.equal(manager.delete(DEFAULT_PROFILE_ID), false);
   });
 
   it("throws when creating a profile without a name", () => {
-    assert.throws(() => manager.create({ name: "   " }));
+    assert.throws(() => manager.create({ name: "   ", avatar: DEFAULT_PROFILE_AVATAR }));
+  });
+
+  it("requires a logo on create and update", () => {
+    assert.throws(() => manager.create({ name: "No Logo" }), /logo is required/i);
+    assert.throws(() => manager.create({ name: "No Logo", avatar: "  " }), /logo is required/i);
+    assert.throws(
+      () => manager.create({ name: "Bad Logo", avatar: "not-an-image" }),
+      /logo is required/i,
+    );
+    const created = manager.create({ name: "Ada", avatar: DEFAULT_PROFILE_AVATAR });
+    assert.throws(() => manager.update(created.id, { avatar: "" }), /logo is required/i);
   });
 
   it("activates exactly one profile at a time, falling back to default", () => {
-    const a = manager.create({ name: "A" });
-    const b = manager.create({ name: "B" });
+    const a = manager.create({ name: "A", avatar: DEFAULT_PROFILE_AVATAR });
+    const b = manager.create({ name: "B", avatar: DEFAULT_PROFILE_AVATAR });
     assert.equal(manager.setActive(a.id).id, a.id);
     assert.equal(manager.getActiveId(), a.id);
     assert.equal(manager.setActive(b.id).id, b.id);
@@ -164,7 +179,7 @@ describe("user profiles — persistent manager (existing SQLite app_state repo)"
   });
 
   it("deleting the active profile falls back to default and forgets its data", () => {
-    const created = manager.create({ name: "Temp" });
+    const created = manager.create({ name: "Temp", avatar: DEFAULT_PROFILE_AVATAR });
     manager.setActive(created.id);
     repo.set("profileStates", { [created.id]: { settings: {} } });
     repo.set("profileSessions", { [created.id]: ["abc"] });
