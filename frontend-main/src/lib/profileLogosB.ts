@@ -1,7 +1,7 @@
 import type { ProfileLogo } from "./profileLogos";
 
 /**
- * Curated profile logos, part 2 of 2: faces and bots (9).
+ * Curated profile logos, part 2: faces and bots (9).
  * Same format as profileLogosA — self-contained ASCII-only 64x64 SVGs.
  */
 export const PROFILE_LOGOS_B: ProfileLogo[] = [

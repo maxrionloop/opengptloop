@@ -1,7 +1,7 @@
 import type { ProfileLogo } from "./profileLogos";
 
 /**
- * Curated profile logos, part 1 of 3: cute animals (18).
+ * Curated profile logos, part 1: cute animals (18).
  *
  * Every logo is a self-contained 64x64 SVG (rounded-square pastel gradient
  * background + flat cute motif), ASCII-only so it can be stored as a base64

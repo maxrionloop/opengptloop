@@ -1,5 +1,7 @@
 import { PROFILE_LOGOS_A } from "./profileLogosA";
 import { PROFILE_LOGOS_B } from "./profileLogosB";
+import { PROFILE_LOGOS_C } from "./profileLogosC";
+import { PROFILE_LOGOS_D } from "./profileLogosD";
 
 /**
  * Curated profile logo gallery.
@@ -24,7 +26,12 @@ export interface ProfileLogo {
 }
 
 /** The full curated gallery (animals + faces & bots). A logo is required per profile. */
-export const PROFILE_LOGOS: ProfileLogo[] = [...PROFILE_LOGOS_A, ...PROFILE_LOGOS_B];
+export const PROFILE_LOGOS: ProfileLogo[] = [
+  ...PROFILE_LOGOS_A,
+  ...PROFILE_LOGOS_B,
+  ...PROFILE_LOGOS_C,
+  ...PROFILE_LOGOS_D,
+];
 
 /** Gallery categories in display order. */
 export const PROFILE_LOGO_CATEGORIES: string[] = Array.from(
