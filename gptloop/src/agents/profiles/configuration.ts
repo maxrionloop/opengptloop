@@ -35,6 +35,15 @@ export const MAX_PROFILE_DESCRIPTION_CHARS = 300;
  */
 export const MAX_PROFILE_AVATAR_CHARS = 1_500_000;
 
+/**
+ * Logo automatically routed to the built-in default profile: "Foxy", the curated
+ * fox logo from the frontend gallery (frontend-main/src/lib/profileLogosA.ts),
+ * stored as a base64 SVG data URL. Byte-identical to what the frontend assigns,
+ * so both sides agree on the default look without any extra fetch.
+ */
+export const DEFAULT_PROFILE_AVATAR =
+  "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PGRlZnM+PGxpbmVhckdyYWRpZW50IGlkPSJwYTEiIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj48c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiNmZGJhNzQiLz48c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiNmOTczMTYiLz48L2xpbmVhckdyYWRpZW50PjwvZGVmcz48cmVjdCB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHJ4PSIxNCIgZmlsbD0idXJsKCNwYTEpIi8+PHBhdGggZD0iTTE1IDI2IEwxOSAxMSBMMzAgMjEgWiIgZmlsbD0iIzlhMzQxMiIvPjxwYXRoIGQ9Ik00OSAyNiBMNDUgMTEgTDM0IDIxIFoiIGZpbGw9IiM5YTM0MTIiLz48cGF0aCBkPSJNMTggMjMgTDIwIDE1IEwyNiAyMCBaIiBmaWxsPSIjZmVkN2FhIi8+PHBhdGggZD0iTTQ2IDIzIEw0NCAxNSBMMzggMjAgWiIgZmlsbD0iI2ZlZDdhYSIvPjxlbGxpcHNlIGN4PSIzMiIgY3k9IjM4IiByeD0iMTYiIHJ5PSIxMyIgZmlsbD0iI2ZmZjdlZCIvPjxlbGxpcHNlIGN4PSIzMiIgY3k9IjQzIiByeD0iOCIgcnk9IjYiIGZpbGw9IiNmZmVkZDUiLz48Y2lyY2xlIGN4PSIyNSIgY3k9IjM2IiByPSIyLjYiIGZpbGw9IiM0MzE0MDciLz48Y2lyY2xlIGN4PSIzOSIgY3k9IjM2IiByPSIyLjYiIGZpbGw9IiM0MzE0MDciLz48ZWxsaXBzZSBjeD0iMjAuNSIgY3k9IjQwIiByeD0iMi42IiByeT0iMS44IiBmaWxsPSIjZmRhNGFmIiBvcGFjaXR5PSIuOCIvPjxlbGxpcHNlIGN4PSI0My41IiBjeT0iNDAiIHJ4PSIyLjYiIHJ5PSIxLjgiIGZpbGw9IiNmZGE0YWYiIG9wYWNpdHk9Ii44Ii8+PGVsbGlwc2UgY3g9IjMyIiBjeT0iNDEiIHJ4PSIyLjQiIHJ5PSIxLjgiIGZpbGw9IiM0MzE0MDciLz48cGF0aCBkPSJNMjggNDYgUTMyIDQ4LjUgMzYgNDYiIHN0cm9rZT0iIzQzMTQwNyIgc3Ryb2tlLXdpZHRoPSIyIiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz48L3N2Zz4=";
+
 export interface UserProfileConfig {
   /** Stable unique id (16-character alphanumeric; `"default"` for the built-in profile). */
   id: string;
@@ -137,7 +146,7 @@ export function defaultProfile(now: number): UserProfileConfig {
     id: DEFAULT_PROFILE_ID,
     name: DEFAULT_PROFILE_NAME,
     description: DEFAULT_PROFILE_DESCRIPTION,
-    avatar: "",
+    avatar: DEFAULT_PROFILE_AVATAR,
     createdAt: now,
     updatedAt: now,
   };

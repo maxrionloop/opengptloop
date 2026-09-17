@@ -1,6 +1,7 @@
 import type { AppStateRepo } from "../../database/repositories/appStateRepo.js";
 import { createUserProfileId } from "../../database/ids.js";
 import {
+  DEFAULT_PROFILE_AVATAR,
   DEFAULT_PROFILE_ID,
   MAX_PROFILE_AVATAR_CHARS,
   MAX_PROFILE_DESCRIPTION_CHARS,
@@ -89,7 +90,14 @@ export class UserProfileManager {
         }
       }
       if (hasDefault) {
-        return this.get(DEFAULT_PROFILE_ID)!;
+        // Heal defaults saved before curated logos existed: route the default
+        // profile to its SVG logo automatically and persist the fix.
+        const current = this.get(DEFAULT_PROFILE_ID)!;
+        if (!current.avatar) {
+          const healed = this.update(DEFAULT_PROFILE_ID, { avatar: DEFAULT_PROFILE_AVATAR });
+          if (healed) return healed;
+        }
+        return current;
       }
     }
     const now = Date.now();

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Check,
   Copy,
@@ -13,6 +13,11 @@ import {
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import type { UserProfile } from "@/types";
+import {
+  PROFILE_LOGOS,
+  PROFILE_LOGO_CATEGORIES,
+  profileLogoDataUrl,
+} from "@/lib/profileLogos";
 import {
   MAX_PROFILE_DESCRIPTION_CHARS,
   MAX_PROFILE_NAME_CHARS,
@@ -431,7 +436,7 @@ function ProfileEditor({
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" onClick={pickLogo} disabled={uploading}>
             <ImagePlus className="h-3.5 w-3.5" />
-            {uploading ? "Processing…" : draft.avatar ? "Change logo" : "Upload logo"}
+            {uploading ? "Processing…" : "Upload custom"}
           </Button>
           {draft.avatar && (
             <Button variant="ghost" onClick={() => setDraft({ ...draft, avatar: "" })}>
@@ -447,6 +452,8 @@ function ProfileEditor({
           />
         </div>
       </div>
+
+      <LogoPicker value={draft.avatar} onChange={(avatar) => setDraft({ ...draft, avatar })} />
 
       <Field label="Username" hint={`${draft.name.length}/${MAX_PROFILE_NAME_CHARS}`}>
         <TextInput
@@ -475,6 +482,67 @@ function ProfileEditor({
         </p>
       )}
       {error && <p className="m-0 text-xs text-[var(--danger)]">{error}</p>}
+    </div>
+  );
+}
+
+/**
+ * Curated logo gallery: 50+ cute, professional SVG logos grouped by category.
+ * Picking one stores its data URL as the profile avatar (high-quality at any
+ * size, since it stays vector). Uploading a custom image remains available above.
+ */
+function LogoPicker({ value, onChange }: { value: string; onChange: (avatar: string) => void }) {
+  const previews = useMemo(
+    () =>
+      PROFILE_LOGOS.map((logo) => ({
+        logo,
+        url: profileLogoDataUrl(logo.svg),
+      })),
+    [],
+  );
+
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-[var(--muted)]">
+          Choose a logo{" "}
+          <span className="text-[var(--subtle)]">({PROFILE_LOGOS.length} curated)</span>
+        </span>
+      </div>
+      <div className="max-h-64 space-y-3 overflow-y-auto rounded-[var(--radius-md)] border border-[var(--border)] p-3">
+        {PROFILE_LOGO_CATEGORIES.map((category) => (
+          <div key={category}>
+            <p className="m-0 mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--subtle)]">
+              {category}
+            </p>
+            <div className="grid grid-cols-6 gap-1.5 max-[520px]:grid-cols-5">
+              {previews
+                .filter((p) => p.logo.category === category)
+                .map(({ logo, url }) => {
+                  const selected = value === url;
+                  return (
+                    <button
+                      key={logo.id}
+                      type="button"
+                      onClick={() => onChange(selected ? "" : url)}
+                      title={logo.name}
+                      aria-label={`Use the ${logo.name} logo`}
+                      aria-pressed={selected}
+                      className={cn(
+                        "grid aspect-square place-items-center overflow-hidden rounded-[var(--radius-md)] border-2 transition-all active:scale-95",
+                        selected
+                          ? "border-[var(--secondary)]"
+                          : "border-transparent hover:border-[var(--border)]",
+                      )}
+                    >
+                      <img src={url} alt={logo.name} className="h-full w-full object-cover" />
+                    </button>
+                  );
+                })}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

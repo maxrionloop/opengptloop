@@ -1,3 +1,4 @@
+import { defaultProfileAvatar } from "@/lib/profileLogos";
 import type {
   AgentTeam,
   CeoAgent,
@@ -124,13 +125,13 @@ export function normalizeUserProfiles(raw: unknown): UserProfile[] {
   });
 }
 
-/** The built-in default profile value. */
+/** The built-in default profile value (automatically routed to a curated logo). */
 export function defaultUserProfile(now = Date.now()): UserProfile {
   return {
     id: DEFAULT_PROFILE_ID,
     name: DEFAULT_PROFILE_NAME,
     description: DEFAULT_PROFILE_DESCRIPTION,
-    avatar: "",
+    avatar: defaultProfileAvatar(),
     createdAt: now,
     updatedAt: now,
   };
@@ -139,11 +140,17 @@ export function defaultUserProfile(now = Date.now()): UserProfile {
 /**
  * Merge persisted profiles with the built-in default so a default profile is always
  * present (pre-added for every user), unless the user already has one (which wins).
+ * A default profile saved before curated logos existed (empty avatar) is
+ * automatically routed to the curated default logo.
  */
 export function mergeProfilesWithDefaults(userProfiles: UserProfile[]): UserProfile[] {
   const merged = normalizeUserProfiles(userProfiles);
-  if (!merged.some((p) => isDefaultProfile(p.id))) {
+  const existing = merged.find((p) => isDefaultProfile(p.id));
+  if (!existing) {
     merged.unshift(defaultUserProfile(0));
+  } else if (!existing.avatar) {
+    existing.avatar = defaultProfileAvatar();
+    existing.updatedAt = Date.now();
   }
   return merged;
 }

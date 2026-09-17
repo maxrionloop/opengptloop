@@ -20,6 +20,9 @@ export function buildUserProfilesRouter(manager: UserProfileManager): Router {
   const router = Router();
 
   router.get("/", (_req: Request, res: Response) => {
+    // ensureDefault also heals legacy defaults saved before curated logos existed
+    // (routing them to the default SVG logo and persisting the fix).
+    manager.ensureDefault();
     const profiles = manager.list();
     res.json({ ok: true, count: profiles.length, active_id: manager.getActiveId(), profiles });
   });

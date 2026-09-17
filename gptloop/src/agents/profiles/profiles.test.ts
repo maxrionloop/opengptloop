@@ -4,6 +4,7 @@ import Database from "better-sqlite3";
 import { applySchema } from "../../database/schema.js";
 import { AppStateRepo } from "../../database/repositories/appStateRepo.js";
 import {
+  DEFAULT_PROFILE_AVATAR,
   DEFAULT_PROFILE_ID,
   UserProfileManager,
   isDefaultProfileId,
@@ -93,7 +94,22 @@ describe("user profiles — persistent manager (existing SQLite app_state repo)"
     assert.equal(list.length, 1);
     assert.equal(list[0]!.id, DEFAULT_PROFILE_ID);
     assert.ok(list[0]!.name.length > 0);
+    assert.ok(
+      list[0]!.avatar.startsWith("data:image/svg+xml;base64,"),
+      "default profile is automatically routed to its SVG logo",
+    );
     assert.equal(manager.getActive().id, DEFAULT_PROFILE_ID);
+  });
+
+  it("heals a legacy default profile without a logo", () => {
+    repo.set("userProfiles", [
+      { id: DEFAULT_PROFILE_ID, name: "Default User", description: "", avatar: "" },
+    ]);
+    const healed = manager.ensureDefault();
+    assert.equal(healed.id, DEFAULT_PROFILE_ID);
+    assert.equal(healed.avatar, DEFAULT_PROFILE_AVATAR);
+    const stored = repo.get("userProfiles") as Array<{ avatar?: string }>;
+    assert.ok(stored[0]!.avatar!.startsWith("data:image/svg+xml;base64,"));
   });
 
   it("creates, lists, gets, updates and deletes", () => {
