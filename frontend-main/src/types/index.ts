@@ -263,6 +263,55 @@ export interface BackendCeo {
   teams: BackendTeam[];
 }
 
+/** Lifecycle status of a third-party app connector connection. */
+export type ConnectorStatus = "pending" | "active" | "failed" | "disconnected";
+
+/**
+ * One third-party app connector connection (GitHub, Slack, Notion, Gmail, Outlook),
+ * stored in the backend SQLite database. Only the Composio connected-account id +
+ * status are persisted — tokens stay inside Composio.
+ */
+export interface ConnectorConnection {
+  connectorId: string;
+  /** Composio connected-account id this connection authenticates with. */
+  connectedAccountId: string;
+  status: ConnectorStatus;
+  /** Human label for the connected account (login, email, workspace), when known. */
+  accountLabel: string;
+  updatedAt: number;
+}
+
+/** One connector as served by GET /api/connectors (catalog + live status). */
+export interface ConnectorOverviewItem {
+  id: string;
+  name: string;
+  description: string;
+  homepage: string;
+  /** Official toolkit logo URL from Composio (null until a key is configured). */
+  logo_url?: string | null;
+  tools_count?: number | null;
+  status: ConnectorStatus;
+  connected_account_id?: string | null;
+  account_label?: string;
+  updated_at?: number | null;
+}
+
+/** One connector tool as served by GET /api/connectors/tools (uncapped catalog). */
+export interface ConnectorToolMeta {
+  /** Composio tool slug, e.g. GITHUB_CREATE_ISSUE (also the native function name). */
+  name: string;
+  display: string;
+  description: string;
+  connector_id: string;
+  toolkit: string;
+}
+
+/** Connector reference sent with each chat turn (mirrors sub-agent/skill payloads). */
+export interface BackendConnector {
+  connector_id: string;
+  connected_account_id: string;
+}
+
 /**
  * A user-created Custom Agent, stored in the backend SQLite database (app_state `customAgents`).
  *
@@ -681,6 +730,11 @@ export interface Settings {
   serpapiApiKey: string;
   firecrawlApiKey: string;
   /**
+   * Composio API key for third-party app connectors (GitHub, Slack, …).
+   * Sent with each turn; the backend falls back to its stored/server key when empty.
+   */
+  composioApiKey: string;
+  /**
    * Whether the agent may use the sub-agent session tools (list_sub_agent_sessions /
    * reuse_same_sub_agent_session). "no" (default) hides both tools and their usage guidance;
    * "yes" enables them so the agent can continue previously run sub-agent sessions.
@@ -757,6 +811,10 @@ export interface StreamRequest {
   search_provider?: SearchProvider;
   fetch_provider?: FetchProvider;
   firecrawl_api_key?: string;
+  /** Composio API key for this turn (from Settings → Composio). */
+  composio_api_key?: string;
+  /** The turn's authenticated app connectors (only ACTIVE ones are sent). */
+  connectors?: BackendConnector[];
   sub_agents?: BackendSubAgent[];
   skills?: BackendSkill[];
   todos?: TodoItem[];

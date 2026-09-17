@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Check, Pencil, Plug, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { fetchModels, fetchProviders } from "@/lib/api";
+import { validateComposioKey } from "@/lib/connectors";
 import { FALLBACK_PROVIDERS, isCustomProviderId } from "@/lib/providers";
 import { EFFORT_PRESETS, type CustomHeader, type CustomProvider } from "@/types";
 import { Modal } from "@/components/ui/Modal";
@@ -33,6 +34,9 @@ export function SettingsModal() {
   const [editingId, setEditingId] = useState<string | null>(null);
   // Whether the effort control is in "custom string" mode vs. preset buttons.
   const [effortCustom, setEffortCustom] = useState(false);
+  // Composio key validation state (null = not checked yet in this session).
+  const [composioCheck, setComposioCheck] = useState<"ok" | "bad" | null>(null);
+  const [composioChecking, setComposioChecking] = useState(false);
 
   useEffect(() => {
     if (open && providers.length === 0) fetchProviders().then(setProviders).catch(() => {});
@@ -416,6 +420,45 @@ export function SettingsModal() {
               the teams it manages — assigning them tasks, and the leaders then coordinate their own
               members. Create and activate a CEO from the “CEO agents” page in the sidebar. Takes
               precedence over a single agent team when both are active.
+            </p>
+          </section>
+
+          {/* Connectors (Composio) */}
+          <section className="space-y-3 border-t border-[var(--border)] pt-5">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--subtle)]">App connectors (Composio)</h3>
+            <Field label="Composio API key">
+              <div className="flex gap-2">
+                <TextInput
+                  type="password"
+                  value={settings.composioApiKey ?? ""}
+                  onChange={(e) => { setSettings({ composioApiKey: e.target.value }); setComposioCheck(null); }}
+                  placeholder="ak-…"
+                  className="flex-1"
+                />
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    setComposioChecking(true);
+                    const ok = await validateComposioKey(settings.composioApiKey || undefined);
+                    setComposioCheck(ok ? "ok" : "bad");
+                    setComposioChecking(false);
+                  }}
+                  disabled={composioChecking || !(settings.composioApiKey ?? "").trim()}
+                >
+                  <Plug className={cn("h-4 w-4", composioChecking && "animate-spin")} />
+                  {composioCheck === "ok" ? "Valid" : "Test"}
+                </Button>
+              </div>
+            </Field>
+            {composioCheck === "bad" && (
+              <p className="text-xs text-[var(--danger)]">That key was rejected by Composio. Check it and try again.</p>
+            )}
+            <p className="text-xs text-[var(--muted)]">
+              Powers the Connectors page (GitHub, Slack, Notion, Gmail, Outlook). Get a key at{" "}
+              <a href="https://app.composio.dev" target="_blank" rel="noreferrer" className="text-[var(--secondary)] hover:underline">
+                app.composio.dev
+              </a>{" "}
+              — once connected, every app tool is available to the agent as native function calls.
             </p>
           </section>
 

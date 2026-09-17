@@ -15,6 +15,7 @@ import { buildScrapeRouter } from "./api/scrape.js";
 import { buildStateRouter, buildSessionsRouter } from "./api/state.js";
 import { buildToolsRouter } from "./api/tools.js";
 import { buildMemoryAgentRouter } from "./api/memoryagent.js";
+import { buildConnectorsRouter } from "./api/connectors.js";
 import { buildSystemPromptRouter } from "./api/systemprompt.js";
 import { buildCustomAgentsRouter } from "./api/customagents.js";
 import { buildMainAgentPromptsRouter } from "./api/mainagentprompts.js";
@@ -23,6 +24,7 @@ import { MultiAgentRunner } from "./agents/multiagent/index.js";
 import { CeoAgentRunner } from "./agents/multiagent/ceo/index.js";
 import { CustomAgentManager, CustomAgentRunner } from "./agents/customagent/index.js";
 import { MainAgentPromptManager } from "./agents/mainagentprompt/index.js";
+import { ConnectorManager } from "./agents/connectors/index.js";
 import { GptLoopDatabase } from "./database/index.js";
 
 function main(): void {
@@ -56,6 +58,9 @@ function main(): void {
   // the Main Agent runs with. It never creates a new agent — it only changes the Main Agent's system
   // prompt (see chat.ts, which applies the active prompt as a systemPromptOverride).
   const mainAgentPrompts = new MainAgentPromptManager(db.appState);
+  // Connectors (Composio-powered app integrations): connection records live in the
+  // SQLite app_state repository; the router serves connect/status/tools from them.
+  const connectors = new ConnectorManager(db.appState);
 
   const app = express();
   app.use(
@@ -98,6 +103,7 @@ function main(): void {
       customAgents,
       customAgentRunner,
       mainAgentPrompts,
+      connectors,
     ),
   );
   app.use("/api/files", buildFilesRouter(config));
@@ -106,6 +112,7 @@ function main(): void {
   app.use("/api/state", buildStateRouter(db));
   app.use("/api/sessions", buildSessionsRouter(db));
   app.use("/api/memory-agent", buildMemoryAgentRouter(memoryAgent));
+  app.use("/api/connectors", buildConnectorsRouter(connectors, config));
 
   const server = app.listen(config.port, () => {
     // eslint-disable-next-line no-console

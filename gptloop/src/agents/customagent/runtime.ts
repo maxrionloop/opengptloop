@@ -4,6 +4,7 @@ import type { ChatSession } from "../../services/sessionStore.js";
 import type { SessionEventBuffer } from "../../services/eventBuffer.js";
 import type { RunAgentRequest } from "../agent.js";
 import type { CustomAgentConfig } from "./configuration.js";
+import { isConnectorToolName } from "../connectors/index.js";
 import { resolveCustomAgentSystemPrompt, resolveCustomAgentTools } from "./loader.js";
 
 /**
@@ -55,20 +56,28 @@ export class CustomAgentRunner {
     const resolved = resolveCustomAgentTools(this.tools, agent.selectedTools);
     const systemPrompt = resolveCustomAgentSystemPrompt(agent, this.config.workspaceRoot);
 
+    // Connector tool selections (SCREAMING_SNAKE_CASE slugs, never in the static registry)
+    // are preserved verbatim: the shared core runtime filters the turn's connector catalog
+    // by this list, so a Custom Agent only reaches the connector tools it selected.
+    const selectedConnectorTools = agent.selectedTools.filter(
+      (name) => isConnectorToolName(name) && !resolved.allowed.includes(name),
+    );
+    const allowedToolNames = [...resolved.allowed, ...selectedConnectorTools];
+
     // Announce which top-level agent is handling this turn (a Custom Agent, not a sub-agent) so the
     // UI/persistence can label it. Sent before the run so it is captured in the event log.
     buffer.append("custom_agent_active", {
       id: agent.id,
       name: agent.name,
       description: agent.description,
-      allowed_tools: resolved.allowed,
+      allowed_tools: allowedToolNames,
       missing_tools: resolved.missing,
     });
 
     const enriched: RunAgentRequest = {
       ...request,
       systemPromptOverride: systemPrompt,
-      allowedToolNames: resolved.allowed,
+      allowedToolNames,
       customAgent: agent,
     };
 

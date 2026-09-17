@@ -41,6 +41,7 @@ const SYNC_KEYS = [
   "taskModes",
   "activeTaskModeId",
   "planModePrompt",
+  "connectors",
 ] as const;
 
 type SyncKey = (typeof SYNC_KEYS)[number];

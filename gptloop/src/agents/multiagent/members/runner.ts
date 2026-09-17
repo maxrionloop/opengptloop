@@ -4,6 +4,7 @@ import type { StoredMessage } from "../../../services/sessionStore.js";
 import type { ToolContext } from "../../tools/types.js";
 import { runTeamAgentLoop } from "../agentLoop.js";
 import { buildMemberSystemPrompt } from "../systemprompt.js";
+import type { ConnectorRuntime } from "../../connectors/runtime.js";
 import type {
   AgentTeamDefinition,
   TeamAgentRunResult,
@@ -27,6 +28,10 @@ export interface RunMemberAgentArgs {
   allowedTools: Set<string>;
   toolSchemas: OpenAIToolSchema[];
   toolCtx: ToolContext;
+  /** The turn's connector runtime (connected Composio apps), if any. */
+  connectors?: ConnectorRuntime;
+  /** Extra system-prompt tail (e.g. the connected-apps hint), if any. */
+  systemSuffix?: string;
   send: (event: string, data: Record<string, unknown>) => void;
   signal?: AbortSignal;
   provider: Provider;
@@ -39,12 +44,16 @@ export interface RunMemberAgentArgs {
 }
 
 export async function runMemberAgent(args: RunMemberAgentArgs): Promise<TeamAgentRunResult> {
-  const systemPrompt = buildMemberSystemPrompt(
+  const basePrompt = buildMemberSystemPrompt(
     args.member,
     args.team,
     args.workspaceRoot,
     args.sendMessageEnabled,
   );
+  const systemPrompt =
+    args.systemSuffix && args.systemSuffix.trim().length > 0
+      ? `${basePrompt}\n\n${args.systemSuffix.trim()}`
+      : basePrompt;
   return runTeamAgentLoop({
     provider: args.provider,
     tools: args.tools,
@@ -58,6 +67,7 @@ export async function runMemberAgent(args: RunMemberAgentArgs): Promise<TeamAgen
     allowedTools: args.allowedTools,
     toolSchemas: args.toolSchemas,
     toolCtx: args.toolCtx,
+    connectors: args.connectors,
     send: args.send,
     signal: args.signal,
   });

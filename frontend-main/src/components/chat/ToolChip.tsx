@@ -30,6 +30,7 @@ import {
   Paperclip,
   Pencil,
   PencilLine,
+  Plug,
   QrCode,
   Repeat2,
   Search,
@@ -254,7 +255,20 @@ export function ToolChip({ tool }: { tool: ToolActivity }) {
   if (tool.name === "list_sub_agent_sessions") return <ListSubAgentSessionsChip tool={tool} />;
   if (tool.name === "reuse_same_sub_agent_session") return <ReuseSessionChip tool={tool} />;
   if (tool.name === "wait") return <WaitChip tool={tool} />;
+  if (isConnectorTool(tool.name)) return <ConnectorChip tool={tool} />;
   return <GenericChip tool={tool} />;
+}
+
+/** Composio connector tools use SCREAMING_SNAKE_CASE slugs (never a built-in name). */
+function isConnectorTool(name: string): boolean {
+  return /^[A-Z][A-Z0-9_]{2,}$/.test((name ?? "").trim());
+}
+
+/** Connector display name derived from the `{TOOLKIT}_{ACTION}` slug prefix. */
+function connectorNameOf(slug: string): string {
+  const prefix = slug.split("_")[0] ?? "";
+  const pretty = prefix.charAt(0) + prefix.slice(1).toLowerCase();
+  return pretty || "App";
 }
 
 /* ------------------------------------------------------------------ sub-agent */
@@ -1583,6 +1597,50 @@ function ReuseSessionChip({ tool }: { tool: ToolActivity }) {
 }
 
 /* ------------------------------------------------------------------ fallback */
+
+/** A connected-app (Composio) tool call — args in, structured app data out. */
+function ConnectorChip({ tool }: { tool: ToolActivity }) {
+  const { data, error, args, hasResult } = parts(tool);
+  const entries = Object.entries(args ?? {});
+  return (
+    <Shell
+      icon={<Plug className="h-3.5 w-3.5" />}
+      label={tool.label}
+      status={tool.status}
+      expandable={hasResult || entries.length > 0}
+      pills={<Pill tone="accent">{connectorNameOf(tool.name)}</Pill>}
+      panel={() => (
+        <>
+          {error?.message && <div className="text-[var(--danger)]">{error.message}</div>}
+          {entries.length > 0 && (
+            <div>
+              <Label>Arguments</Label>
+              <div className="mt-1 space-y-1">
+                {entries.map(([key, value]) => (
+                  <div key={key} className="flex items-start gap-1.5">
+                    <span className="shrink-0 font-mono text-[var(--muted)]">{key}:</span>
+                    <span className="min-w-0 flex-1 whitespace-pre-wrap break-words font-mono text-[var(--fg)]">
+                      {typeof value === "string" ? value : JSON.stringify(value)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {data !== undefined && (
+            <div>
+              <Label>Result</Label>
+              <Pre className="mt-1">
+                {typeof data === "string" ? data : JSON.stringify(data, null, 2)}
+              </Pre>
+            </div>
+          )}
+          {!data && !error && <div className="text-[var(--muted)]">No result yet.</div>}
+        </>
+      )}
+    />
+  );
+}
 
 function GenericChip({ tool }: { tool: ToolActivity }) {
   const { hasResult, icon: Icon } = parts(tool);

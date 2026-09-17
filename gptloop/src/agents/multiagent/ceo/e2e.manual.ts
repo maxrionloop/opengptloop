@@ -31,6 +31,7 @@ const config: AppConfig = {
   exaApiKey: "",
   serpapiApiKey: "",
   firecrawlApiKey: "",
+  composioApiKey: "",
   visionModelPatterns: [],
   textOnlyModelPatterns: [],
   memoryAgentEnabled: true,

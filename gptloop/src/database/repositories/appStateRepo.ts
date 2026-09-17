@@ -27,6 +27,7 @@ export const APP_STATE_KEYS = [
   "taskModes",
   "activeTaskModeId",
   "planModePrompt",
+  "connectors",
 ] as const;
 
 export type AppStateKey = (typeof APP_STATE_KEYS)[number];

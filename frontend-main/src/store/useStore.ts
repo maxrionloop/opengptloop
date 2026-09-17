@@ -8,6 +8,7 @@ import type {
   ChatMessage,
   Conversation,
   CeoAgent,
+  ConnectorConnection,
   CustomAgent,
   CustomProvider,
   CustomTaskMode,
@@ -51,6 +52,7 @@ import { hasUnsafeSegment, normalizeKnowledgePath, sanitizeKnowledge } from "@/l
 import { enforceSingleActive, mergeTeamsWithDefaults } from "@/lib/defaultTeams";
 import { enforceSingleActiveCeo, normalizeCeoAgents } from "@/lib/defaultCeo";
 import { MAIN_AGENT_ID, normalizeCustomAgents } from "@/lib/customAgents";
+import { normalizeConnectors } from "@/lib/connectors";
 import { normalizeMainAgentPrompts } from "@/lib/mainAgentPrompts";
 import {
   DEFAULT_PLAN_MODE_PROMPT,
@@ -69,7 +71,8 @@ export type Section =
   | "ceo"
   | "customagents"
   | "systemprompts"
-  | "taskmodes";
+  | "taskmodes"
+  | "connectors";
 
 /** Connection state surfaced to the user. Slow ≠ offline; only a lost connection is "offline". */
 export type Connection = "online" | "reconnecting" | "offline";
@@ -118,6 +121,12 @@ interface AppState {
   activeMainAgentPromptId: string | null;
   /** User-created custom task modes for the prompt box (name + appended prompt). */
   taskModes: CustomTaskMode[];
+  /**
+   * Third-party app connector connections (GitHub, Slack, …), synced with the backend
+   * SQLite database like every other slice. Only the connected-account id + status are
+   * stored — tokens stay inside Composio.
+   */
+  connectors: ConnectorConnection[];
   /**
    * The active task mode: null / "default" = normal, "plan" = plan-first mode,
    * otherwise a custom task-mode id whose prompt is appended to the message.
@@ -310,6 +319,14 @@ interface AppState {
   /** Update the editable plan-mode prompt appended in plan mode. */
   setPlanModePrompt: (prompt: string) => void;
 
+  // Connector connections (third-party apps via Composio)
+  /** Replace the whole connection list (used after a backend refresh). */
+  setConnectors: (connectors: ConnectorConnection[]) => void;
+  /** Upsert one connection by connector id. */
+  setConnector: (connection: ConnectorConnection) => void;
+  /** Drop one connection by connector id. */
+  removeConnector: (connectorId: string) => void;
+
   // Multi-agent team live run (rendered inline in the assistant container message)
   startTeamRun: (
     convId: string,
@@ -416,6 +433,7 @@ const defaultSettings: Settings = {
   exaApiKey: "",
   serpapiApiKey: "",
   firecrawlApiKey: "",
+  composioApiKey: "",
   enableReuseSubAgentSession: "no",
   effort: "high",
   temperature: 0.6,
@@ -558,6 +576,7 @@ export const useStore = create<AppState>()(
       taskModes: [],
       activeTaskModeId: null,
       planModePrompt: DEFAULT_PLAN_MODE_PROMPT,
+      connectors: [],
       activeRun: null,
 
       hydrated: false,
@@ -652,6 +671,9 @@ export const useStore = create<AppState>()(
               : s.activeTaskModeId,
           planModePrompt: normalizePlanModePrompt(
             (p as { planModePrompt?: unknown }).planModePrompt ?? s.planModePrompt,
+          ),
+          connectors: normalizeConnectors(
+            (p as { connectors?: unknown }).connectors ?? s.connectors,
           ),
         }));
       },
@@ -1237,6 +1259,24 @@ export const useStore = create<AppState>()(
       setActiveTaskMode: (id) => set(() => ({ activeTaskModeId: id || null })),
 
       setPlanModePrompt: (planModePrompt) => set(() => ({ planModePrompt })),
+
+      // ---- Connector connections (third-party apps via Composio) ----------------
+      setConnectors: (connectors) => set(() => ({ connectors: normalizeConnectors(connectors) })),
+
+      setConnector: (connection) =>
+        set((s) => {
+          const normalized = normalizeConnectors([connection])[0];
+          if (!normalized) return {};
+          const rest = s.connectors.filter((c) => c.connectorId !== normalized.connectorId);
+          return { connectors: [...rest, normalized] };
+        }),
+
+      removeConnector: (connectorId) =>
+        set((s) => ({
+          connectors: s.connectors.filter(
+            (c) => c.connectorId !== connectorId.trim().toLowerCase(),
+          ),
+        })),
 
       // ---- Multi-agent team live run ---------------------------------------------
       startTeamRun: (convId, msgId, info) =>

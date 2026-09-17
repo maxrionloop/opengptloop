@@ -27,6 +27,10 @@ import { createKnowledgeRuntime } from "./knowledge.js";
 import type { KnowledgeFile, MemoryFile, MemoryRuntime, TodoItem } from "./tools/types.js";
 import type { MemoryAgentService } from "./memoryagent/index.js";
 import { ALL_MULTI_AGENT_TOOL_NAMES } from "./tools/teamTools.js";
+import {
+  ConnectorRuntime,
+  type ConnectorWire,
+} from "./connectors/index.js";
 
 export interface RunAgentRequest {
   chatId: string;
@@ -102,6 +106,16 @@ export interface RunAgentRequest {
    * task 3, then again after task 6, 9, ... Clamped to >= 1.
    */
   memoryAgentInterval?: number;
+  /**
+   * Composio API key for this turn (from frontend Settings). When present together with
+   * `connectors`, every tool of every connected app is advertised as native function tools.
+   */
+  composioApiKey?: string;
+  /**
+   * The turn's authenticated app connectors (Composio connected-account references).
+   * Only these toolkits are loaded; each contributes its FULL tool catalog (uncapped).
+   */
+  connectors?: ConnectorWire[];
 }
 
 /** Lightweight identity of the Custom Agent handling a turn (see agents/customagent/configuration). */
@@ -205,7 +219,7 @@ export class AgentRunner {
       // A Custom Agent (top-level, user-created Main Agent) supplies its own fully-customized system
       // prompt, used verbatim. The default Main Agent has no override and builds its prompt as before.
       const promptOverride = request.systemPromptOverride?.trim();
-      const systemPrompt =
+      const basePrompt =
         promptOverride && promptOverride.length > 0
           ? promptOverride
           : buildSystemPrompt(this.config.workspaceRoot, {
@@ -218,11 +232,34 @@ export class AgentRunner {
       if (!reuseSessionsEnabled) for (const name of SESSION_REUSE_TOOLS) hiddenTools.add(name);
       let toolSchemas = this.tools.schemas.filter((s) => !hiddenTools.has(s.function.name));
       // Custom Agents run with only their selected tools (team tools remain excluded above).
+      // Connector tool names (SCREAMING_SNAKE_CASE, never in the static registry) survive this
+      // filter below: they are re-added from the connector runtime when selected.
       if (request.allowedToolNames) {
         const allow = new Set(request.allowedToolNames);
         toolSchemas = toolSchemas.filter((s) => allow.has(s.function.name));
       }
       const visionCapable = isVisionCapableModel(request.model, this.config);
+      // Connected app connectors (Composio): every tool of every connected toolkit is
+      // advertised as NATIVE function tools — no allowlist, no subset, no cap. Inert
+      // (zero network) when no API key or no connections are present this turn.
+      const connectorRuntime = await ConnectorRuntime.create({
+        apiKey: request.composioApiKey ?? "",
+        connections: request.connectors ?? [],
+      });
+      if (connectorRuntime.active) {
+        const connectorSchemas = connectorRuntime.schemas();
+        if (request.allowedToolNames) {
+          // Custom Agent: keep only the connector tools the agent selected.
+          const allow = new Set(request.allowedToolNames);
+          toolSchemas = [...toolSchemas, ...connectorSchemas.filter((s) => allow.has(s.function.name))];
+        } else {
+          toolSchemas = [...toolSchemas, ...connectorSchemas];
+        }
+      }
+      // Tell the model about its connected apps (a short hint — the tools themselves
+      // carry full descriptions as native schemas).
+      const connectorHint = connectorRuntime.active ? connectorRuntime.hint() : "";
+      const systemPrompt = connectorHint ? `${basePrompt}\n\n# Connected apps\n- ${connectorHint}` : basePrompt;
       const web: WebToolsConfig = {
         searchProvider: request.searchProvider ?? this.config.searchProvider,
         fetchProvider: request.fetchProvider ?? this.config.fetchProvider,
@@ -251,6 +288,9 @@ export class AgentRunner {
         temperature: request.temperature,
         effort: request.effort,
         send,
+        // The turn's connector runtime is shared with sub-agents so a sub-agent granted
+        // connector tools can execute them natively (same account, same catalog).
+        connectors: connectorRuntime.active ? connectorRuntime : undefined,
         // Snapshot the live conversation so a call_sub_agent with send_my_context=true can share
         // the surrounding context. Returns the current messages at the moment the sub-agent is called.
         getConversationContext: () => session.messages,
@@ -349,19 +389,32 @@ export class AgentRunner {
           session.messages.push(assistantMessage);
 
           const imageMessages: StoredMessage[] = [];
+          // Custom Agents carry an explicit tool allow-list (built once per turn).
+          const customAllow = request.allowedToolNames ? new Set(request.allowedToolNames) : null;
 
           for (const toolCall of toolCalls) {
             if (!toolCall.function.name) continue;
             const args = safeJsonParse(toolCall.function.arguments);
+            const toolName = toolCall.function.name;
+            // Connector tools (Composio) are native function tools served by the turn's
+            // connector runtime; everything else goes through the static registry. A Custom
+            // Agent may only reach the connector tools it selected (its allow-list).
+            const isConnectorTool =
+              connectorRuntime.has(toolName) && (!customAllow || customAllow.has(toolName));
+            const toolLabel = isConnectorTool
+              ? connectorRuntime.label(toolName)
+              : this.tools.label(toolName, args);
 
             send("tool_call", {
               id: toolCall.id,
-              name: toolCall.function.name,
+              name: toolName,
               args,
-              label: this.tools.label(toolCall.function.name, args),
+              label: toolLabel,
             });
 
-            const result = await this.tools.execute(toolCall.function.name, args, {
+            const result = isConnectorTool
+              ? await connectorRuntime.execute(toolName, args)
+              : await this.tools.execute(toolName, args, {
               workspaceRoot: this.config.workspaceRoot,
               shellTimeoutMs: this.config.shellTimeoutMs,
               signal,
@@ -380,7 +433,11 @@ export class AgentRunner {
               questionTimeoutMs: this.config.questionTimeoutMs,
               model: request.model,
               visionCapable,
-              availableToolNames: this.tools.names(),
+              connectors: connectorRuntime.active ? connectorRuntime : undefined,
+              // LLM-created sub-agents may also use the turn's connector tools.
+              availableToolNames: connectorRuntime.active
+                ? [...this.tools.names(), ...connectorRuntime.names()]
+                : this.tools.names(),
             });
 
             // read_image attaches the loaded image to its result. The base64 payload
@@ -404,7 +461,7 @@ export class AgentRunner {
               name: toolCall.function.name,
               ok: result.ok,
               result: resultForModel,
-              label: this.tools.label(toolCall.function.name, args),
+              label: toolLabel,
             });
           }
 

@@ -7,6 +7,7 @@ import { createMemoryRuntime } from "../memory.js";
 import { createKnowledgeRuntime } from "../knowledge.js";
 import { createSkillRuntime } from "../skills.js";
 import { createTodoRuntime } from "../todos.js";
+import { ConnectorRuntime } from "../connectors/index.js";
 import type { AppConfig } from "../../config.js";
 import type { Provider, StreamDelta } from "../providers/types.js";
 
@@ -24,6 +25,7 @@ const fakeConfig: AppConfig = {
   exaApiKey: "",
   serpapiApiKey: "",
   firecrawlApiKey: "",
+  composioApiKey: "",
   visionModelPatterns: [],
   textOnlyModelPatterns: [],
   memoryAgentEnabled: true,
@@ -240,6 +242,7 @@ function buildOrchestrator(
     todos: createTodoRuntime([]),
     subAgentDefinitions: [],
     userSubAgents: [],
+    connectors: ConnectorRuntime.empty(),
     send: (e, d) => events.push({ e, d }),
     signal,
   });

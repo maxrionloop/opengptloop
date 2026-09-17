@@ -8,6 +8,7 @@ import {
   extractImageAttachment,
   withoutImageAttachment,
 } from "../tools/readImage.js";
+import type { ConnectorRuntime } from "../connectors/runtime.js";
 import {
   EV_AGENT_REASONING,
   EV_AGENT_SEGMENT,
@@ -39,6 +40,11 @@ export interface TeamAgentLoopParams {
   toolSchemas: OpenAIToolSchema[];
   /** The tool-execution context (already carries the team runtime + shared runtimes). */
   toolCtx: ToolContext;
+  /**
+   * The turn's connector runtime (connected Composio apps). Team agents execute connector
+   * tools natively through it. Absent when no connector is connected this turn.
+   */
+  connectors?: ConnectorRuntime;
   /** Emit an SSE event already stamped with this agent's id/role. */
   send: (event: string, data: Record<string, unknown>) => void;
   signal?: AbortSignal;
@@ -52,6 +58,7 @@ export interface TeamAgentLoopParams {
  */
 export async function runTeamAgentLoop(params: TeamAgentLoopParams): Promise<TeamAgentRunResult> {
   const { provider, tools, messages, allowedTools, toolSchemas, toolCtx, send, signal } = params;
+  const connectors = params.connectors;
 
   const answerAcrossTurns: string[] = [];
 
@@ -119,11 +126,16 @@ export async function runTeamAgentLoop(params: TeamAgentLoopParams): Promise<Tea
         for (const toolCall of namedCalls) {
           const name = toolCall.function.name;
           const args = safeJsonParse(toolCall.function.arguments);
-          const label = tools.label(name, args);
+          // Connector tools (Composio) run through the turn's connector runtime; the grant
+          // check (`allowedTools`) already covers them, so no second gate is needed here.
+          const isConnectorTool = connectors?.has(name) ?? false;
+          const label = isConnectorTool ? connectors!.label(name) : tools.label(name, args);
 
           send(EV_AGENT_TOOL_CALL, { tool_id: toolCall.id, name, args, label });
 
-          const result: ToolResult = allowedTools.has(name)
+          const result: ToolResult = isConnectorTool
+            ? await connectors!.execute(name, args)
+            : allowedTools.has(name)
             ? await tools.execute(name, args, toolCtx)
             : {
                 ok: false,

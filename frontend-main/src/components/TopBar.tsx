@@ -23,6 +23,8 @@ function contextLabel(section: Section, counts: Record<string, number>): string 
       return `${counts.systemprompts} prompt${counts.systemprompts === 1 ? "" : "s"}`;
     case "taskmodes":
       return `${counts.taskmodes} mode${counts.taskmodes === 1 ? "" : "s"}`;
+    case "connectors":
+      return `${counts.connectors} app${counts.connectors === 1 ? "" : "s"}`;
     default:
       return null;
   }
@@ -49,6 +51,7 @@ export function TopBar() {
   const activeCustomAgentId = useStore((s) => s.activeCustomAgentId);
   const mainAgentPrompts = useStore((s) => s.mainAgentPrompts);
   const taskModes = useStore((s) => s.taskModes);
+  const connectors = useStore((s) => s.connectors);
   const setSection = useStore((s) => s.setSection);
 
   const label = contextLabel(section, {
@@ -60,6 +63,7 @@ export function TopBar() {
     customagents: customAgents.length,
     systemprompts: mainAgentPrompts.length,
     taskmodes: taskModes.length,
+    connectors: connectors.filter((c) => c.status === "active").length,
   });
   const isChat = section === "chat";
   const activeAgent = customAgents.find((a) => a.id === activeCustomAgentId) ?? null;

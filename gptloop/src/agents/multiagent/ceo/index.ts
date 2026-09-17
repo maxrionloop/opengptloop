@@ -12,6 +12,7 @@ import { createSkillRuntime } from "../../skills.js";
 import { mergeDefaultSkills, resolveDefaultSkills } from "../../skills/index.js";
 import { createTodoRuntime } from "../../todos.js";
 import { resolveDefaultSubAgents } from "../../sub-agents/index.js";
+import { ConnectorRuntime } from "../../connectors/index.js";
 import { CeoSessionStore } from "./store.js";
 import { CeoOrchestrator } from "./runtime.js";
 import type { RunCeoRequest } from "./types.js";
@@ -92,6 +93,13 @@ export class CeoAgentRunner {
       // Mirror the user message into the chat session transcript for persistence + the sidebar title.
       session.messages.push({ role: "user", content: request.userMessage });
 
+      // Connected app connectors (Composio): shared by the CEO, every leader, every
+      // member, and their sub-agents. Inert when unconfigured.
+      const connectors = await ConnectorRuntime.create({
+        apiKey: request.composioApiKey ?? "",
+        connections: request.connectors ?? [],
+      });
+
       const orchestrator = new CeoOrchestrator({
         provider,
         tools: this.tools,
@@ -112,6 +120,7 @@ export class CeoAgentRunner {
         todos,
         subAgentDefinitions,
         userSubAgents: request.subAgents ?? [],
+        connectors,
         send,
         signal,
       });

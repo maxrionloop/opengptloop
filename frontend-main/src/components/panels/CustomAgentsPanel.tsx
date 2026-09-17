@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { fetchCustomAgentTools, fetchMainAgentSystemPrompt, type CustomAgentToolMeta } from "@/lib/customAgentTools";
+import { AVAILABLE_CONNECTORS, fetchConnectorTools } from "@/lib/connectors";
 import { MAIN_AGENT_ID } from "@/lib/customAgents";
 import { Modal } from "@/components/ui/Modal";
 import { Button, EmptyState, Field, PanelHeader, TextArea, TextInput, Toggle } from "@/components/ui/primitives";
@@ -32,6 +33,31 @@ interface Draft {
 }
 
 const empty = (): Draft => ({ id: null, name: "", description: "", systemPrompt: "", selectedTools: [] });
+
+/** Connected connector tools (best-effort — an empty list when none are connected). */
+async function connectorTools(signal?: AbortSignal): Promise<CustomAgentToolMeta[]> {
+  try {
+    const tools = await fetchConnectorTools(signal);
+    const byId = new Map(AVAILABLE_CONNECTORS.map((c) => [c.id, c.name]));
+    return tools.map((t) => ({
+      name: t.name,
+      label: t.display || t.name,
+      description: `[${byId.get(t.connector_id) ?? t.connector_id}] ${t.description || t.display || t.name}`,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/** Append connector tools to the registry catalog (names can never collide). */
+function mergeConnectorTools(
+  base: CustomAgentToolMeta[],
+  extra: CustomAgentToolMeta[],
+): CustomAgentToolMeta[] {
+  if (extra.length === 0) return base;
+  const seen = new Set(base.map((t) => t.name));
+  return [...base, ...extra.filter((t) => !seen.has(t.name))];
+}
 
 /**
  * Custom Agents panel.
@@ -69,12 +95,16 @@ export function CustomAgentsPanel() {
       try {
         const fetched = await fetchCustomAgentTools(signal);
         if (signal?.aborted) return;
-        setTools(fetched);
+        // Connected connector tools join the catalog so a Custom Agent can select them
+        // (names can never collide with registry tools).
+        const extra = await connectorTools(signal);
+        const merged = mergeConnectorTools(fetched, extra);
+        setTools(merged);
         setToolsError(null);
         // For a brand-new agent, start with the full main-agent tool surface selected so it begins
         // with the same base capabilities as the Main Agent; the user can then deselect any.
         if (preselectAll) {
-          setDraft((d) => (d && d.id === null ? { ...d, selectedTools: fetched.map((t) => t.name) } : d));
+          setDraft((d) => (d && d.id === null ? { ...d, selectedTools: merged.map((t) => t.name) } : d));
         }
       } catch {
         if (signal?.aborted) return;

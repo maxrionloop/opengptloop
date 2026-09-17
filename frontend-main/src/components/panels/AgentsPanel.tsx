@@ -3,6 +3,7 @@ import { Bot, Check, ChevronLeft, Pencil, Plus, RefreshCw, Search, Trash2, Wrenc
 import { useStore } from "@/store/useStore";
 
 import { SUB_AGENT_TOOLS, fetchSubAgentTools, type SubAgentToolMeta } from "@/lib/subAgentTools";
+import { AVAILABLE_CONNECTORS, fetchConnectorTools } from "@/lib/connectors";
 import { Modal } from "@/components/ui/Modal";
 import { Button, Field, PanelHeader, TextArea, TextInput, Toggle } from "@/components/ui/primitives";
 import { cn } from "@/utils/cn";
@@ -20,6 +21,31 @@ function sanitizeSubAgentName(raw: string): string {
 /** Built-in defaults have ids prefixed with "default-" and can never be deleted. */
 function isDefaultSubAgent(id: string): boolean {
   return id.startsWith("default-");
+}
+
+/** Connected connector tools (best-effort — an empty list when none are connected). */
+async function connectorTools(signal?: AbortSignal): Promise<SubAgentToolMeta[]> {
+  try {
+    const tools = await fetchConnectorTools(signal);
+    const byId = new Map(AVAILABLE_CONNECTORS.map((c) => [c.id, c.name]));
+    return tools.map((t) => ({
+      name: t.name,
+      label: t.display || t.name,
+      description: `[${byId.get(t.connector_id) ?? t.connector_id}] ${t.description || t.display || t.name}`,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/** Append connector tools to the registry list (names can never collide). */
+function mergeConnectorTools(
+  base: SubAgentToolMeta[],
+  extra: SubAgentToolMeta[],
+): SubAgentToolMeta[] {
+  if (extra.length === 0) return base;
+  const seen = new Set(base.map((t) => t.name));
+  return [...base, ...extra.filter((t) => !seen.has(t.name))];
 }
 
 interface Draft {
@@ -56,7 +82,7 @@ export function AgentsPanel() {
     try {
       const fetched = await fetchSubAgentTools(signal);
       if (signal?.aborted) return;
-      if (fetched.length > 0) setTools(fetched);
+      if (fetched.length > 0) setTools(mergeConnectorTools(fetched, await connectorTools(signal)));
       setToolsError(null);
     } catch {
       if (signal?.aborted) return;
@@ -72,9 +98,17 @@ export function AgentsPanel() {
   useEffect(() => {
     const controller = new AbortController();
     fetchSubAgentTools(controller.signal)
-      .then((fetched) => {
+      .then(async (fetched) => {
         if (controller.signal.aborted) return;
-        if (fetched.length > 0) setTools(fetched);
+        if (fetched.length > 0) {
+          setTools(mergeConnectorTools(fetched, await connectorTools(controller.signal)));
+        } else {
+          // Registry fetch came back empty — still offer the connector tools, if any.
+          const extra = await connectorTools(controller.signal);
+          if (!controller.signal.aborted && extra.length > 0) {
+            setTools((prev) => mergeConnectorTools(prev, extra));
+          }
+        }
         setToolsError(null);
       })
       .catch(() => {

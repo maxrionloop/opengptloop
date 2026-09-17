@@ -24,6 +24,11 @@ import {
   type CustomAgentConfig,
 } from "../agents/customagent/index.js";
 import type { MainAgentPromptManager } from "../agents/mainagentprompt/index.js";
+import {
+  normalizeConnectorWire,
+  type ConnectorManager,
+  type ConnectorWire,
+} from "../agents/connectors/index.js";
 
 /** Extract a string field from an untrusted object (used on the custom_provider payload). */
 function str(value: unknown): string {
@@ -119,6 +124,18 @@ interface StreamBody {
    * CustomAgentManager, so a Custom Agent can be started independently of the Main Agent.
    */
   custom_agent_id?: unknown;
+  /**
+   * Composio API key for this turn (from frontend Settings → Composio). Falls back to the
+   * stored settings key / server env when omitted. Present together with `connectors`, every
+   * connected app's full tool catalog is advertised to the agent as native function tools.
+   */
+  composio_api_key?: unknown;
+  /**
+   * The turn's authenticated app connectors: [{ connector_id, connected_account_id }].
+   * Only ACTIVE connections should be sent; the backend trusts these references the same
+   * way it trusts the per-turn sub-agent/skill/memory payloads.
+   */
+  connectors?: unknown;
   /**
    * A custom system prompt to use VERBATIM for the built-in Main Agent this turn (the active "Custom
    * System Prompt"). Only applies to the default Main Agent path — Custom Agents supply their own
@@ -300,8 +317,33 @@ export function buildChatRouter(
   customAgents: CustomAgentManager,
   customAgentRunner: CustomAgentRunner,
   mainAgentPrompts: MainAgentPromptManager,
+  connectors: ConnectorManager,
 ): Router {
   const router = Router();
+
+  /**
+   * Resolve the turn's connector references + Composio key. The frontend sends both with
+   * every turn (like sub-agents/skills); when the payload omits them (older client), fall
+   * back to the ACTIVE stored connections and the stored/server key so connectors keep
+   * working.
+   */
+  const resolveConnectors = (body: StreamBody): { apiKey: string; refs: ConnectorWire[] } => {
+    const apiKey =
+      (typeof body.composio_api_key === "string" ? body.composio_api_key.trim() : "") ||
+      connectors.resolveApiKey("", config.composioApiKey);
+    let refs: ConnectorWire[];
+    if (Array.isArray(body.connectors)) {
+      refs = body.connectors
+        .map((item) => normalizeConnectorWire(item))
+        .filter((r): r is ConnectorWire => r !== null);
+    } else {
+      refs = connectors
+        .list()
+        .filter((c) => c.status === "active")
+        .map((c) => ({ connectorId: c.connectorId, connectedAccountId: c.connectedAccountId }));
+    }
+    return { apiKey, refs };
+  };
 
   /**
    * Resolve the system prompt the built-in Main Agent should run with this turn. Prefers an explicit
@@ -450,6 +492,8 @@ export function buildChatRouter(
       // wire every SSE event — main agent AND sub-agents — into the batched write queue.
       const title = (body.user_message ?? "").trim().slice(0, 80);
       const turn = db.sessions.startTurn(chatId, title);
+      // Connected app connectors for this turn (Composio key + account references).
+      const { apiKey: composioApiKey, refs: connectorRefs } = resolveConnectors(body);
       const buffer = new SessionEventBuffer((id, event, data) => {
         db.queue.enqueueEvent(chatId, turn, id, event, data);
       });
@@ -488,6 +532,8 @@ export function buildChatRouter(
           todos: normalizeTodos(body.todos),
           memory: normalizeMemoryFiles(body.memory),
           knowledge: normalizeKnowledgeFiles(body.knowledge),
+          composioApiKey,
+          connectors: connectorRefs,
         };
 
         void ceoAgent
@@ -537,6 +583,8 @@ export function buildChatRouter(
           todos: normalizeTodos(body.todos),
           memory: normalizeMemoryFiles(body.memory),
           knowledge: normalizeKnowledgeFiles(body.knowledge),
+          composioApiKey,
+          connectors: connectorRefs,
         };
 
         void multiAgent
@@ -588,6 +636,8 @@ export function buildChatRouter(
         systemPromptOverride: resolveMainAgentSystemPrompt(body),
         memoryAgentEnabled: parseMemoryAgentEnabled(body.memory_agent_enabled, config.memoryAgentEnabled),
         memoryAgentInterval: parseMemoryAgentInterval(body.memory_agent_interval, config.memoryAgentInterval),
+        composioApiKey,
+        connectors: connectorRefs,
       };
 
       // Custom Agent mode: when the active agent is a user-created top-level Custom Agent, run this

@@ -17,6 +17,7 @@ import { createSubAgentRuntime } from "../subagents.js";
 import { resolveDefaultSubAgents, mergeDefaultSubAgents } from "../sub-agents/index.js";
 import { allowedTeamAgentTools } from "../tools/teamTools.js";
 import { isVisionCapableModel } from "../../utils/vision.js";
+import type { ConnectorRuntime } from "../connectors/runtime.js";
 import { buildLeaderReportReminder, frameMailbox } from "./systemprompt.js";
 import { runHeadAgent } from "./head/runner.js";
 import { runMemberAgent } from "./members/runner.js";
@@ -92,6 +93,8 @@ export interface TeamOrchestratorDeps {
   todos: TodoRuntime;
   subAgentDefinitions: Awaited<ReturnType<typeof resolveDefaultSubAgents>>;
   userSubAgents: import("../tools/types.js").SubAgentDefinition[];
+  /** The turn's connector runtime (connected Composio apps), shared by every agent. */
+  connectors: ConnectorRuntime;
   /** Raw SSE emitter onto the turn buffer. */
   send: (event: string, data: Record<string, unknown>) => void;
   signal: AbortSignal;
@@ -182,6 +185,7 @@ export class TeamOrchestrator {
       temperature: this.deps.temperature,
       effort: this.deps.effort,
       send: this.deps.send,
+      connectors: this.deps.connectors.active ? this.deps.connectors : undefined,
       getConversationContext: () => context.messages,
     });
   }
@@ -377,14 +381,20 @@ export class TeamOrchestrator {
     const send = (event: string, data: Record<string, unknown>): void =>
       this.deps.send(event, { agent_id: actor.context.id, role: actor.context.role, ...data });
 
+    const connectors = this.deps.connectors;
     const allowed = new Set(
       allowedTeamAgentTools(
         this.registryNames,
         actor.context.role,
         this.deps.sendMessageToTeamEnabled,
+        connectors.active ? connectors.names() : [],
       ),
     );
-    const toolSchemas = this.deps.tools.schemasFor(allowed);
+    // Registry schemas for the granted static tools + every connector tool natively.
+    const toolSchemas = [
+      ...this.deps.tools.schemasFor([...allowed].filter((name) => this.deps.tools.has(name))),
+      ...connectors.schemas().filter((s) => allowed.has(s.function.name)),
+    ];
     const toolCtx = this.buildToolCtx(actor, allowed);
 
     const common = {
@@ -394,6 +404,8 @@ export class TeamOrchestrator {
       allowedTools: allowed,
       toolSchemas,
       toolCtx,
+      connectors: connectors.active ? connectors : undefined,
+      systemSuffix: connectors.active ? `# Connected apps\n- ${connectors.hint()}` : undefined,
       send,
       signal: this.deps.signal,
       provider: this.deps.provider,
@@ -434,6 +446,7 @@ export class TeamOrchestrator {
       memory: this.deps.memory,
       knowledge: this.deps.knowledge,
       team: this.buildTeamRuntime(actor),
+      connectors: this.deps.connectors.active ? this.deps.connectors : undefined,
       model: this.deps.model,
       visionCapable: this.visionCapable,
       availableToolNames: this.registryNames,

@@ -182,6 +182,48 @@ export const API_ROUTES = {
     path: "/api/workspace/mkdir",
     description: "Create a folder (nested a/b/c supported) inside the current workspace.",
   },
+  connectorsOverview: {
+    name: "connectors.overview",
+    method: "GET",
+    path: "/api/connectors",
+    description: "List the available app connectors (GitHub, Slack, …) with connection status.",
+  },
+  connectorsConnect: {
+    name: "connectors.connect",
+    method: "POST",
+    path: "/api/connectors/connect",
+    description: "Start connecting a connector — returns the OAuth redirect URL to visit.",
+  },
+  connectorsStatus: {
+    name: "connectors.status",
+    method: "GET",
+    path: "/api/connectors/status/:connectedAccountId",
+    description: "Poll one connected account and persist its latest status.",
+  },
+  connectorsRefresh: {
+    name: "connectors.refresh",
+    method: "POST",
+    path: "/api/connectors/refresh",
+    description: "Re-poll every stored connector connection.",
+  },
+  connectorsDisconnect: {
+    name: "connectors.disconnect",
+    method: "DELETE",
+    path: "/api/connectors/:connectorId",
+    description: "Disconnect a connector (remote best-effort + local removal).",
+  },
+  connectorsTools: {
+    name: "connectors.tools",
+    method: "GET",
+    path: "/api/connectors/tools",
+    description: "List every tool of every active connector (uncapped catalog).",
+  },
+  connectorsValidate: {
+    name: "connectors.validate",
+    method: "POST",
+    path: "/api/connectors/validate",
+    description: "Validate a Composio API key.",
+  },
 } as const satisfies Record<string, ApiRoute>;
 
 export type ApiRouteName = keyof typeof API_ROUTES;

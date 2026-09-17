@@ -23,6 +23,7 @@ import { createSubAgentSessionId, isSafeSessionId } from "../database/ids.js";
 import { subAgentSessionStore, type SubAgentSessionStatus } from "./subAgentSessionStore.js";
 import type { OpenAIToolSchema } from "./tools/registry.js";
 import { SUB_AGENT_RESTRICTED_TOOLS } from "./tools/subAgentRestrictedTools.js";
+import type { ConnectorRuntime } from "./connectors/runtime.js";
 
 /**
  * Tools a sub-agent may never use. This is the single canonical restricted set
@@ -53,6 +54,12 @@ export interface SubAgentRuntimeDeps {
   effort?: string;
   /** Emit an SSE side-channel event onto the turn's event buffer. */
   send: (event: string, data: Record<string, unknown>) => void;
+  /**
+   * The turn's connector runtime (connected Composio apps). A sub-agent granted connector
+   * tools executes them natively against the same connected accounts. Absent when no
+   * connector is connected this turn.
+   */
+  connectors?: ConnectorRuntime;
   /**
    * Snapshot the main agent's current conversation messages. Used only when a call_sub_agent
    * invocation sets `send_my_context: true`, so the sub-agent can be handed a readable summary of
@@ -719,12 +726,25 @@ class SubAgentRunner {
     toolSchemas: OpenAIToolSchema[];
   } {
     const { tools } = this.deps;
+    const connectors = this.deps.connectors;
+    // Connector tools granted to this sub-agent are allowed when the turn has them
+    // (matched by exact slug — connector tools never collide with registry names).
     const allowed = new Set(
       (definition.tools ?? []).filter(
-        (name) => tools.has(name) && !SUB_AGENT_EXCLUDED_TOOLS.includes(name),
+        (name) =>
+          (tools.has(name) && !SUB_AGENT_EXCLUDED_TOOLS.includes(name)) ||
+          (connectors?.has(name) ?? false),
       ),
     );
-    return { allowed, toolSchemas: tools.schemasFor(allowed) };
+    const registrySchemas = tools.schemasFor(
+      [...allowed].filter((name) => tools.has(name)),
+    );
+    const connectorSchemas = connectors
+      ? connectors.schemas().filter((s) => allowed.has(s.function.name))
+      : [];
+    // No allowlist, subset, or cap is applied to connector tools here either: every
+    // connector tool the sub-agent was granted is advertised natively.
+    return { allowed, toolSchemas: [...registrySchemas, ...connectorSchemas] };
   }
 
   /**
@@ -749,6 +769,7 @@ class SubAgentRunner {
       memory: outerCtx.memory,
       knowledge: outerCtx.knowledge,
       skills: outerCtx.skills,
+      connectors: this.deps.connectors,
     };
   }
 
@@ -948,7 +969,11 @@ class SubAgentRunner {
           for (const toolCall of namedCalls) {
             const name = toolCall.function.name;
             const args2 = safeJsonParse(toolCall.function.arguments);
-            const label = tools.label(name, args2);
+            const connectors = this.deps.connectors;
+            // Connector tools execute through the turn's connector runtime — but only when
+            // this sub-agent was actually granted the tool (it must be in `allowed`).
+            const isConnectorTool = allowed.has(name) && (connectors?.has(name) ?? false);
+            const label = isConnectorTool ? connectors!.label(name) : tools.label(name, args2);
 
             send("sub_agent_tool_call", {
               id: parentId,
@@ -958,15 +983,17 @@ class SubAgentRunner {
               label,
             });
 
-            const result: ToolResult = allowed.has(name)
-              ? await tools.execute(name, args2, subToolCtx)
-              : {
-                  ok: false,
-                  error: {
-                    code: "tool_not_permitted",
-                    message: `The sub-agent "${definition.name}" is not permitted to use the tool "${name}".`,
-                  },
-                };
+            const result: ToolResult = isConnectorTool
+              ? await connectors!.execute(name, args2)
+              : allowed.has(name)
+                ? await tools.execute(name, args2, subToolCtx)
+                : {
+                    ok: false,
+                    error: {
+                      code: "tool_not_permitted",
+                      message: `The sub-agent "${definition.name}" is not permitted to use the tool "${name}".`,
+                    },
+                  };
 
             // Mirror the main agent: strip any read_image attachment from the model-visible
             // tool message and inject the image as a vision content part afterwards.

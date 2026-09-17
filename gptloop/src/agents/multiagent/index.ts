@@ -12,6 +12,7 @@ import { createSkillRuntime } from "../skills.js";
 import { mergeDefaultSkills, resolveDefaultSkills } from "../skills/index.js";
 import { createTodoRuntime } from "../todos.js";
 import { resolveDefaultSubAgents } from "../sub-agents/index.js";
+import { ConnectorRuntime } from "../connectors/index.js";
 import { MultiAgentSessionStore } from "./store.js";
 import { TeamOrchestrator } from "./runtime.js";
 import type { RunTeamRequest } from "./types.js";
@@ -89,6 +90,14 @@ export class MultiAgentRunner {
       // Mirror the user message into the chat session transcript for persistence + the sidebar title.
       session.messages.push({ role: "user", content: request.userMessage });
 
+      // Connected app connectors (Composio): the turn's connector runtime is shared by
+      // the head, every member, and their sub-agents — every connected app's full tool
+      // catalog is advertised natively to each of them. Inert when unconfigured.
+      const connectors = await ConnectorRuntime.create({
+        apiKey: request.composioApiKey ?? "",
+        connections: request.connectors ?? [],
+      });
+
       const orchestrator = new TeamOrchestrator({
         provider,
         tools: this.tools,
@@ -109,6 +118,7 @@ export class MultiAgentRunner {
         todos,
         subAgentDefinitions,
         userSubAgents: request.subAgents ?? [],
+        connectors,
         send,
         signal,
       });

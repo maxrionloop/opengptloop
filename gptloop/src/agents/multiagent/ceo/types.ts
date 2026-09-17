@@ -1,4 +1,5 @@
 import type { StoredMessage } from "../../../services/sessionStore.js";
+import type { ConnectorWire } from "../../connectors/index.js";
 import type {
   KnowledgeFile,
   MemoryFile,
@@ -62,6 +63,10 @@ export interface RunCeoRequest {
   todos?: TodoItem[];
   memory?: MemoryFile[];
   knowledge?: KnowledgeFile[];
+  /** Composio API key for this turn (from frontend Settings). */
+  composioApiKey?: string;
+  /** The turn's authenticated app connectors (each contributes its full tool catalog). */
+  connectors?: ConnectorWire[];
 }
 
 /** Role of an agent inside a CEO multi-agent system. */

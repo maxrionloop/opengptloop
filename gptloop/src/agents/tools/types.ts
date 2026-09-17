@@ -533,6 +533,10 @@ export interface ToolContext {
    * team agents, which is why the CEO tools (assign_tasks_to_teams, list_teams) are unavailable
    * outside the CEO mode. */
   ceo?: CeoRuntime;
+  /** Connector runtime — present when the turn has authenticated app connectors (Composio).
+   * Lets any tool-execution path route connector tool calls; absent when no connector is
+   * connected this turn. */
+  connectors?: import("../connectors/runtime.js").ConnectorRuntime;
   /** Id of the tool call currently executing; used to correlate nested sub-agent events in the UI. */
   toolCallId?: string;
   /**

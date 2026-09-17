@@ -13,6 +13,7 @@ import { taskModePromptFor } from "@/lib/taskModes";
 import { useStore, type ActiveRun } from "@/store/useStore";
 import { uid } from "@/utils/id";
 import type {
+  BackendConnector,
   BackendMessage,
   BackendSkill,
   BackendSubAgent,
@@ -73,6 +74,13 @@ function buildStartRequest(convId: string, text: string): StreamRequest {
   const todos: TodoItem[] = store.todos;
   const memory: MemoryFile[] = store.memory;
   const knowledge: KnowledgeFile[] = store.knowledge;
+
+  // Connected app connectors (Composio): only ACTIVE connections travel. The backend
+  // loads each toolkit's full tool catalog natively for the turn — main, custom,
+  // sub-agents, teams, and CEO agents all receive them.
+  const connectors: BackendConnector[] = store.connectors
+    .filter((c) => c.status === "active" && c.connectedAccountId.trim().length > 0)
+    .map((c) => ({ connector_id: c.connectorId, connected_account_id: c.connectedAccountId }));
 
   // Task mode: plan / custom modes append their prompt to the user's message so the
   // model approaches the task accordingly. Default mode appends nothing (normal work).
@@ -152,6 +160,8 @@ function buildStartRequest(convId: string, text: string): StreamRequest {
     todos,
     memory,
     knowledge,
+    composio_api_key: settings.composioApiKey?.trim() || undefined,
+    connectors,
     enable_reuse_sub_agent_session: settings.enableReuseSubAgentSession === "yes" ? "yes" : "no",
     memory_agent_enabled: settings.memoryAgentEnabled !== "no",
     memory_agent_interval:

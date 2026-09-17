@@ -1,4 +1,4 @@
-import { MessageCircle, Brain, Library, Bot, Sparkles, Users, Boxes, FileText, Crown, ListChecks } from "lucide-react";
+import { MessageCircle, Brain, Library, Bot, Sparkles, Users, Boxes, FileText, Crown, ListChecks, Plug } from "lucide-react";
 import { useStore, type Section } from "@/store/useStore";
 import { cn } from "@/utils/cn";
 
@@ -13,6 +13,7 @@ const NAV: Array<{ id: Section; label: string; Icon: typeof MessageCircle }> = [
   { id: "skills", label: "Skills", Icon: Sparkles },
   { id: "teams", label: "Agent teams", Icon: Users },
   { id: "ceo", label: "CEO agents", Icon: Crown },
+  { id: "connectors", label: "Connectors", Icon: Plug },
 ];
 
 export function Rail() {

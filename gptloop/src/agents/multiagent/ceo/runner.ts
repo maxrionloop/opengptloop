@@ -4,6 +4,7 @@ import type { StoredMessage } from "../../../services/sessionStore.js";
 import type { ToolContext } from "../../tools/types.js";
 import { runTeamAgentLoop } from "../agentLoop.js";
 import { buildCeoSystemPrompt } from "./systemprompt.js";
+import type { ConnectorRuntime } from "../../connectors/runtime.js";
 import type { AgentTeamDefinition, TeamAgentRunResult } from "../types.js";
 import type { CeoAgentDefinition } from "./types.js";
 
@@ -25,6 +26,10 @@ export interface RunCeoAgentArgs {
   allowedTools: Set<string>;
   toolSchemas: OpenAIToolSchema[];
   toolCtx: ToolContext;
+  /** The turn's connector runtime (connected Composio apps), if any. */
+  connectors?: ConnectorRuntime;
+  /** Extra system-prompt tail (e.g. the connected-apps hint), if any. */
+  systemSuffix?: string;
   send: (event: string, data: Record<string, unknown>) => void;
   signal?: AbortSignal;
   provider: Provider;
@@ -37,7 +42,11 @@ export interface RunCeoAgentArgs {
 }
 
 export async function runCeoAgent(args: RunCeoAgentArgs): Promise<TeamAgentRunResult> {
-  const systemPrompt = buildCeoSystemPrompt(args.ceo, args.teams, args.workspaceRoot);
+  const basePrompt = buildCeoSystemPrompt(args.ceo, args.teams, args.workspaceRoot);
+  const systemPrompt =
+    args.systemSuffix && args.systemSuffix.trim().length > 0
+      ? `${basePrompt}\n\n${args.systemSuffix.trim()}`
+      : basePrompt;
   return runTeamAgentLoop({
     provider: args.provider,
     tools: args.tools,
@@ -51,6 +60,7 @@ export async function runCeoAgent(args: RunCeoAgentArgs): Promise<TeamAgentRunRe
     allowedTools: args.allowedTools,
     toolSchemas: args.toolSchemas,
     toolCtx: args.toolCtx,
+    connectors: args.connectors,
     send: args.send,
     signal: args.signal,
   });
