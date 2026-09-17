@@ -18,7 +18,8 @@
  *   npx tsx src/deamon/daemon.ts install               install autostart + start now
  *   npx tsx src/deamon/daemon.ts uninstall             stop + remove autostart
  *
- * Data dir: $GPTLOOP_DEAMON_DIR or ~/.gptloop/deamon
+ * Data dir: $GPTLOOP_DEAMON_DIR or <gptloop>/.gptloop/deamon — next to the
+ * SQLite database, so everything is in one place.
  *   supervisor.pid   supervisor process id
  *   supervisor.log   supervisor's own log
  *   backend.log      gptloop backend output
@@ -39,7 +40,7 @@ const DAEMON_TS = path.join(HERE, "daemon.ts");
 
 const DEAMON_DIR =
   process.env.GPTLOOP_DEAMON_DIR?.trim() ||
-  path.join(os.homedir(), ".gptloop", "deamon");
+  path.join(BACKEND_DIR, ".gptloop", "deamon");
 const PID_FILE = path.join(DEAMON_DIR, "supervisor.pid");
 const SUPERVISOR_LOG = path.join(DEAMON_DIR, "supervisor.log");
 const BACKEND_LOG = path.join(DEAMON_DIR, "backend.log");
