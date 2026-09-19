@@ -2,7 +2,6 @@ import { API_ROUTES, routeUrl } from "@/app/api/routes";
 import { requestJson } from "@/lib/api";
 import type {
   McpAuthType,
-  McpCustomHeader,
   McpServer,
   McpServerStatus,
 } from "@/types";
@@ -11,7 +10,7 @@ import type {
  * MCP client — Model Context Protocol servers (remote Streamable HTTP + local
  * stdio) with OAuth 2.1 authorization for protected servers.
  *
- * Secrets (API keys, tokens, header values) are write-only: the backend stores
+ * Secrets (OAuth tokens) are write-only: the backend stores
  * them in SQLite and serves presence flags, so this client sends values on
  * create/update but never receives them back.
  */
@@ -25,10 +24,7 @@ export interface McpAuthMeta {
 
 export const MCP_AUTH_TYPES: readonly McpAuthMeta[] = [
   { id: "none", name: "No authentication", description: "Public server — no credentials sent." },
-  { id: "apiKey", name: "API key", description: "Sent as a Bearer token (or a custom header)." },
-  { id: "bearer", name: "Bearer token", description: "A static token sent as Authorization: Bearer." },
   { id: "oauth", name: "OAuth", description: "Browser authorization flow — no API key needed." },
-  { id: "customHeaders", name: "Custom headers", description: "Arbitrary HTTP headers on every request." },
 ];
 
 function statusOf(value: unknown): McpServerStatus {
@@ -53,28 +49,9 @@ export function normalizeMcpServer(raw: unknown): McpServer | null {
   if (!id || !name) return null;
   const kind = str(r.kind).trim().toLowerCase() === "local" ? "local" : "remote";
   const authRaw = str(r.authType ?? r.auth_type).trim().toLowerCase().replace(/[-_\s]+/g, "");
-  const authType: McpAuthType =
-    authRaw === "apikey" || authRaw === "key"
-      ? "apiKey"
-      : authRaw === "bearer" || authRaw === "token"
-        ? "bearer"
-        : authRaw === "oauth"
-          ? "oauth"
-          : authRaw === "customheaders" || authRaw === "headers"
-            ? "customHeaders"
-            : "none";
-  const headersRaw = r.customHeaders ?? r.custom_headers;
-  const customHeaders: McpCustomHeader[] = [];
-  if (Array.isArray(headersRaw)) {
-    for (const h of headersRaw) {
-      if (!h || typeof h !== "object") continue;
-      const rec = h as Record<string, unknown>;
-      const key = str(rec.key ?? rec.name).trim();
-      if (!key) continue;
-      customHeaders.push({ key, value: str(rec.value) });
-    }
-  }
-  const secrets = (r.secrets ?? {}) as Record<string, unknown>;
+  // Only `oauth` is a gated auth method — legacy apiKey/bearer/customHeaders
+  // configs fall back to public (`none`).
+  const authType: McpAuthType = authRaw === "oauth" ? "oauth" : "none";
   const oauthRaw = (r.oauth ?? null) as Record<string, unknown> | null;
   const cachedRaw = Array.isArray(r.cachedTools ?? r.cached_tools)
     ? ((r.cachedTools ?? r.cached_tools) as unknown[])
@@ -110,11 +87,7 @@ export function normalizeMcpServer(raw: unknown): McpServer | null {
           },
         }
       : {}),
-    authType,
-    hasApiKey: secrets.apiKey === true,
-    ...(str(r.apiKeyHeader ?? r.api_key_header) ? { apiKeyHeader: str(r.apiKeyHeader ?? r.api_key_header) } : {}),
-    hasBearerToken: secrets.bearerToken === true,
-    customHeaders,
+    authType: kind === "local" ? "none" : authType,
     ...(oauthRaw
       ? {
           oauth: {
@@ -195,10 +168,6 @@ export interface McpServerInput {
   /** Pasted local-server JSON (object or string) for local servers. */
   json?: unknown;
   authType?: McpAuthType;
-  apiKey?: string;
-  apiKeyHeader?: string;
-  bearerToken?: string;
-  customHeaders?: McpCustomHeader[];
   oauth?: {
     authorizationServer?: string;
     scopes?: string[];

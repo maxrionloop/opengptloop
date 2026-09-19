@@ -20,7 +20,7 @@
  * `disabledTools` so the user can switch individual tools off from the MCP page.
  *
  * This file owns the persistent CONFIGURATION shape + defensive normalization.
- * Secrets (API keys, OAuth tokens, custom headers) live server-side in the
+ * Secrets (OAuth tokens) live server-side in the
  * SQLite `app_state` document keyed `mcpServers` — the browser never needs them
  * to run a turn; it only sends server-id selections.
  */
@@ -28,17 +28,14 @@
 /** Where the MCP server runs. */
 export type McpServerKind = "remote" | "local";
 
-/** How the backend authenticates to a remote MCP server. */
-export type McpAuthType = "none" | "apiKey" | "bearer" | "oauth" | "customHeaders";
+/**
+ * How the backend authenticates to a remote MCP server.
+ * Only two methods remain: public servers (`none`) and OAuth-protected servers (`oauth`).
+ */
+export type McpAuthType = "none" | "oauth";
 
 /** Lifecycle status of one MCP server connection. */
 export type McpServerStatus = "connected" | "disconnected" | "connecting" | "error" | "auth_required";
-
-/** One custom HTTP header sent with every request to a remote MCP server. */
-export interface McpCustomHeader {
-  key: string;
-  value: string;
-}
 
 /** Local (stdio) server launch parameters — the standard MCP JSON shape. */
 export interface McpLocalConfig {
@@ -97,18 +94,8 @@ export interface McpServerConfig {
   url: string;
   /** Local launch parameters (local only). */
   local?: McpLocalConfig;
-  /** Auth strategy for remote servers. */
+  /** Auth strategy for remote servers (`none` or `oauth`). */
   authType: McpAuthType;
-  /** API key value (authType apiKey). Sent as `Authorization: Bearer <key>`
-   * unless `apiKeyHeader` says otherwise. */
-  apiKey?: string;
-  /** Header carrying the API key (default "Authorization"). */
-  apiKeyHeader?: string;
-  /** Static bearer token (authType bearer). */
-  bearerToken?: string;
-  /** Extra headers merged into every MCP HTTP request (authType customHeaders,
-   * also honored for apiKey/oauth as additional headers). */
-  customHeaders: McpCustomHeader[];
   /** OAuth configuration + tokens (authType oauth). */
   oauth?: McpOAuthConfig;
   /**
@@ -147,16 +134,6 @@ export interface McpServerWire {
   auth_type?: unknown;
   authType?: unknown;
   authentication?: unknown;
-  api_key?: unknown;
-  apiKey?: unknown;
-  api_key_header?: unknown;
-  apiKeyHeader?: unknown;
-  bearer_token?: unknown;
-  bearerToken?: unknown;
-  token?: unknown;
-  custom_headers?: unknown;
-  customHeaders?: unknown;
-  headers?: unknown;
   oauth?: unknown;
   frontend_url?: unknown;
   frontendUrl?: unknown;
@@ -209,10 +186,9 @@ function kindOf(value: unknown): McpServerKind {
 
 function authTypeOf(value: unknown): McpAuthType {
   const s = str(value).trim().toLowerCase().replace(/[-_\s]+/g, "");
-  if (s === "apikey" || s === "key") return "apiKey";
-  if (s === "bearer" || s === "token" || s === "statictoken") return "bearer";
   if (s === "oauth" || s === "oauth2" || s === "oauth21") return "oauth";
-  if (s === "customheaders" || s === "headers" || s === "custom") return "customHeaders";
+  // Legacy auth methods (apiKey, bearer, customHeaders) were removed —
+  // old stored configs carrying them fall back to public (`none`).
   return "none";
 }
 
@@ -223,28 +199,6 @@ function statusOf(value: unknown): McpServerStatus {
   if (s === "auth_required" || s === "authrequired") return "auth_required";
   if (s === "error" || s === "failed") return "error";
   return "disconnected";
-}
-
-/** Normalize a custom-headers payload (array of {key,value} or flat object). */
-export function normalizeCustomHeaders(raw: unknown): McpCustomHeader[] {
-  const out: McpCustomHeader[] = [];
-  const push = (key: unknown, value: unknown): void => {
-    const k = str(key).trim();
-    if (!k || out.some((h) => h.key.toLowerCase() === k.toLowerCase())) return;
-    out.push({ key: k, value: str(value) });
-  };
-  if (Array.isArray(raw)) {
-    for (const item of raw) {
-      if (!item || typeof item !== "object") continue;
-      const r = item as Record<string, unknown>;
-      push(r.key ?? r.name ?? r.header, r.value ?? r.val ?? "");
-    }
-  } else if (raw && typeof raw === "object") {
-    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-      if (typeof v === "string") push(k, v);
-    }
-  }
-  return out;
 }
 
 /** Normalize a string array (tool names, scopes, args). */
@@ -413,9 +367,6 @@ export function normalizeMcpServerConfig(
     disabledTools = [...cachedNames].filter((n) => !keep.has(n));
   }
 
-  const customHeaders = normalizeCustomHeaders(
-    r.custom_headers ?? r.customHeaders ?? r.headers,
-  );
   const oauth = authType === "oauth" ? normalizeOAuth(r.oauth) : undefined;
 
   return {
@@ -425,11 +376,8 @@ export function normalizeMcpServerConfig(
     kind,
     url: kind === "remote" ? url : "",
     ...(local ? { local } : {}),
-    authType,
-    apiKey: str(r.api_key ?? r.apiKey).trim() || undefined,
-    apiKeyHeader: str(r.api_key_header ?? r.apiKeyHeader).trim() || undefined,
-    bearerToken: str(r.bearer_token ?? r.bearerToken ?? (authType === "bearer" ? r.token : "")).trim() || undefined,
-    customHeaders,
+    // Local servers never use auth; remote servers use `none` or `oauth` only.
+    authType: kind === "local" ? "none" : authType,
     ...(oauth ? { oauth } : {}),
     frontendUrl:
       str(r.frontend_url ?? r.frontendUrl ?? r.redirect_url ?? r.redirectUrl).trim() || undefined,
@@ -457,9 +405,8 @@ export function normalizeMcpSelection(raw: unknown): McpServerSelection | null {
 
 /**
  * The wire shape of an MCP server safe to send to the browser: everything
- * EXCEPT secrets (API keys, bearer tokens, custom header values, OAuth
- * tokens/client secrets). Values are replaced with presence flags so the UI
- * can show "configured" without ever seeing the secret.
+ * EXCEPT secrets (OAuth tokens/client secrets). Values are replaced with
+ * presence flags so the UI can show "configured" without ever seeing the secret.
  */
 export interface McpServerPublic {
   id: string;
@@ -470,9 +417,7 @@ export interface McpServerPublic {
   local?: { command: string; args: string[]; envKeys: string[]; cwd?: string };
   authType: McpAuthType;
   /** Which secret slots are filled (never the values). */
-  secrets: { apiKey: boolean; bearerToken: boolean; clientSecret: boolean; accessToken: boolean };
-  apiKeyHeader?: string;
-  customHeaders: Array<{ key: string; hasValue: boolean }>;
+  secrets: { clientSecret: boolean; accessToken: boolean };
   oauth?: {
     authorizationServer?: string;
     scopes: string[];
@@ -513,13 +458,9 @@ export function toPublicServer(config: McpServerConfig): McpServerPublic {
       : {}),
     authType: config.authType,
     secrets: {
-      apiKey: Boolean(config.apiKey),
-      bearerToken: Boolean(config.bearerToken),
       clientSecret: Boolean(config.oauth?.clientSecret),
       accessToken: Boolean(config.oauth?.accessToken),
     },
-    ...(config.apiKeyHeader ? { apiKeyHeader: config.apiKeyHeader } : {}),
-    customHeaders: config.customHeaders.map((h) => ({ key: h.key, hasValue: h.value.length > 0 })),
     ...(config.oauth
       ? {
           oauth: {

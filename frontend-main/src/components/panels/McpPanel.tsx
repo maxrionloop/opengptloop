@@ -3,7 +3,6 @@ import {
   Check,
   ChevronDown,
   Globe,
-  KeyRound,
   Loader2,
   Pencil,
   Plug,
@@ -20,7 +19,7 @@ import {
   X,
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
-import type { McpAuthType, McpCustomHeader, McpServer } from "@/types";
+import type { McpAuthType, McpServer } from "@/types";
 import {
   MCP_AUTH_TYPES,
   createMcpServer,
@@ -58,10 +57,7 @@ const STATUS_STYLE: Record<McpServer["status"], { label: string; cls: string }> 
 
 const AUTH_ICON: Record<McpAuthType, typeof Plug> = {
   none: Globe,
-  apiKey: KeyRound,
-  bearer: KeyRound,
   oauth: ShieldCheck,
-  customHeaders: Wrench,
 };
 
 const LOCAL_JSON_TEMPLATE = `{
@@ -74,12 +70,15 @@ const LOCAL_JSON_TEMPLATE = `{
  * MCP servers page.
  *
  * Two ways to add a server:
- *  - Remote: a Streamable HTTP endpoint (https://…/mcp) with no-auth, API key,
- *    bearer token, OAuth (auto-discovered authorization URL, browser flow with
- *    a configurable frontend landing URL), or custom headers.
+ *  - Remote: a Streamable HTTP endpoint (https://…/mcp) with no-auth or
+ *    OAuth (auto-discovered authorization URL, browser flow with
+ *    a configurable frontend landing URL).
  *  - Local: pasted MCP JSON ({ command, args, env }) spawned over stdio.
  *
- * Once connected, every server tool is a native agent tool (main, custom,
+ * Remote no-auth servers are connection-tested before saving and tested again
+ * right after saving so the card shows live status + tools without a manual
+ * Test. OAuth servers save first, then Connect to authorize. Once connected,
+ * every server tool is a native agent tool (main, custom,
  * sub-agents, teams, CEO). Cards show live status, the tool catalog with
  * per-tool switches, and server enable/edit/delete actions.
  */
@@ -592,47 +591,6 @@ function McpCard({
   );
 }
 
-function HeaderListEditor({
-  headers,
-  onChange,
-}: {
-  headers: McpCustomHeader[];
-  onChange: (headers: McpCustomHeader[]) => void;
-}) {
-  return (
-    <div className="space-y-2">
-      {headers.map((h, i) => (
-        <div key={i} className="flex gap-2">
-          <TextInput
-            value={h.key}
-            onChange={(e) => onChange(headers.map((x, xi) => (xi === i ? { ...x, key: e.target.value } : x)))}
-            placeholder="Header"
-            className="font-mono text-xs"
-          />
-          <TextInput
-            value={h.value}
-            onChange={(e) => onChange(headers.map((x, xi) => (xi === i ? { ...x, value: e.target.value } : x)))}
-            placeholder="Value"
-            type="password"
-            className="font-mono text-xs"
-          />
-          <button
-            type="button"
-            onClick={() => onChange(headers.filter((_, xi) => xi !== i))}
-            className="shrink-0 text-[var(--subtle)] hover:text-[var(--danger)]"
-            aria-label="Remove header"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      ))}
-      <Button variant="ghost" onClick={() => onChange([...headers, { key: "", value: "" }])}>
-        <Plus className="h-3.5 w-3.5" /> Add header
-      </Button>
-    </div>
-  );
-}
-
 interface OAuthDraft {
   discovery: McpOAuthDiscovery | null;
   discovering: boolean;
@@ -801,10 +759,6 @@ function McpCreateModal({
   const [description, setDescription] = useState("");
   const [url, setUrl] = useState("");
   const [authType, setAuthType] = useState<McpAuthType>("none");
-  const [apiKey, setApiKey] = useState("");
-  const [apiKeyHeader, setApiKeyHeader] = useState("Authorization");
-  const [bearerToken, setBearerToken] = useState("");
-  const [headers, setHeaders] = useState<McpCustomHeader[]>([]);
   const [json, setJson] = useState(LOCAL_JSON_TEMPLATE);
   const [frontendUrl, setFrontendUrl] = useState(
     typeof window !== "undefined" ? window.location.origin : "",
@@ -817,7 +771,7 @@ function McpCreateModal({
     scopes: string;
   }>({ discovery: null, discovering: false, clientId: "", clientSecret: "", scopes: "" });
   const [saving, setSaving] = useState(false);
-  /** Local save runs in two visible phases: testing the connection, then saving. */
+  /** Save runs in two visible phases: testing the connection, then saving. */
   const [phase, setPhase] = useState<"idle" | "testing" | "saving">("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -834,9 +788,12 @@ function McpCreateModal({
       setError("Paste the MCP server JSON first.");
       return;
     }
+    // OAuth servers save first, then Connect to authorize — they cannot be
+    // tested before saving. Every other server is tested before it is saved.
+    const shouldPreTest = kind === "local" || (kind === "remote" && authType !== "oauth");
     setSaving(true);
     setError(null);
-    setPhase(kind === "local" ? "testing" : "saving");
+    setPhase(shouldPreTest ? "testing" : "saving");
     try {
       const input: McpServerInput = {
         name: name.trim(),
@@ -844,11 +801,6 @@ function McpCreateModal({
         kind,
         ...(kind === "remote" ? { url: url.trim() } : { json }),
         authType: kind === "remote" ? authType : "none",
-        ...(authType === "apiKey" && kind === "remote"
-          ? { apiKey, apiKeyHeader: apiKeyHeader.trim() || "Authorization" }
-          : {}),
-        ...(authType === "bearer" && kind === "remote" ? { bearerToken } : {}),
-        ...(kind === "remote" && headers.length > 0 ? { customHeaders: headers } : {}),
         ...(authType === "oauth" && kind === "remote"
           ? {
               oauth: {
@@ -870,9 +822,10 @@ function McpCreateModal({
             }
           : {}),
       };
-      // Local servers are tested BEFORE saving: the connection is dialed and
-      // its tools listed, and the server is only persisted when that succeeds.
-      if (kind === "local") {
+      // Local servers and remote no-auth servers are tested BEFORE saving: the
+      // connection is dialed and its tools listed, and the server is only
+      // persisted when that succeeds.
+      if (shouldPreTest) {
         const validated = await validateMcpServer(input);
         if (validated.count === 0) {
           throw new Error("The server connected but exposed no tools. Check its configuration.");
@@ -880,9 +833,10 @@ function McpCreateModal({
         setPhase("saving");
       }
       const server = await createMcpServer(input);
-      // Newly saved local servers are connected immediately so the card shows
-      // live status + tools without an extra manual Test.
-      if (kind === "local") {
+      // Newly saved local servers and remote no-auth servers are tested again
+      // immediately so the card shows live status + tools without a manual Test.
+      // OAuth servers skip this — they connect via the Connect (browser) flow.
+      if (shouldPreTest) {
         try {
           const tested = await testMcpServer(server.id);
           onSaved(tested.server);
@@ -971,49 +925,6 @@ function McpCreateModal({
               </div>
             </Field>
 
-            {authType === "apiKey" && (
-              <div className="space-y-3 rounded-[var(--radius-md)] border border-[var(--border)] p-3">
-                <Field label="API key *" hint="stored server-side only">
-                  <TextInput
-                    type="password"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder="sk-…"
-                    className="font-mono text-xs"
-                  />
-                </Field>
-                <Field label="Header" hint="default Authorization (Bearer)">
-                  <TextInput
-                    value={apiKeyHeader}
-                    onChange={(e) => setApiKeyHeader(e.target.value)}
-                    placeholder="Authorization"
-                    className="font-mono text-xs"
-                  />
-                </Field>
-              </div>
-            )}
-
-            {authType === "bearer" && (
-              <Field label="Bearer token *" hint="stored server-side only">
-                <TextInput
-                  type="password"
-                  value={bearerToken}
-                  onChange={(e) => setBearerToken(e.target.value)}
-                  placeholder="Paste the access token"
-                  className="font-mono text-xs"
-                />
-              </Field>
-            )}
-
-            {authType === "customHeaders" && (
-              <div className="rounded-[var(--radius-md)] border border-[var(--border)] p-3">
-                <div className="mb-2 text-xs font-medium text-[var(--muted)]">
-                  Headers sent with every MCP request
-                </div>
-                <HeaderListEditor headers={headers} onChange={setHeaders} />
-              </div>
-            )}
-
             {authType === "oauth" && (
               <OAuthSection
                 url={url}
@@ -1066,10 +977,6 @@ function McpEditModal({
   const [name, setName] = useState(server.name);
   const [description, setDescription] = useState(server.description);
   const [url, setUrl] = useState(server.url);
-  const [apiKey, setApiKey] = useState("");
-  const [apiKeyHeader, setApiKeyHeader] = useState(server.apiKeyHeader ?? "Authorization");
-  const [bearerToken, setBearerToken] = useState("");
-  const [headers, setHeaders] = useState<McpCustomHeader[]>(server.customHeaders);
   const [frontendUrl, setFrontendUrl] = useState(server.frontendUrl ?? "");
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
@@ -1096,9 +1003,6 @@ function McpEditModal({
         name: name.trim(),
         description: description.trim(),
         ...(server.kind === "remote" ? { url: url.trim() } : {}),
-        ...(server.authType === "apiKey" && apiKey ? { apiKey, apiKeyHeader: apiKeyHeader.trim() || "Authorization" } : {}),
-        ...(server.authType === "bearer" && bearerToken ? { bearerToken } : {}),
-        ...(server.kind === "remote" ? { customHeaders: headers } : {}),
         ...(server.kind === "remote" ? { frontendUrl: frontendUrl.trim() || undefined } : {}),
         ...(hasCredentials
           ? {
@@ -1153,49 +1057,6 @@ function McpEditModal({
         {server.kind === "local" && server.local && (
           <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--chip)] p-3 font-mono text-xs text-[var(--muted)]">
             {server.local.command} {(server.local.args ?? []).join(" ")}
-          </div>
-        )}
-        {server.authType === "apiKey" && (
-          <div className="space-y-3">
-            <Field
-              label={server.hasApiKey ? "API key (already set — enter to replace)" : "API key *"}
-              hint="stored server-side only"
-            >
-              <TextInput
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder={server.hasApiKey ? "•••••• (unchanged)" : "sk-…"}
-                className="font-mono text-xs"
-              />
-            </Field>
-            <Field label="Header">
-              <TextInput
-                value={apiKeyHeader}
-                onChange={(e) => setApiKeyHeader(e.target.value)}
-                className="font-mono text-xs"
-              />
-            </Field>
-          </div>
-        )}
-        {server.authType === "bearer" && (
-          <Field
-            label={server.hasBearerToken ? "Bearer token (already set — enter to replace)" : "Bearer token *"}
-            hint="stored server-side only"
-          >
-            <TextInput
-              type="password"
-              value={bearerToken}
-              onChange={(e) => setBearerToken(e.target.value)}
-              placeholder={server.hasBearerToken ? "•••••• (unchanged)" : "Paste the access token"}
-              className="font-mono text-xs"
-            />
-          </Field>
-        )}
-        {server.kind === "remote" && (
-          <div className="rounded-[var(--radius-md)] border border-[var(--border)] p-3">
-            <div className="mb-2 text-xs font-medium text-[var(--muted)]">Custom headers</div>
-            <HeaderListEditor headers={headers} onChange={setHeaders} />
           </div>
         )}
         {server.authType === "oauth" && (

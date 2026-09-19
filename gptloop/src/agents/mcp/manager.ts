@@ -139,11 +139,9 @@ export class McpManager {
       id: existing.id,
       createdAt: existing.createdAt,
     };
-    // Secrets are write-only from the browser's perspective: an absent/empty
+    // OAuth secrets are write-only from the browser's perspective: an absent/empty
     // secret in the patch keeps the stored one (the public view never sends
     // values back, only presence flags).
-    if (merged.apiKey === undefined || merged.apiKey === "") merged.apiKey = existing.apiKey;
-    if (merged.bearerToken === undefined || merged.bearerToken === "") merged.bearerToken = existing.bearerToken;
     const patchOAuth = (patch as Record<string, unknown>).oauth;
     if (patchOAuth && typeof patchOAuth === "object") {
       const o = { ...(existing.oauth ?? {}), ...(patchOAuth as Record<string, unknown>) };
@@ -398,37 +396,30 @@ export class McpManager {
 
   // ---- Auth headers ---------------------------------------------------------
 
-  /** Static headers for a server (API key + custom headers, no OAuth). */
-  private staticHeaders(server: McpServerConfig): Record<string, string> {
-    const headers: Record<string, string> = {};
-    if (server.authType === "apiKey" && server.apiKey) {
-      const name = (server.apiKeyHeader || "Authorization").trim() || "Authorization";
-      headers[name] = name.toLowerCase() === "authorization" ? `Bearer ${server.apiKey}` : server.apiKey;
-    } else if (server.authType === "bearer" && server.bearerToken) {
-      headers.Authorization = `Bearer ${server.bearerToken}`;
-    }
-    for (const h of server.customHeaders) {
-      if (h.key && h.value) headers[h.key] = h.value;
-    }
-    return headers;
+  /**
+   * Static headers for a server. Only `none` and `oauth` auth remain, neither
+   * of which uses static headers — OAuth tokens are injected per-request via
+   * `authHeaders()`. Kept as a single place to add future static headers.
+   */
+  private staticHeaders(_server: McpServerConfig): Record<string, string> {
+    return {};
   }
 
   /**
    * Fresh auth headers for one request: OAuth bearer (refreshing an expired
-   * token first) wins, then the static headers. Throws `OAUTH_REQUIRED` when
+   * token first). Throws `OAUTH_REQUIRED` when
    * an oauth server has no usable token so the caller can mark auth_required.
    */
   async authHeaders(serverId: string): Promise<Record<string, string>> {
     const server = this.get(serverId);
     if (!server) return {};
-    const headers = this.staticHeaders(server);
-    if (server.authType !== "oauth" || !server.oauth) return headers;
+    if (server.authType !== "oauth" || !server.oauth) return {};
 
     const oauth = server.oauth;
     const expired =
       typeof oauth.expiresAt === "number" && oauth.expiresAt > 0 && oauth.expiresAt - 30_000 < Date.now();
     if (oauth.accessToken && !expired) {
-      return { ...headers, Authorization: `Bearer ${oauth.accessToken}` };
+      return { Authorization: `Bearer ${oauth.accessToken}` };
     }
     if (oauth.refreshToken && oauth.tokenEndpoint && oauth.clientId) {
       try {
@@ -441,7 +432,7 @@ export class McpManager {
           scopes: oauth.scopes,
         });
         this.storeTokens(serverId, tokens);
-        return { ...headers, Authorization: `Bearer ${tokens.accessToken}` };
+        return { Authorization: `Bearer ${tokens.accessToken}` };
       } catch {
         // fall through to OAUTH_REQUIRED below
       }

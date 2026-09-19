@@ -13,13 +13,11 @@
  *   runtime       — per-turn bridge: catalog cache + native schemas + execution
  */
 export {
-  normalizeCustomHeaders,
   normalizeMcpSelection,
   normalizeMcpServerConfig,
   parseLocalServerJson,
   toPublicServer,
   type McpAuthType,
-  type McpCustomHeader,
   type McpLocalConfig,
   type McpOAuthConfig,
   type McpServerConfig,

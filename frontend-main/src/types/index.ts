@@ -312,17 +312,11 @@ export interface BackendConnector {
   connected_account_id: string;
 }
 
-/** How the backend authenticates to a remote MCP server. */
-export type McpAuthType = "none" | "apiKey" | "bearer" | "oauth" | "customHeaders";
+/** How the backend authenticates to a remote MCP server (`none` or `oauth` only). */
+export type McpAuthType = "none" | "oauth";
 
 /** Lifecycle status of an MCP server connection. */
 export type McpServerStatus = "connected" | "disconnected" | "connecting" | "error" | "auth_required";
-
-/** One custom HTTP header sent with every request to a remote MCP server. */
-export interface McpCustomHeader {
-  key: string;
-  value: string;
-}
 
 /** OAuth state of a remote MCP server (tokens never leave the backend). */
 export interface McpOAuthState {
@@ -340,7 +334,7 @@ export interface McpOAuthState {
 /**
  * An MCP server (remote Streamable HTTP or local stdio), stored in the
  * backend SQLite database. Secrets are write-only: the backend serves
- * presence flags (`hasApiKey`, …), never values.
+ * presence flags for OAuth tokens, never values.
  */
 export interface McpServer {
   id: string;
@@ -352,10 +346,6 @@ export interface McpServer {
   /** Local launch summary (local only; env values never leave the backend). */
   local?: { command: string; args: string[]; envKeys: string[]; cwd?: string };
   authType: McpAuthType;
-  hasApiKey: boolean;
-  apiKeyHeader?: string;
-  hasBearerToken: boolean;
-  customHeaders: McpCustomHeader[];
   oauth?: McpOAuthState;
   /** Where the browser lands after OAuth (empty = auto-detected frontend origin). */
   frontendUrl?: string;
