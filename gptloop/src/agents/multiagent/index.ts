@@ -13,6 +13,7 @@ import { mergeDefaultSkills, resolveDefaultSkills } from "../skills/index.js";
 import { createTodoRuntime } from "../todos.js";
 import { resolveDefaultSubAgents } from "../sub-agents/index.js";
 import { ConnectorRuntime } from "../connectors/index.js";
+import { McpRuntime, type McpManager } from "../mcp/index.js";
 import { MultiAgentSessionStore } from "./store.js";
 import { TeamOrchestrator } from "./runtime.js";
 import type { RunTeamRequest } from "./types.js";
@@ -33,6 +34,7 @@ export class MultiAgentRunner {
     private readonly providers: ProviderRegistry,
     private readonly tools: ToolRegistry,
     private readonly config: AppConfig,
+    private readonly mcpManager?: McpManager,
   ) {}
 
   async run(
@@ -98,6 +100,16 @@ export class MultiAgentRunner {
         connections: request.connectors ?? [],
       });
 
+      // Connected MCP servers for this turn (shared by the head, every
+      // member, and their sub-agents). Inert when none are enabled.
+      const mcp = this.mcpManager
+        ? await McpRuntime.create({
+            manager: this.mcpManager,
+            serverIds: request.mcpServers?.map((s) => s.id),
+            signal,
+          })
+        : null;
+
       const orchestrator = new TeamOrchestrator({
         provider,
         tools: this.tools,
@@ -119,6 +131,7 @@ export class MultiAgentRunner {
         subAgentDefinitions,
         userSubAgents: request.subAgents ?? [],
         connectors,
+        mcp: mcp?.active ? mcp : undefined,
         send,
         signal,
       });

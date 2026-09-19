@@ -9,6 +9,7 @@ import {
   withoutImageAttachment,
 } from "../tools/readImage.js";
 import type { ConnectorRuntime } from "../connectors/runtime.js";
+import type { McpRuntime } from "../mcp/runtime.js";
 import {
   EV_AGENT_REASONING,
   EV_AGENT_SEGMENT,
@@ -45,6 +46,11 @@ export interface TeamAgentLoopParams {
    * tools natively through it. Absent when no connector is connected this turn.
    */
   connectors?: ConnectorRuntime;
+  /**
+   * The turn's MCP runtime (connected MCP servers). Team agents execute MCP
+   * tools natively through it. Absent when no MCP server is connected.
+   */
+  mcp?: McpRuntime;
   /** Emit an SSE event already stamped with this agent's id/role. */
   send: (event: string, data: Record<string, unknown>) => void;
   signal?: AbortSignal;
@@ -59,6 +65,7 @@ export interface TeamAgentLoopParams {
 export async function runTeamAgentLoop(params: TeamAgentLoopParams): Promise<TeamAgentRunResult> {
   const { provider, tools, messages, allowedTools, toolSchemas, toolCtx, send, signal } = params;
   const connectors = params.connectors;
+  const mcp = params.mcp;
 
   const answerAcrossTurns: string[] = [];
 
@@ -126,16 +133,23 @@ export async function runTeamAgentLoop(params: TeamAgentLoopParams): Promise<Tea
         for (const toolCall of namedCalls) {
           const name = toolCall.function.name;
           const args = safeJsonParse(toolCall.function.arguments);
-          // Connector tools (Composio) run through the turn's connector runtime; the grant
+          // Connector/MCP tools run through the turn's runtimes; the grant
           // check (`allowedTools`) already covers them, so no second gate is needed here.
           const isConnectorTool = connectors?.has(name) ?? false;
-          const label = isConnectorTool ? connectors!.label(name) : tools.label(name, args);
+          const isMcpTool = !isConnectorTool && (mcp?.has(name) ?? false);
+          const label = isConnectorTool
+            ? connectors!.label(name)
+            : isMcpTool
+              ? mcp!.label(name)
+              : tools.label(name, args);
 
           send(EV_AGENT_TOOL_CALL, { tool_id: toolCall.id, name, args, label });
 
           const result: ToolResult = isConnectorTool
             ? await connectors!.execute(name, args)
-            : allowedTools.has(name)
+            : isMcpTool
+              ? await mcp!.execute(name, args)
+              : allowedTools.has(name)
             ? await tools.execute(name, args, toolCtx)
             : {
                 ok: false,

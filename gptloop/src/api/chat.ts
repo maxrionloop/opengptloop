@@ -29,6 +29,11 @@ import {
   type ConnectorManager,
   type ConnectorWire,
 } from "../agents/connectors/index.js";
+import {
+  normalizeMcpSelection,
+  type McpManager,
+  type McpServerSelection,
+} from "../agents/mcp/index.js";
 
 /** Extract a string field from an untrusted object (used on the custom_provider payload). */
 function str(value: unknown): string {
@@ -136,6 +141,12 @@ interface StreamBody {
    * way it trusts the per-turn sub-agent/skill/memory payloads.
    */
   connectors?: unknown;
+  /**
+   * The turn's MCP servers: [{ id }] — or server-id strings. Only ENABLED servers
+   * are loaded. Secrets stay server-side; the backend resolves the full configs.
+   * When omitted, every enabled MCP server contributes its tools to the turn.
+   */
+  mcp_servers?: unknown;
   /**
    * A custom system prompt to use VERBATIM for the built-in Main Agent this turn (the active "Custom
    * System Prompt"). Only applies to the default Main Agent path — Custom Agents supply their own
@@ -318,6 +329,7 @@ export function buildChatRouter(
   customAgentRunner: CustomAgentRunner,
   mainAgentPrompts: MainAgentPromptManager,
   connectors: ConnectorManager,
+  mcp: McpManager,
 ): Router {
   const router = Router();
 
@@ -343,6 +355,22 @@ export function buildChatRouter(
         .map((c) => ({ connectorId: c.connectorId, connectedAccountId: c.connectedAccountId }));
     }
     return { apiKey, refs };
+  };
+
+  /**
+   * Resolve the turn's MCP server selection. The frontend sends server ids
+   * (like connectors); when the payload omits them (older client), every
+   * enabled server is used. Unknown ids are dropped.
+   */
+  const resolveMcpServers = (body: StreamBody): McpServerSelection[] | undefined => {
+    if (!Array.isArray(body.mcp_servers)) return undefined;
+    const known = new Set(mcp.listEnabled().map((s) => s.id));
+    const out: McpServerSelection[] = [];
+    for (const item of body.mcp_servers) {
+      const selection = normalizeMcpSelection(item);
+      if (selection && known.has(selection.id)) out.push(selection);
+    }
+    return out;
   };
 
   /**
@@ -536,6 +564,7 @@ export function buildChatRouter(
           knowledge: normalizeKnowledgeFiles(body.knowledge),
           composioApiKey,
           connectors: connectorRefs,
+          mcpServers: resolveMcpServers(body),
         };
 
         void ceoAgent
@@ -587,6 +616,7 @@ export function buildChatRouter(
           knowledge: normalizeKnowledgeFiles(body.knowledge),
           composioApiKey,
           connectors: connectorRefs,
+          mcpServers: resolveMcpServers(body),
         };
 
         void multiAgent
@@ -640,6 +670,7 @@ export function buildChatRouter(
         memoryAgentInterval: parseMemoryAgentInterval(body.memory_agent_interval, config.memoryAgentInterval),
         composioApiKey,
         connectors: connectorRefs,
+        mcpServers: resolveMcpServers(body),
       };
 
       // Custom Agent mode: when the active agent is a user-created top-level Custom Agent, run this

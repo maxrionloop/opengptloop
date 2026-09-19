@@ -16,6 +16,7 @@ import { buildStateRouter, buildSessionsRouter } from "./api/state.js";
 import { buildToolsRouter } from "./api/tools.js";
 import { buildMemoryAgentRouter } from "./api/memoryagent.js";
 import { buildConnectorsRouter } from "./api/connectors.js";
+import { buildMcpRouter } from "./api/mcp.js";
 import { buildSystemPromptRouter } from "./api/systemprompt.js";
 import { buildCustomAgentsRouter } from "./api/customagents.js";
 import { buildUserProfilesRouter } from "./api/profiles.js";
@@ -27,6 +28,7 @@ import { CustomAgentManager, CustomAgentRunner } from "./agents/customagent/inde
 import { UserProfileManager } from "./agents/profiles/index.js";
 import { MainAgentPromptManager } from "./agents/mainagentprompt/index.js";
 import { ConnectorManager } from "./agents/connectors/index.js";
+import { McpManager } from "./agents/mcp/index.js";
 import { GptLoopDatabase } from "./database/index.js";
 
 function main(): void {
@@ -43,13 +45,14 @@ function main(): void {
   // The background memory agent: runs entirely in the backend, triggered after every
   // completed main-agent turn, persisting everything into the local SQLite database.
   const memoryAgent = new MemoryAgentService(providers, tools, config, db);
-  const agent = new AgentRunner(providers, tools, config, planApprovals, askQuestions, memoryAgent);
+  const mcp = new McpManager(db.appState, config);
+  const agent = new AgentRunner(providers, tools, config, planApprovals, askQuestions, memoryAgent, mcp);
   // The multi-agent team runner: drives a whole agent team (head + members) for one chat turn,
   // streaming onto the same event buffer the single agent uses.
-  const multiAgent = new MultiAgentRunner(providers, tools, config);
+  const multiAgent = new MultiAgentRunner(providers, tools, config, mcp);
   // The CEO multi-agent runner: drives a CEO agent that controls the head/leaders of several agent
   // teams, streaming onto the same event buffer. Built on the same multi-agent runtime as the team runner.
-  const ceoAgent = new CeoAgentRunner(providers, tools, config);
+  const ceoAgent = new CeoAgentRunner(providers, tools, config, mcp);
   // Custom Agents: user-created, independently-configured TOP-LEVEL Main Agents. The manager persists
   // their configs in the SQLite app_state repository; the runner executes them through the SAME core
   // runtime as the Main Agent (parameterized with each agent's system prompt + selected tools).
@@ -113,6 +116,7 @@ function main(): void {
       customAgentRunner,
       mainAgentPrompts,
       connectors,
+      mcp,
     ),
   );
   app.use("/api/files", buildFilesRouter(config));
@@ -122,6 +126,7 @@ function main(): void {
   app.use("/api/sessions", buildSessionsRouter(db));
   app.use("/api/memory-agent", buildMemoryAgentRouter(memoryAgent));
   app.use("/api/connectors", buildConnectorsRouter(connectors, config));
+  app.use("/api/mcp", buildMcpRouter(mcp));
 
   const server = app.listen(config.port, () => {
     // eslint-disable-next-line no-console
@@ -132,6 +137,7 @@ function main(): void {
 
   const shutdown = () => {
     // Flush the write queue and checkpoint the WAL before exiting.
+    void mcp.closeAll().catch(() => undefined);
     db.close();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 5000).unref();

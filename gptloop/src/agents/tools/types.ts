@@ -537,6 +537,10 @@ export interface ToolContext {
    * Lets any tool-execution path route connector tool calls; absent when no connector is
    * connected this turn. */
   connectors?: import("../connectors/runtime.js").ConnectorRuntime;
+  /** MCP runtime — present when the turn has connected MCP servers.
+   * Lets any tool-execution path route MCP tool calls; absent when no MCP
+   * server is connected this turn. */
+  mcp?: import("../mcp/runtime.js").McpRuntime;
   /** Id of the tool call currently executing; used to correlate nested sub-agent events in the UI. */
   toolCallId?: string;
   /**

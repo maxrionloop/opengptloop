@@ -16,6 +16,7 @@ import type {
   KnowledgeFile,
   KnowledgeSource,
   MainAgentPrompt,
+  McpServer,
   MemoryAgentLiveRun,
   MemoryAgentRunCounts,
   MemoryAgentRunMeta,
@@ -55,6 +56,7 @@ import { enforceSingleActive, mergeTeamsWithDefaults } from "@/lib/defaultTeams"
 import { enforceSingleActiveCeo, normalizeCeoAgents } from "@/lib/defaultCeo";
 import { MAIN_AGENT_ID, normalizeCustomAgents } from "@/lib/customAgents";
 import { normalizeConnectors } from "@/lib/connectors";
+import { normalizeMcpServers } from "@/lib/mcp";
 import { normalizeMainAgentPrompts } from "@/lib/mainAgentPrompts";
 import {
   DEFAULT_PLAN_MODE_PROMPT,
@@ -84,6 +86,7 @@ export type Section =
   | "systemprompts"
   | "taskmodes"
   | "connectors"
+  | "mcp"
   | "profiles";
 
 /** Connection state surfaced to the user. Slow ≠ offline; only a lost connection is "offline". */
@@ -139,6 +142,12 @@ interface AppState {
    * stored — tokens stay inside Composio.
    */
   connectors: ConnectorConnection[];
+  /**
+   * MCP servers (remote Streamable HTTP + local stdio), synced with the backend
+   * SQLite database like every other slice. Secrets stay server-side — the
+   * browser only sees presence flags, never values.
+   */
+  mcpServers: McpServer[];
   /**
    * The active task mode: null / "default" = normal, "plan" = plan-first mode,
    * otherwise a custom task-mode id whose prompt is appended to the message.
@@ -362,6 +371,18 @@ interface AppState {
   setConnector: (connection: ConnectorConnection) => void;
   /** Drop one connection by connector id. */
   removeConnector: (connectorId: string) => void;
+
+  // MCP servers (remote Streamable HTTP + local stdio via Composio-style UX)
+  /** Replace the whole server list (used after a backend fetch). */
+  setMcpServers: (servers: McpServer[]) => void;
+  /** Insert or replace one server by id (used after create/update/test). */
+  upsertMcpServer: (server: McpServer) => void;
+  /** Drop one server by id. */
+  removeMcpServer: (id: string) => void;
+  /** Flip a server's master switch locally (the panel persists it via the API). */
+  setMcpServerEnabled: (id: string, enabled: boolean) => void;
+  /** Switch one server tool on/off locally (the panel persists it via the API). */
+  setMcpToolEnabled: (id: string, tool: string, enabled: boolean) => void;
 
   // User profiles (account identities with fully isolated workspace state)
   addUserProfile: (input: Omit<UserProfile, "id" | "createdAt" | "updatedAt">) => UserProfile;
@@ -671,6 +692,7 @@ function freshProfileSnapshot(): ProfileSnapshot {
     activeTaskModeId: null,
     planModePrompt: DEFAULT_PLAN_MODE_PROMPT,
     connectors: [],
+    mcpServers: [],
     currentId: null,
   };
 }
@@ -696,6 +718,7 @@ function captureProfileSnapshot(s: AppState): ProfileSnapshot {
     activeTaskModeId: s.activeTaskModeId,
     planModePrompt: s.planModePrompt,
     connectors: cloneJson(s.connectors),
+    mcpServers: cloneJson(s.mcpServers),
     currentId: s.currentId,
   };
 }
@@ -737,6 +760,7 @@ export const useStore = create<AppState>()(
       activeTaskModeId: null,
       planModePrompt: DEFAULT_PLAN_MODE_PROMPT,
       connectors: [],
+      mcpServers: [],
       userProfiles: mergeProfilesWithDefaults([]),
       activeUserProfileId: null,
       profileStates: {},
@@ -887,13 +911,16 @@ export const useStore = create<AppState>()(
             typeof (state as { activeTaskModeId?: unknown }).activeTaskModeId === "string"
               ? ((state as { activeTaskModeId?: string }).activeTaskModeId ?? null)
               : defaults.activeTaskModeId,
-          planModePrompt: normalizePlanModePrompt(
-            (p as { planModePrompt?: unknown }).planModePrompt ?? defaults.planModePrompt,
-          ),
-          connectors: normalizeConnectors(
-            (p as { connectors?: unknown }).connectors ?? defaults.connectors,
-          ),
-        };
+    planModePrompt: normalizePlanModePrompt(
+      (p as { planModePrompt?: unknown }).planModePrompt ?? defaults.planModePrompt,
+    ),
+    connectors: normalizeConnectors(
+      (p as { connectors?: unknown }).connectors ?? defaults.connectors,
+    ),
+    mcpServers: normalizeMcpServers(
+      (p as { mcpServers?: unknown }).mcpServers ?? defaults.mcpServers,
+    ),
+  };
 
         // Seed the active profile's snapshot from the working copy when it has none
         // (first run — preserves all pre-existing data under the default profile).
@@ -933,6 +960,7 @@ export const useStore = create<AppState>()(
             typeof snap.activeTaskModeId === "string" ? snap.activeTaskModeId : null,
           planModePrompt: normalizePlanModePrompt(snap.planModePrompt ?? base.planModePrompt),
           connectors: normalizeConnectors(snap.connectors ?? base.connectors),
+          mcpServers: normalizeMcpServers(snap.mcpServers ?? base.mcpServers),
         };
 
         const profileConvs = conversations.filter(
@@ -1601,6 +1629,36 @@ export const useStore = create<AppState>()(
           ),
         })),
 
+      // ---- MCP servers (remote Streamable HTTP + local stdio) ----------------
+      setMcpServers: (mcpServers) => set(() => ({ mcpServers: normalizeMcpServers(mcpServers) })),
+
+      upsertMcpServer: (server) =>
+        set((s) => {
+          const normalized = normalizeMcpServers([server])[0];
+          if (!normalized) return {};
+          const rest = s.mcpServers.filter((m) => m.id !== normalized.id);
+          return { mcpServers: [...rest, normalized] };
+        }),
+
+      removeMcpServer: (id) =>
+        set((s) => ({ mcpServers: s.mcpServers.filter((m) => m.id !== id) })),
+
+      setMcpServerEnabled: (id, enabled) =>
+        set((s) => ({
+          mcpServers: s.mcpServers.map((m) => (m.id === id ? { ...m, enabled } : m)),
+        })),
+
+      setMcpToolEnabled: (id, tool, enabled) =>
+        set((s) => ({
+          mcpServers: s.mcpServers.map((m) => {
+            if (m.id !== id) return m;
+            const disabled = new Set(m.disabledTools);
+            if (enabled) disabled.delete(tool);
+            else disabled.add(tool);
+            return { ...m, disabledTools: [...disabled] };
+          }),
+        })),
+
       // ---- User profiles (account identities with fully isolated state) --------
       addUserProfile: (input) => {
         const now = Date.now();
@@ -1684,6 +1742,7 @@ export const useStore = create<AppState>()(
           taskModes: normalizeTaskModes(next.taskModes),
           planModePrompt: normalizePlanModePrompt(next.planModePrompt),
           connectors: normalizeConnectors(next.connectors),
+          mcpServers: normalizeMcpServers(next.mcpServers),
           userProfiles: mergeProfilesWithDefaults(remaining),
           activeUserProfileId: fallback.id,
           conversations,
@@ -1737,6 +1796,7 @@ export const useStore = create<AppState>()(
           taskModes: normalizeTaskModes(next.taskModes),
           planModePrompt: normalizePlanModePrompt(next.planModePrompt),
           connectors: normalizeConnectors(next.connectors),
+          mcpServers: normalizeMcpServers(next.mcpServers),
           currentId,
           activeUserProfileId: id,
           profileStates: { ...profileStates, [id]: { ...next, currentId } },
@@ -1819,6 +1879,7 @@ export const useStore = create<AppState>()(
           taskModes: normalizeTaskModes(snap.taskModes),
           planModePrompt: normalizePlanModePrompt(snap.planModePrompt),
           connectors: normalizeConnectors(snap.connectors),
+          mcpServers: normalizeMcpServers(snap.mcpServers),
           profileStates: {
             ...prev.profileStates,
             ...(fromId === id ? { [fromId]: captureProfileSnapshot(prev as AppState) } : {}),
@@ -1868,6 +1929,7 @@ export const useStore = create<AppState>()(
           taskModes: normalizeTaskModes(fresh.taskModes),
           planModePrompt: normalizePlanModePrompt(fresh.planModePrompt),
           connectors: normalizeConnectors(fresh.connectors),
+          mcpServers: normalizeMcpServers(fresh.mcpServers),
           conversations,
           currentId: null,
           attachedFiles: [],

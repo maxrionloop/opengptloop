@@ -4,6 +4,7 @@ import { useStore } from "@/store/useStore";
 
 import { SUB_AGENT_TOOLS, fetchSubAgentTools, type SubAgentToolMeta } from "@/lib/subAgentTools";
 import { AVAILABLE_CONNECTORS, fetchConnectorTools } from "@/lib/connectors";
+import { fetchMcpEditorTools, humanizeMcpToolName } from "@/lib/mcp";
 import { Modal } from "@/components/ui/Modal";
 import { Button, Field, PanelHeader, TextArea, TextInput, Toggle } from "@/components/ui/primitives";
 import { cn } from "@/utils/cn";
@@ -38,8 +39,22 @@ async function connectorTools(signal?: AbortSignal): Promise<SubAgentToolMeta[]>
   }
 }
 
-/** Append connector tools to the registry list (names can never collide). */
-function mergeConnectorTools(
+/** Connected MCP server tools (best-effort — an empty list when none are connected). */
+async function mcpTools(signal?: AbortSignal): Promise<SubAgentToolMeta[]> {
+  try {
+    const tools = await fetchMcpEditorTools(signal);
+    return tools.map((t) => ({
+      name: t.name,
+      label: t.display || humanizeMcpToolName(t.name),
+      description: `[MCP ${t.server_name}] ${t.description || t.display || t.name}`,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/** Append extra tools to the registry list (names can never collide). */
+function mergeExtraTools(
   base: SubAgentToolMeta[],
   extra: SubAgentToolMeta[],
 ): SubAgentToolMeta[] {
@@ -82,7 +97,7 @@ export function AgentsPanel() {
     try {
       const fetched = await fetchSubAgentTools(signal);
       if (signal?.aborted) return;
-      if (fetched.length > 0) setTools(mergeConnectorTools(fetched, await connectorTools(signal)));
+      if (fetched.length > 0) setTools(mergeExtraTools(mergeExtraTools(fetched, await connectorTools(signal)), await mcpTools(signal)));
       setToolsError(null);
     } catch {
       if (signal?.aborted) return;
@@ -101,12 +116,13 @@ export function AgentsPanel() {
       .then(async (fetched) => {
         if (controller.signal.aborted) return;
         if (fetched.length > 0) {
-          setTools(mergeConnectorTools(fetched, await connectorTools(controller.signal)));
+          setTools(mergeExtraTools(mergeExtraTools(fetched, await connectorTools(controller.signal)), await mcpTools(controller.signal)));
         } else {
           // Registry fetch came back empty — still offer the connector tools, if any.
           const extra = await connectorTools(controller.signal);
-          if (!controller.signal.aborted && extra.length > 0) {
-            setTools((prev) => mergeConnectorTools(prev, extra));
+          const mcpExtra = await mcpTools(controller.signal);
+          if (!controller.signal.aborted && (extra.length > 0 || mcpExtra.length > 0)) {
+            setTools((prev) => mergeExtraTools(mergeExtraTools(prev, extra), mcpExtra));
           }
         }
         setToolsError(null);

@@ -42,6 +42,7 @@ const SYNC_KEYS = [
   "activeTaskModeId",
   "planModePrompt",
   "connectors",
+  "mcpServers",
   "userProfiles",
   "activeUserProfileId",
   "profileStates",

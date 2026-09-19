@@ -16,6 +16,7 @@ import {
 import { useStore } from "@/store/useStore";
 import { fetchCustomAgentTools, fetchMainAgentSystemPrompt, type CustomAgentToolMeta } from "@/lib/customAgentTools";
 import { AVAILABLE_CONNECTORS, fetchConnectorTools } from "@/lib/connectors";
+import { fetchMcpEditorTools, humanizeMcpToolName } from "@/lib/mcp";
 import { MAIN_AGENT_ID } from "@/lib/customAgents";
 import { Modal } from "@/components/ui/Modal";
 import { Button, EmptyState, Field, PanelHeader, TextArea, TextInput, Toggle } from "@/components/ui/primitives";
@@ -49,8 +50,22 @@ async function connectorTools(signal?: AbortSignal): Promise<CustomAgentToolMeta
   }
 }
 
-/** Append connector tools to the registry catalog (names can never collide). */
-function mergeConnectorTools(
+/** Connected MCP server tools (best-effort — an empty list when none are connected). */
+async function mcpTools(signal?: AbortSignal): Promise<CustomAgentToolMeta[]> {
+  try {
+    const tools = await fetchMcpEditorTools(signal);
+    return tools.map((t) => ({
+      name: t.name,
+      label: t.display || humanizeMcpToolName(t.name),
+      description: `[MCP ${t.server_name}] ${t.description || t.display || t.name}`,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/** Append extra tools to the registry catalog (names can never collide). */
+function mergeExtraTools(
   base: CustomAgentToolMeta[],
   extra: CustomAgentToolMeta[],
 ): CustomAgentToolMeta[] {
@@ -95,10 +110,11 @@ export function CustomAgentsPanel() {
       try {
         const fetched = await fetchCustomAgentTools(signal);
         if (signal?.aborted) return;
-        // Connected connector tools join the catalog so a Custom Agent can select them
+        // Connected connector + MCP tools join the catalog so a Custom Agent can select them
         // (names can never collide with registry tools).
         const extra = await connectorTools(signal);
-        const merged = mergeConnectorTools(fetched, extra);
+        const mcpExtra = await mcpTools(signal);
+        const merged = mergeExtraTools(mergeExtraTools(fetched, extra), mcpExtra);
         setTools(merged);
         setToolsError(null);
         // For a brand-new agent, start with the full main-agent tool surface selected so it begins

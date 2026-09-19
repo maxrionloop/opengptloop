@@ -5,6 +5,7 @@ import type { ToolContext } from "../../tools/types.js";
 import { runTeamAgentLoop } from "../agentLoop.js";
 import { buildHeadSystemPrompt } from "../systemprompt.js";
 import type { ConnectorRuntime } from "../../connectors/runtime.js";
+import type { McpRuntime } from "../../mcp/runtime.js";
 import type { AgentTeamDefinition, TeamAgentRunResult } from "../types.js";
 
 /**
@@ -27,6 +28,8 @@ export interface RunHeadAgentArgs {
   toolCtx: ToolContext;
   /** The turn's connector runtime (connected Composio apps), if any. */
   connectors?: ConnectorRuntime;
+  /** The turn's MCP runtime (connected MCP servers), if any. */
+  mcp?: McpRuntime;
   /** Extra system-prompt tail (e.g. the connected-apps hint), if any. */
   systemSuffix?: string;
   send: (event: string, data: Record<string, unknown>) => void;
@@ -65,6 +68,7 @@ export async function runHeadAgent(args: RunHeadAgentArgs): Promise<TeamAgentRun
     toolSchemas: args.toolSchemas,
     toolCtx: args.toolCtx,
     connectors: args.connectors,
+    mcp: args.mcp,
     send: args.send,
     signal: args.signal,
   });

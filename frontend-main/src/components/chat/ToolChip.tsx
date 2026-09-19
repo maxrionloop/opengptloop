@@ -34,6 +34,7 @@ import {
   QrCode,
   Repeat2,
   Search,
+  Server,
   Terminal,
   Timer,
   Trash2,
@@ -256,7 +257,13 @@ export function ToolChip({ tool }: { tool: ToolActivity }) {
   if (tool.name === "reuse_same_sub_agent_session") return <ReuseSessionChip tool={tool} />;
   if (tool.name === "wait") return <WaitChip tool={tool} />;
   if (isConnectorTool(tool.name)) return <ConnectorChip tool={tool} />;
+  if (isMcpTool(tool.name)) return <McpChip tool={tool} />;
   return <GenericChip tool={tool} />;
+}
+
+/** MCP namespaced tools use `mcp_<server>_<tool>` names (never a built-in name). */
+function isMcpTool(name: string): boolean {
+  return /^mcp_[a-z0-9]+_.+$/i.test((name ?? "").trim());
 }
 
 /** Composio connector tools use SCREAMING_SNAKE_CASE slugs (never a built-in name). */
@@ -1609,6 +1616,50 @@ function ConnectorChip({ tool }: { tool: ToolActivity }) {
       status={tool.status}
       expandable={hasResult || entries.length > 0}
       pills={<Pill tone="accent">{connectorNameOf(tool.name)}</Pill>}
+      panel={() => (
+        <>
+          {error?.message && <div className="text-[var(--danger)]">{error.message}</div>}
+          {entries.length > 0 && (
+            <div>
+              <Label>Arguments</Label>
+              <div className="mt-1 space-y-1">
+                {entries.map(([key, value]) => (
+                  <div key={key} className="flex items-start gap-1.5">
+                    <span className="shrink-0 font-mono text-[var(--muted)]">{key}:</span>
+                    <span className="min-w-0 flex-1 whitespace-pre-wrap break-words font-mono text-[var(--fg)]">
+                      {typeof value === "string" ? value : JSON.stringify(value)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {data !== undefined && (
+            <div>
+              <Label>Result</Label>
+              <Pre className="mt-1">
+                {typeof data === "string" ? data : JSON.stringify(data, null, 2)}
+              </Pre>
+            </div>
+          )}
+          {!data && !error && <div className="text-[var(--muted)]">No result yet.</div>}
+        </>
+      )}
+    />
+  );
+}
+
+/** An MCP server tool call — args in, structured server data out. */
+function McpChip({ tool }: { tool: ToolActivity }) {
+  const { data, error, args, hasResult } = parts(tool);
+  const entries = Object.entries(args ?? {});
+  return (
+    <Shell
+      icon={<Server className="h-3.5 w-3.5" />}
+      label={tool.label}
+      status={tool.status}
+      expandable={hasResult || entries.length > 0}
+      pills={<Pill tone="accent">MCP</Pill>}
       panel={() => (
         <>
           {error?.message && <div className="text-[var(--danger)]">{error.message}</div>}

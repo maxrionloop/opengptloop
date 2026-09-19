@@ -10,6 +10,7 @@ import type {
   KnowledgeFile,
   KnowledgeSource,
   MainAgentPrompt,
+  McpServer,
   MemoryFile,
   Settings,
   Skill,
@@ -196,6 +197,7 @@ export interface ProfileSnapshot {
   activeTaskModeId: string | null;
   planModePrompt: string;
   connectors: ConnectorConnection[];
+  mcpServers: McpServer[];
   /** The profile's currently open chat id (null when it has no chats). */
   currentId: string | null;
 }

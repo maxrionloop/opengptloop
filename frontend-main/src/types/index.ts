@@ -312,6 +312,70 @@ export interface BackendConnector {
   connected_account_id: string;
 }
 
+/** How the backend authenticates to a remote MCP server. */
+export type McpAuthType = "none" | "apiKey" | "bearer" | "oauth" | "customHeaders";
+
+/** Lifecycle status of an MCP server connection. */
+export type McpServerStatus = "connected" | "disconnected" | "connecting" | "error" | "auth_required";
+
+/** One custom HTTP header sent with every request to a remote MCP server. */
+export interface McpCustomHeader {
+  key: string;
+  value: string;
+}
+
+/** OAuth state of a remote MCP server (tokens never leave the backend). */
+export interface McpOAuthState {
+  authorizationServer?: string;
+  scopes: string[];
+  hasClientId: boolean;
+  authorizationEndpoint?: string;
+  tokenEndpoint?: string;
+  registrationEndpoint?: string;
+  /** True when the backend holds a usable access token. */
+  connected: boolean;
+  expiresAt?: number;
+}
+
+/**
+ * An MCP server (remote Streamable HTTP or local stdio), stored in the
+ * backend SQLite database. Secrets are write-only: the backend serves
+ * presence flags (`hasApiKey`, …), never values.
+ */
+export interface McpServer {
+  id: string;
+  name: string;
+  description: string;
+  kind: "remote" | "local";
+  /** Remote MCP endpoint URL (remote only). */
+  url: string;
+  /** Local launch summary (local only; env values never leave the backend). */
+  local?: { command: string; args: string[]; envKeys: string[]; cwd?: string };
+  authType: McpAuthType;
+  hasApiKey: boolean;
+  apiKeyHeader?: string;
+  hasBearerToken: boolean;
+  customHeaders: McpCustomHeader[];
+  oauth?: McpOAuthState;
+  /** Where the browser lands after OAuth (empty = auto-detected frontend origin). */
+  frontendUrl?: string;
+  /** Master switch: a disabled server contributes no tools and is never dialed. */
+  enabled: boolean;
+  /** Tool names (as the server reports them) switched OFF by the user. */
+  disabledTools: string[];
+  status: McpServerStatus;
+  lastError?: string;
+  /** Cached tool catalog from the last successful tools/list. */
+  cachedTools: Array<{ name: string; description: string }>;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** MCP server reference sent with each chat turn (ids only — secrets stay server-side). */
+export interface BackendMcpServer {
+  id: string;
+}
+
 /**
  * A user-created Custom Agent, stored in the backend SQLite database (app_state `customAgents`).
  *
@@ -848,6 +912,8 @@ export interface StreamRequest {
   composio_api_key?: string;
   /** The turn's authenticated app connectors (only ACTIVE ones are sent). */
   connectors?: BackendConnector[];
+  /** The turn's MCP servers (only ENABLED ones are sent; ids only). */
+  mcp_servers?: BackendMcpServer[];
   sub_agents?: BackendSubAgent[];
   skills?: BackendSkill[];
   todos?: TodoItem[];

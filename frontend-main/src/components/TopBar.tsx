@@ -31,6 +31,8 @@ function contextLabel(section: Section, counts: Record<string, number>): string 
       return `${counts.taskmodes} mode${counts.taskmodes === 1 ? "" : "s"}`;
     case "connectors":
       return `${counts.connectors} app${counts.connectors === 1 ? "" : "s"}`;
+    case "mcp":
+      return `${counts.mcp} server${counts.mcp === 1 ? "" : "s"}`;
     case "profiles":
       return `${counts.profiles} profile${counts.profiles === 1 ? "" : "s"}`;
     default:
@@ -60,6 +62,7 @@ export function TopBar() {
   const mainAgentPrompts = useStore((s) => s.mainAgentPrompts);
   const taskModes = useStore((s) => s.taskModes);
   const connectors = useStore((s) => s.connectors);
+  const mcpServers = useStore((s) => s.mcpServers);
   const userProfiles = useStore((s) => s.userProfiles);
   const setSection = useStore((s) => s.setSection);
 
@@ -73,6 +76,7 @@ export function TopBar() {
     systemprompts: mainAgentPrompts.length,
     taskmodes: taskModes.length,
     connectors: connectors.filter((c) => c.status === "active").length,
+    mcp: mcpServers.filter((m) => m.status === "connected").length,
     profiles: userProfiles.length,
   });
   const isChat = section === "chat";

@@ -14,6 +14,7 @@ import { CustomAgentsPanel } from "@/components/panels/CustomAgentsPanel";
 import { MainAgentPromptsPanel } from "@/components/panels/MainAgentPromptsPanel";
 import { TaskModesPanel } from "@/components/panels/TaskModesPanel";
 import { ConnectorsPanel } from "@/components/panels/ConnectorsPanel";
+import { McpPanel } from "@/components/panels/McpPanel";
 import { ProfilesPanel } from "@/components/panels/ProfilesPanel";
 import { SettingsModal } from "@/components/editors/SettingsModal";
 import { TodoPanel } from "@/components/overlays/TodoPanel";
@@ -25,6 +26,7 @@ import { TeamMonitorPanel } from "@/components/overlays/TeamMonitorPanel";
 import { useStore } from "@/store/useStore";
 import { useChatStream, useConnectionWatch } from "@/hooks/useChatStream";
 import { fetchProviders } from "@/lib/api";
+import { exchangeMcpOAuthCode, fetchMcpServers } from "@/lib/mcp";
 import { fetchWorkspace } from "@/lib/workspace";
 import { attachLatestMemoryAgentRun } from "@/lib/memoryAgent";
 import {
@@ -56,6 +58,42 @@ export function App() {
       .catch(() => {});
 
     void (async () => {
+      // OAuth landings: the backend redirects here after a backend-mode MCP
+      // flow (?mcp_connected=<id> or ?mcp_error=<message>), and the provider
+      // redirects here directly after a frontend-mode MCP flow
+      // (?mcp_oauth=1&code=…&state=mcp_…). Refresh the list and land on the
+      // MCP page so the user sees the result.
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const connected = params.get("mcp_connected");
+        const oauthError = params.get("mcp_error");
+        const oauthCode = params.get("code");
+        const oauthState = params.get("state");
+        const isFrontendReturn =
+          (params.get("mcp_oauth") !== null || params.get("mcp") !== null) &&
+          Boolean(oauthCode) &&
+          (oauthState ?? "").startsWith("mcp_");
+        if (connected || oauthError || isFrontendReturn) {
+          window.history.replaceState({}, "", window.location.pathname);
+          if (isFrontendReturn && oauthCode && oauthState) {
+            // Frontend redirect mode: complete the code exchange with the backend.
+            try {
+              const server = await exchangeMcpOAuthCode(oauthCode, oauthState);
+              useStore.getState().upsertMcpServer(server);
+            } catch (e) {
+              // The server row records the failure; still land on the MCP page.
+              void e;
+            }
+          }
+          fetchMcpServers()
+            .then((servers) => useStore.getState().setMcpServers(servers))
+            .catch(() => {});
+          useStore.getState().setSection("mcp");
+        }
+      } catch {
+        // ignore malformed URLs
+      }
+
       const payload = await bootstrapFromBackend();
       startStatePersistence();
 
@@ -115,6 +153,7 @@ export function App() {
               {section === "systemprompts" && <MainAgentPromptsPanel />}
               {section === "taskmodes" && <TaskModesPanel />}
               {section === "connectors" && <ConnectorsPanel />}
+              {section === "mcp" && <McpPanel />}
               {section === "profiles" && <ProfilesPanel />}
             </div>
           )}

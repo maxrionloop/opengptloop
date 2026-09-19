@@ -27,10 +27,15 @@ import { createKnowledgeRuntime } from "./knowledge.js";
 import type { KnowledgeFile, MemoryFile, MemoryRuntime, TodoItem } from "./tools/types.js";
 import type { MemoryAgentService } from "./memoryagent/index.js";
 import { ALL_MULTI_AGENT_TOOL_NAMES } from "./tools/teamTools.js";
+import type { McpManager } from "./mcp/index.js";
 import {
   ConnectorRuntime,
   type ConnectorWire,
 } from "./connectors/index.js";
+import {
+  McpRuntime,
+  type McpServerSelection,
+} from "./mcp/index.js";
 
 export interface RunAgentRequest {
   chatId: string;
@@ -116,6 +121,13 @@ export interface RunAgentRequest {
    * Only these toolkits are loaded; each contributes its FULL tool catalog (uncapped).
    */
   connectors?: ConnectorWire[];
+  /**
+   * The turn's MCP servers (Model Context Protocol), by server id. Only enabled
+   * servers are loaded; each contributes its FULL tool catalog (uncapped, minus
+   * the tools the user switched off). Undefined/empty = every enabled server.
+   * Secrets stay server-side — the wire carries ids only.
+   */
+  mcpServers?: McpServerSelection[];
 }
 
 /** Lightweight identity of the Custom Agent handling a turn (see agents/customagent/configuration). */
@@ -155,6 +167,11 @@ export class AgentRunner {
      * final memory state) and updates the user's memory files autonomously.
      */
     private readonly memoryAgent?: MemoryAgentService,
+    /**
+     * Optional MCP server manager. When present, every connected + enabled MCP
+     * server's FULL tool catalog is advertised as native function tools.
+     */
+    private readonly mcpManager?: McpManager,
   ) {}
 
   /**
@@ -259,7 +276,34 @@ export class AgentRunner {
       // Tell the model about its connected apps (a short hint — the tools themselves
       // carry full descriptions as native schemas).
       const connectorHint = connectorRuntime.active ? connectorRuntime.hint() : "";
-      const systemPrompt = connectorHint ? `${basePrompt}\n\n# Connected apps\n- ${connectorHint}` : basePrompt;
+      // Connected MCP servers: every enabled server's FULL tool catalog is
+      // advertised as NATIVE function tools — no allowlist, no subset, no cap
+      // (minus the tools the user switched off per server). Inert (zero
+      // network) when no server is enabled. Secrets never leave the backend:
+      // the wire carries server ids, the manager resolves the full configs.
+      const mcpRuntime = this.mcpManager
+        ? await McpRuntime.create({
+            manager: this.mcpManager,
+            serverIds: request.mcpServers?.map((s) => s.id),
+            signal,
+          })
+        : null;
+      if (mcpRuntime?.active) {
+        const mcpSchemas = mcpRuntime.schemas();
+        if (request.allowedToolNames) {
+          // Custom Agent: keep only the MCP tools the agent selected.
+          const allow = new Set(request.allowedToolNames);
+          toolSchemas = [...toolSchemas, ...mcpSchemas.filter((s) => allow.has(s.function.name))];
+        } else {
+          toolSchemas = [...toolSchemas, ...mcpSchemas];
+        }
+      }
+      // Tell the model about its MCP servers (a short hint — the tools themselves
+      // carry full descriptions as native schemas).
+      const mcpHint = mcpRuntime?.active ? mcpRuntime.hint() : "";
+      const systemPrompt = [basePrompt, connectorHint ? `# Connected apps\n- ${connectorHint}` : "", mcpHint ? `# Connected MCP servers\n- ${mcpHint}` : ""]
+        .filter((part) => part.length > 0)
+        .join("\n\n");
       const web: WebToolsConfig = {
         searchProvider: request.searchProvider ?? this.config.searchProvider,
         fetchProvider: request.fetchProvider ?? this.config.fetchProvider,
@@ -291,6 +335,9 @@ export class AgentRunner {
         // The turn's connector runtime is shared with sub-agents so a sub-agent granted
         // connector tools can execute them natively (same account, same catalog).
         connectors: connectorRuntime.active ? connectorRuntime : undefined,
+        // The turn's MCP runtime is shared with sub-agents so a sub-agent granted
+        // MCP tools can execute them natively (same servers, same catalog).
+        mcp: mcpRuntime?.active ? mcpRuntime : undefined,
         // Snapshot the live conversation so a call_sub_agent with send_my_context=true can share
         // the surrounding context. Returns the current messages at the moment the sub-agent is called.
         getConversationContext: () => session.messages,
@@ -397,13 +444,19 @@ export class AgentRunner {
             const args = safeJsonParse(toolCall.function.arguments);
             const toolName = toolCall.function.name;
             // Connector tools (Composio) are native function tools served by the turn's
-            // connector runtime; everything else goes through the static registry. A Custom
-            // Agent may only reach the connector tools it selected (its allow-list).
+            // connector runtime; MCP tools are native function tools served by the
+            // turn's MCP runtime; everything else goes through the static registry.
+            // A Custom Agent may only reach the connector/MCP tools it selected
+            // (its allow-list).
             const isConnectorTool =
               connectorRuntime.has(toolName) && (!customAllow || customAllow.has(toolName));
+            const isMcpTool =
+              (mcpRuntime?.has(toolName) ?? false) && (!customAllow || customAllow.has(toolName));
             const toolLabel = isConnectorTool
               ? connectorRuntime.label(toolName)
-              : this.tools.label(toolName, args);
+              : isMcpTool && mcpRuntime
+                ? mcpRuntime.label(toolName)
+                : this.tools.label(toolName, args);
 
             send("tool_call", {
               id: toolCall.id,
@@ -414,6 +467,8 @@ export class AgentRunner {
 
             const result = isConnectorTool
               ? await connectorRuntime.execute(toolName, args)
+              : isMcpTool && mcpRuntime
+              ? await mcpRuntime.execute(toolName, args)
               : await this.tools.execute(toolName, args, {
               workspaceRoot: this.config.workspaceRoot,
               shellTimeoutMs: this.config.shellTimeoutMs,
@@ -434,10 +489,13 @@ export class AgentRunner {
               model: request.model,
               visionCapable,
               connectors: connectorRuntime.active ? connectorRuntime : undefined,
-              // LLM-created sub-agents may also use the turn's connector tools.
-              availableToolNames: connectorRuntime.active
-                ? [...this.tools.names(), ...connectorRuntime.names()]
-                : this.tools.names(),
+              mcp: mcpRuntime?.active ? mcpRuntime : undefined,
+              // LLM-created sub-agents may also use the turn's connector + MCP tools.
+              availableToolNames: [
+                ...this.tools.names(),
+                ...(connectorRuntime.active ? connectorRuntime.names() : []),
+                ...(mcpRuntime?.active ? mcpRuntime.names() : []),
+              ],
             });
 
             // read_image attaches the loaded image to its result. The base64 payload

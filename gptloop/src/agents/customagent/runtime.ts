@@ -5,6 +5,7 @@ import type { SessionEventBuffer } from "../../services/eventBuffer.js";
 import type { RunAgentRequest } from "../agent.js";
 import type { CustomAgentConfig } from "./configuration.js";
 import { isConnectorToolName } from "../connectors/index.js";
+import { isMcpToolName } from "../mcp/index.js";
 import { resolveCustomAgentSystemPrompt, resolveCustomAgentTools } from "./loader.js";
 
 /**
@@ -56,13 +57,17 @@ export class CustomAgentRunner {
     const resolved = resolveCustomAgentTools(this.tools, agent.selectedTools);
     const systemPrompt = resolveCustomAgentSystemPrompt(agent, this.config.workspaceRoot);
 
-    // Connector tool selections (SCREAMING_SNAKE_CASE slugs, never in the static registry)
-    // are preserved verbatim: the shared core runtime filters the turn's connector catalog
-    // by this list, so a Custom Agent only reaches the connector tools it selected.
+    // Connector + MCP tool selections (SCREAMING_SNAKE_CASE slugs / `mcp_*`
+    // namespaced tools, never in the static registry) are preserved verbatim:
+    // the shared core runtime filters the turn's catalogs by this list, so a
+    // Custom Agent only reaches the tools it selected.
     const selectedConnectorTools = agent.selectedTools.filter(
       (name) => isConnectorToolName(name) && !resolved.allowed.includes(name),
     );
-    const allowedToolNames = [...resolved.allowed, ...selectedConnectorTools];
+    const selectedMcpTools = agent.selectedTools.filter(
+      (name) => isMcpToolName(name) && !resolved.allowed.includes(name),
+    );
+    const allowedToolNames = [...resolved.allowed, ...selectedConnectorTools, ...selectedMcpTools];
 
     // Announce which top-level agent is handling this turn (a Custom Agent, not a sub-agent) so the
     // UI/persistence can label it. Sent before the run so it is captured in the event log.

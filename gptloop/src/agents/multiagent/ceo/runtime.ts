@@ -21,6 +21,7 @@ import { resolveDefaultSubAgents, mergeDefaultSubAgents } from "../../sub-agents
 import { allowedCeoAgentTools } from "../../tools/teamTools.js";
 import { isVisionCapableModel } from "../../../utils/vision.js";
 import type { ConnectorRuntime } from "../../connectors/runtime.js";
+import type { McpRuntime } from "../../mcp/runtime.js";
 import { buildLeaderReportReminder, frameMailbox } from "../systemprompt.js";
 import { runHeadAgent } from "../head/runner.js";
 import { runMemberAgent } from "../members/runner.js";
@@ -97,6 +98,8 @@ export interface CeoOrchestratorDeps {
   userSubAgents: import("../../tools/types.js").SubAgentDefinition[];
   /** The turn's connector runtime (connected Composio apps), shared by every agent. */
   connectors: ConnectorRuntime;
+  /** The turn's MCP runtime (connected MCP servers), shared by every agent. */
+  mcp?: McpRuntime;
   /** Raw SSE emitter onto the turn buffer. */
   send: (event: string, data: Record<string, unknown>) => void;
   signal: AbortSignal;
@@ -209,6 +212,7 @@ export class CeoOrchestrator {
       effort: this.deps.effort,
       send: this.deps.send,
       connectors: this.deps.connectors.active ? this.deps.connectors : undefined,
+      mcp: this.deps.mcp?.active ? this.deps.mcp : undefined,
       getConversationContext: () => context.messages,
     });
   }
@@ -415,21 +419,27 @@ export class CeoOrchestrator {
       });
 
     const connectors = this.deps.connectors;
+    const mcp = this.deps.mcp;
     const allowed = new Set(
       allowedCeoAgentTools(
         this.registryNames,
         actor.role,
         this.deps.sendMessageToTeamEnabled,
         connectors.active ? connectors.names() : [],
+        mcp?.active ? mcp.names() : [],
       ),
     );
-    // Registry schemas for the granted static tools + every connector tool natively.
+    // Registry schemas for the granted static tools + every connector/MCP tool natively.
     const toolSchemas = [
       ...this.deps.tools.schemasFor([...allowed].filter((name) => this.deps.tools.has(name))),
       ...connectors.schemas().filter((s) => allowed.has(s.function.name)),
+      ...(mcp ? mcp.schemas().filter((s) => allowed.has(s.function.name)) : []),
     ];
     const toolCtx = this.buildToolCtx(actor, allowed);
 
+    const connectorSuffix = connectors.active ? `# Connected apps\n- ${connectors.hint()}` : undefined;
+    const mcpSuffix = mcp?.active ? `# Connected MCP servers\n- ${mcp.hint()}` : undefined;
+    const systemSuffix = [connectorSuffix, mcpSuffix].filter((s): s is string => Boolean(s)).join("\n") || undefined;
     const common = {
       workspaceRoot: this.deps.config.workspaceRoot,
       messages: actor.context.messages,
@@ -437,7 +447,8 @@ export class CeoOrchestrator {
       toolSchemas,
       toolCtx,
       connectors: connectors.active ? connectors : undefined,
-      systemSuffix: connectors.active ? `# Connected apps\n- ${connectors.hint()}` : undefined,
+      mcp: mcp?.active ? mcp : undefined,
+      systemSuffix,
       send,
       signal: this.deps.signal,
       provider: this.deps.provider,
@@ -489,9 +500,14 @@ export class CeoOrchestrator {
       memory: this.deps.memory,
       knowledge: this.deps.knowledge,
       connectors: this.deps.connectors.active ? this.deps.connectors : undefined,
+      mcp: this.deps.mcp?.active ? this.deps.mcp : undefined,
       model: this.deps.model,
       visionCapable: this.visionCapable,
-      availableToolNames: this.registryNames,
+      availableToolNames: [
+        ...this.registryNames,
+        ...(this.deps.connectors.active ? this.deps.connectors.names() : []),
+        ...(this.deps.mcp?.active ? this.deps.mcp.names() : []),
+      ],
       emit: this.deps.send,
     };
     if (actor.role === "ceo") {

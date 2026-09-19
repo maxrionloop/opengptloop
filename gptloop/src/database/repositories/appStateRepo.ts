@@ -28,6 +28,7 @@ export const APP_STATE_KEYS = [
   "activeTaskModeId",
   "planModePrompt",
   "connectors",
+  "mcpServers",
   "userProfiles",
   "activeUserProfileId",
   "profileStates",

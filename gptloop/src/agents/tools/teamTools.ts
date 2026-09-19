@@ -93,14 +93,15 @@ export const TEAM_AGENT_BASE_EXCLUDED_TOOLS: readonly string[] = [
  * Compute the tool names a team agent is allowed to use, given the full registry names, the agent's
  * role, and whether the sensitive send_message_to_team tool is enabled. All non-team tools stay
  * available (files, shell, web, memory, knowledge, skills, sub-agents, todos, wait, ...) except the
- * base-excluded set; the role's team tools are added on top. Connector tools (connected Composio
- * apps) are appended uncapped — every connected app's tool is available to every team agent.
+ * base-excluded set; the role's team tools are added on top. Connector + MCP tools (connected apps
+ * and MCP servers) are appended uncapped — every connected tool is available to every team agent.
  */
 export function allowedTeamAgentTools(
   registryNames: readonly string[],
   role: "leader" | "member",
   sendMessageEnabled: boolean,
   connectorToolNames: readonly string[] = [],
+  mcpToolNames: readonly string[] = [],
 ): string[] {
   const excluded = new Set<string>(TEAM_AGENT_BASE_EXCLUDED_TOOLS);
   // Strip ALL multi-agent tools first (ordinary team + CEO); the role-appropriate ones are added
@@ -117,6 +118,9 @@ export function allowedTeamAgentTools(
     allowed.push(OPTIONAL_TEAM_TOOL);
   }
   for (const name of connectorToolNames) {
+    if (!allowed.includes(name)) allowed.push(name);
+  }
+  for (const name of mcpToolNames) {
     if (!allowed.includes(name)) allowed.push(name);
   }
   return allowed;
@@ -150,6 +154,7 @@ export function allowedCeoAgentTools(
   role: CeoAgentRole,
   sendMessageEnabled: boolean,
   connectorToolNames: readonly string[] = [],
+  mcpToolNames: readonly string[] = [],
 ): string[] {
   const excluded = new Set<string>(TEAM_AGENT_BASE_EXCLUDED_TOOLS);
   for (const name of ALL_MULTI_AGENT_TOOL_NAMES) excluded.add(name);
@@ -161,6 +166,9 @@ export function allowedCeoAgentTools(
       if (registryNames.includes(name)) allowed.push(name);
     }
     for (const name of connectorToolNames) {
+      if (!allowed.includes(name)) allowed.push(name);
+    }
+    for (const name of mcpToolNames) {
       if (!allowed.includes(name)) allowed.push(name);
     }
     return allowed;
@@ -178,6 +186,9 @@ export function allowedCeoAgentTools(
     allowed.push(OPTIONAL_TEAM_TOOL);
   }
   for (const name of connectorToolNames) {
+    if (!allowed.includes(name)) allowed.push(name);
+  }
+  for (const name of mcpToolNames) {
     if (!allowed.includes(name)) allowed.push(name);
   }
   return allowed;

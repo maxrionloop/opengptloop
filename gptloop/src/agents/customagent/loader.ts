@@ -15,7 +15,9 @@ export interface CustomAgentToolInfo {
  * The catalog of tools a Custom Agent may be granted: every registered tool EXCEPT the multi-agent
  * collaboration tools (a Custom Agent is a top-level Main Agent, never a team member). This mirrors
  * the Main Agent's own tool surface — sub-agent, memory, skills, knowledge, and every other tool are
- * all selectable. The frontend fetches this so the creation UI always reflects the live registry.
+ * all selectable. MCP tools (native `mcp_*` names from connected servers) are selectable too and
+ * are preserved verbatim by the runner. The frontend fetches this so the creation UI always
+ * reflects the live registry.
  */
 export function listCustomAgentTools(tools: ToolRegistry): CustomAgentToolInfo[] {
   return tools.schemas

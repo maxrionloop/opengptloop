@@ -82,6 +82,13 @@ function buildStartRequest(convId: string, text: string): StreamRequest {
     .filter((c) => c.status === "active" && c.connectedAccountId.trim().length > 0)
     .map((c) => ({ connector_id: c.connectorId, connected_account_id: c.connectedAccountId }));
 
+  // Connected MCP servers: only ENABLED ones travel (ids only — secrets
+  // stay server-side). The backend loads each server's full tool catalog
+  // natively for the turn — main, custom, sub-agents, teams, and CEO agents.
+  const mcpServers = store.mcpServers
+    .filter((m) => m.enabled)
+    .map((m) => ({ id: m.id }));
+
   // Task mode: plan / custom modes append their prompt to the user's message so the
   // model approaches the task accordingly. Default mode appends nothing (normal work).
   const taskModePrompt = taskModePromptFor(
@@ -162,6 +169,7 @@ function buildStartRequest(convId: string, text: string): StreamRequest {
     knowledge,
     composio_api_key: settings.composioApiKey?.trim() || undefined,
     connectors,
+    mcp_servers: mcpServers,
     enable_reuse_sub_agent_session: settings.enableReuseSubAgentSession === "yes" ? "yes" : "no",
     memory_agent_enabled: settings.memoryAgentEnabled !== "no",
     memory_agent_interval:

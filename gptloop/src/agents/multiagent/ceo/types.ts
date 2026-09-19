@@ -1,5 +1,6 @@
 import type { StoredMessage } from "../../../services/sessionStore.js";
 import type { ConnectorWire } from "../../connectors/index.js";
+import type { McpServerSelection } from "../../mcp/index.js";
 import type {
   KnowledgeFile,
   MemoryFile,
@@ -67,6 +68,12 @@ export interface RunCeoRequest {
   composioApiKey?: string;
   /** The turn's authenticated app connectors (each contributes its full tool catalog). */
   connectors?: ConnectorWire[];
+  /**
+   * The turn's MCP servers, by server id. Only enabled servers are loaded;
+   * each contributes its FULL tool catalog (minus user-disabled tools).
+   * Undefined/empty = every enabled server. Secrets stay server-side.
+   */
+  mcpServers?: McpServerSelection[];
 }
 
 /** Role of an agent inside a CEO multi-agent system. */

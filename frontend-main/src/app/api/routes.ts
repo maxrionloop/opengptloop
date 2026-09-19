@@ -248,6 +248,84 @@ export const API_ROUTES = {
     path: "/api/connectors/validate",
     description: "Validate a Composio API key.",
   },
+  mcpList: {
+    name: "mcp.list",
+    method: "GET",
+    path: "/api/mcp",
+    description: "List the MCP servers (remote + local) with connection status.",
+  },
+  mcpCreate: {
+    name: "mcp.create",
+    method: "POST",
+    path: "/api/mcp",
+    description: "Create an MCP server (remote URL or pasted local JSON).",
+  },
+  mcpValidate: {
+    name: "mcp.validate",
+    method: "POST",
+    path: "/api/mcp/validate",
+    description: "Test an unsaved MCP server payload (connect + list tools, no persistence).",
+  },
+  mcpTools: {
+    name: "mcp.tools",
+    method: "GET",
+    path: "/api/mcp/tools",
+    description: "List every tool of every connected MCP server (for the agent editors).",
+  },
+  mcpOAuthDiscover: {
+    name: "mcp.oauth.discover",
+    method: "POST",
+    path: "/api/mcp/oauth/discover",
+    description: "Discover a remote MCP server's OAuth configuration.",
+  },
+  mcpOAuthExchange: {
+    name: "mcp.oauth.exchange",
+    method: "POST",
+    path: "/api/mcp/oauth/exchange",
+    description: "Complete a frontend-mode OAuth flow (exchange code captured by the app).",
+  },
+  mcpOAuthStart: {
+    name: "mcp.oauth.start",
+    method: "POST",
+    path: "/api/mcp/oauth/start",
+    description: "Start the browser OAuth flow for an MCP server — returns the auth URL.",
+  },
+  mcpOAuthDisconnect: {
+    name: "mcp.oauth.disconnect",
+    method: "POST",
+    path: "/api/mcp/:id/oauth/disconnect",
+    description: "Forget an MCP server's OAuth tokens (disconnect authorization).",
+  },
+  mcpGet: {
+    name: "mcp.get",
+    method: "GET",
+    path: "/api/mcp/:id",
+    description: "Load one MCP server.",
+  },
+  mcpUpdate: {
+    name: "mcp.update",
+    method: "PUT",
+    path: "/api/mcp/:id",
+    description: "Update an MCP server (secrets are write-only).",
+  },
+  mcpDelete: {
+    name: "mcp.delete",
+    method: "DELETE",
+    path: "/api/mcp/:id",
+    description: "Delete an MCP server.",
+  },
+  mcpTest: {
+    name: "mcp.test",
+    method: "POST",
+    path: "/api/mcp/:id/test",
+    description: "Connect to an MCP server and list its tools (test/connect).",
+  },
+  mcpServerTools: {
+    name: "mcp.server.tools",
+    method: "GET",
+    path: "/api/mcp/:id/tools",
+    description: "Live tool catalog of one MCP server.",
+  },
 } as const satisfies Record<string, ApiRoute>;
 
 export type ApiRouteName = keyof typeof API_ROUTES;
