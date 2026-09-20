@@ -75,6 +75,10 @@ function buildStartRequest(convId: string, text: string): StreamRequest {
   const memory: MemoryFile[] = store.memory;
   const knowledge: KnowledgeFile[] = store.knowledge;
 
+  // Top-level conversation mode. Chat mode is a lightweight conversational assistant with
+  // only memory + knowledge + web tools. Task modes are agent-only and never apply here.
+  const isChatMode = store.agentMode === "chat";
+
   // Connected app connectors (Composio): only ACTIVE connections travel. The backend
   // loads each toolkit's full tool catalog natively for the turn — main, custom,
   // sub-agents, teams, and CEO agents all receive them.
@@ -90,42 +94,45 @@ function buildStartRequest(convId: string, text: string): StreamRequest {
     .map((m) => ({ id: m.id }));
 
   // Task mode: plan / custom modes append their prompt to the user's message so the
-  // model approaches the task accordingly. Default mode appends nothing (normal work).
-  const taskModePrompt = taskModePromptFor(
-    store.activeTaskModeId,
-    store.taskModes,
-    store.planModePrompt,
-  );
+  // model approaches the task accordingly. Agent-only: never applied in chat mode.
+  const taskModePrompt = isChatMode
+    ? null
+    : taskModePromptFor(
+        store.activeTaskModeId,
+        store.taskModes,
+        store.planModePrompt,
+      );
   const userMessageWithMode =
     taskModePrompt && taskModePrompt.trim().length > 0
       ? `${text}\n\n${taskModePrompt}`
       : text;
 
   // Custom Agent mode: when a top-level Custom Agent is the active agent, this turn runs as that
-  // independent Main Agent (its own system prompt + selected tools). It takes precedence over team
-  // mode — a Custom Agent is a single top-level agent, not a team.
-  const customAgent = findActiveCustomAgent(store.customAgents, store.activeCustomAgentId);
+  // independent Main Agent (its own system prompt + selected tools). Disabled in chat mode —
+  // a chat turn never routes to teams, CEOs, or custom agents.
+  const customAgent = isChatMode
+    ? null
+    : findActiveCustomAgent(store.customAgents, store.activeCustomAgentId);
   const backendCustomAgent = customAgent ? toBackendCustomAgent(customAgent) : undefined;
 
-  // Custom System Prompt for the built-in Main Agent: when a prompt is active AND the default Main
-  // Agent is running (no Custom Agent), send its text so the Main Agent uses it verbatim as its
-  // system prompt. This only changes the Main Agent's instructions — it never creates a new agent.
-  const activeMainPrompt = findActiveMainAgentPrompt(store.mainAgentPrompts, store.activeMainAgentPromptId);
+  // Custom System Prompt for the built-in Main Agent: agent-only, never sent in chat mode.
+  const activeMainPrompt = isChatMode
+    ? null
+    : findActiveMainAgentPrompt(store.mainAgentPrompts, store.activeMainAgentPromptId);
   const systemPromptOverride =
     !backendCustomAgent && activeMainPrompt && activeMainPrompt.content.trim().length > 0
       ? activeMainPrompt.content
       : undefined;
 
-  // CEO multi-agent mode: when enabled and a CEO is active, route the turn through the CEO agent,
-  // which controls the head/leaders of the teams it manages. Disabled while a Custom Agent is active;
-  // takes precedence over ordinary team mode. Only engages when the CEO resolves to ≥1 valid team.
-  const ceoEnabled = settings.enableCeoAgents === "yes" && !backendCustomAgent;
+  // CEO multi-agent mode: agent-only, disabled in chat mode. Disabled while a Custom
+  // Agent is active; takes precedence over ordinary team mode.
+  const ceoEnabled = !isChatMode && settings.enableCeoAgents === "yes" && !backendCustomAgent;
   const ceo = ceoEnabled ? activeCeo(store.ceoAgents) : null;
   const backendCeo = ceo ? toBackendCeo(ceo, store.agentTeams) : null;
 
-  // Multi-agent team mode: when enabled and a team is active, route the turn through the team head.
-  // Disabled while a Custom Agent or an active CEO is running.
-  const teamsEnabled = settings.enableAgentTeams === "yes" && !backendCustomAgent && !backendCeo;
+  // Multi-agent team mode: agent-only, disabled in chat mode. Disabled while a Custom
+  // Agent or an active CEO is running.
+  const teamsEnabled = !isChatMode && settings.enableAgentTeams === "yes" && !backendCustomAgent && !backendCeo;
   const team = teamsEnabled ? activeTeam(store.agentTeams) : null;
   const backendTeam = team
     ? {
@@ -162,14 +169,16 @@ function buildStartRequest(convId: string, text: string): StreamRequest {
     search_provider: settings.searchProvider,
     fetch_provider: settings.fetchProvider,
     firecrawl_api_key: settings.firecrawlApiKey || undefined,
-    sub_agents: subAgents,
-    skills,
-    todos,
+    chat_mode: isChatMode,
+    agent_mode: isChatMode ? "chat" : "agent",
+    sub_agents: isChatMode ? [] : subAgents,
+    skills: isChatMode ? [] : skills,
+    todos: isChatMode ? [] : todos,
     memory,
     knowledge,
     composio_api_key: settings.composioApiKey?.trim() || undefined,
-    connectors,
-    mcp_servers: mcpServers,
+    connectors: isChatMode ? [] : connectors,
+    mcp_servers: isChatMode ? [] : mcpServers,
     enable_reuse_sub_agent_session: settings.enableReuseSubAgentSession === "yes" ? "yes" : "no",
     memory_agent_enabled: settings.memoryAgentEnabled !== "no",
     memory_agent_interval:

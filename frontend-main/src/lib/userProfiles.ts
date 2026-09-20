@@ -1,5 +1,6 @@
 import { defaultProfileAvatar } from "@/lib/profileLogos";
 import type {
+  AgentMode,
   AgentTeam,
   CeoAgent,
   ConnectorConnection,
@@ -196,6 +197,8 @@ export interface ProfileSnapshot {
   taskModes: CustomTaskMode[];
   activeTaskModeId: string | null;
   planModePrompt: string;
+  /** Top-level conversation mode: "agent" (default, full tools) or "chat" (memory + knowledge + web only). */
+  agentMode: AgentMode;
   connectors: ConnectorConnection[];
   mcpServers: McpServer[];
   /** The profile's currently open chat id (null when it has no chats). */

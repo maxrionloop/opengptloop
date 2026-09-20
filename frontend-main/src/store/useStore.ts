@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type {
+  AgentMode,
   AgentTeam,
   AskQuestionInfo,
   AskQuestionStatus,
@@ -155,6 +156,12 @@ interface AppState {
   activeTaskModeId: string | null;
   /** Editable prompt appended in plan task mode (defaults to the built-in plan prompt). */
   planModePrompt: string;
+  /**
+   * Top-level conversation mode: "agent" (default, full tools) or "chat" (lightweight
+   * conversational assistant with only memory + knowledge + web tools). Switched from the
+   * sidebar; task modes in the prompt box are agent-only and unaffected.
+   */
+  agentMode: AgentMode;
   /**
    * User profiles (account identities). A default profile is always present. Each
    * profile owns a completely isolated workspace state — switching profiles starts
@@ -363,6 +370,8 @@ interface AppState {
   setActiveTaskMode: (id: string | null) => void;
   /** Update the editable plan-mode prompt appended in plan mode. */
   setPlanModePrompt: (prompt: string) => void;
+  /** Switch the top-level conversation mode ("agent" = full tools, "chat" = chat-only). */
+  setAgentMode: (mode: AgentMode) => void;
 
   // Connector connections (third-party apps via Composio)
   /** Replace the whole connection list (used after a backend refresh). */
@@ -647,6 +656,11 @@ function activeProfileIdOf(s: Pick<AppState, "activeUserProfileId">): string {
     : DEFAULT_PROFILE_ID;
 }
 
+/** Normalize an untrusted agent-mode value; anything but "chat" means full agent mode. */
+function normalizeAgentMode(raw: unknown): AgentMode {
+  return typeof raw === "string" && raw.trim().toLowerCase() === "chat" ? "chat" : "agent";
+}
+
 /**
  * A brand-new, empty workspace snapshot: fresh defaults for every user-owned slice,
  * exactly matching the store's initial state. A new profile starts from this — no
@@ -691,6 +705,7 @@ function freshProfileSnapshot(): ProfileSnapshot {
     taskModes: [],
     activeTaskModeId: null,
     planModePrompt: DEFAULT_PLAN_MODE_PROMPT,
+    agentMode: "agent",
     connectors: [],
     mcpServers: [],
     currentId: null,
@@ -717,6 +732,7 @@ function captureProfileSnapshot(s: AppState): ProfileSnapshot {
     taskModes: cloneJson(s.taskModes),
     activeTaskModeId: s.activeTaskModeId,
     planModePrompt: s.planModePrompt,
+    agentMode: s.agentMode === "chat" ? "chat" : "agent",
     connectors: cloneJson(s.connectors),
     mcpServers: cloneJson(s.mcpServers),
     currentId: s.currentId,
@@ -759,6 +775,7 @@ export const useStore = create<AppState>()(
       taskModes: [],
       activeTaskModeId: null,
       planModePrompt: DEFAULT_PLAN_MODE_PROMPT,
+      agentMode: "agent",
       connectors: [],
       mcpServers: [],
       userProfiles: mergeProfilesWithDefaults([]),
@@ -914,6 +931,9 @@ export const useStore = create<AppState>()(
     planModePrompt: normalizePlanModePrompt(
       (p as { planModePrompt?: unknown }).planModePrompt ?? defaults.planModePrompt,
     ),
+    agentMode: normalizeAgentMode(
+      (p as { agentMode?: unknown }).agentMode ?? defaults.agentMode,
+    ),
     connectors: normalizeConnectors(
       (p as { connectors?: unknown }).connectors ?? defaults.connectors,
     ),
@@ -959,6 +979,9 @@ export const useStore = create<AppState>()(
           activeTaskModeId:
             typeof snap.activeTaskModeId === "string" ? snap.activeTaskModeId : null,
           planModePrompt: normalizePlanModePrompt(snap.planModePrompt ?? base.planModePrompt),
+          agentMode: normalizeAgentMode(
+            (snap as { agentMode?: unknown }).agentMode ?? base.agentMode,
+          ),
           connectors: normalizeConnectors(snap.connectors ?? base.connectors),
           mcpServers: normalizeMcpServers(snap.mcpServers ?? base.mcpServers),
         };
@@ -1611,6 +1634,8 @@ export const useStore = create<AppState>()(
 
       setPlanModePrompt: (planModePrompt) => set(() => ({ planModePrompt })),
 
+      setAgentMode: (mode) => set(() => ({ agentMode: mode === "chat" ? "chat" : "agent" })),
+
       // ---- Connector connections (third-party apps via Composio) ----------------
       setConnectors: (connectors) => set(() => ({ connectors: normalizeConnectors(connectors) })),
 
@@ -1741,6 +1766,7 @@ export const useStore = create<AppState>()(
           mainAgentPrompts: normalizeMainAgentPrompts(next.mainAgentPrompts),
           taskModes: normalizeTaskModes(next.taskModes),
           planModePrompt: normalizePlanModePrompt(next.planModePrompt),
+          agentMode: normalizeAgentMode((next as { agentMode?: unknown }).agentMode),
           connectors: normalizeConnectors(next.connectors),
           mcpServers: normalizeMcpServers(next.mcpServers),
           userProfiles: mergeProfilesWithDefaults(remaining),
@@ -1795,6 +1821,7 @@ export const useStore = create<AppState>()(
           mainAgentPrompts: normalizeMainAgentPrompts(next.mainAgentPrompts),
           taskModes: normalizeTaskModes(next.taskModes),
           planModePrompt: normalizePlanModePrompt(next.planModePrompt),
+          agentMode: normalizeAgentMode((next as { agentMode?: unknown }).agentMode),
           connectors: normalizeConnectors(next.connectors),
           mcpServers: normalizeMcpServers(next.mcpServers),
           currentId,
@@ -1878,6 +1905,7 @@ export const useStore = create<AppState>()(
           mainAgentPrompts: normalizeMainAgentPrompts(snap.mainAgentPrompts),
           taskModes: normalizeTaskModes(snap.taskModes),
           planModePrompt: normalizePlanModePrompt(snap.planModePrompt),
+          agentMode: normalizeAgentMode((snap as { agentMode?: unknown }).agentMode),
           connectors: normalizeConnectors(snap.connectors),
           mcpServers: normalizeMcpServers(snap.mcpServers),
           profileStates: {
@@ -1928,6 +1956,7 @@ export const useStore = create<AppState>()(
           mainAgentPrompts: normalizeMainAgentPrompts(fresh.mainAgentPrompts),
           taskModes: normalizeTaskModes(fresh.taskModes),
           planModePrompt: normalizePlanModePrompt(fresh.planModePrompt),
+          agentMode: normalizeAgentMode((fresh as { agentMode?: unknown }).agentMode),
           connectors: normalizeConnectors(fresh.connectors),
           mcpServers: normalizeMcpServers(fresh.mcpServers),
           conversations,

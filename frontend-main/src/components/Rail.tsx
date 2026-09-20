@@ -1,4 +1,5 @@
 import { MessageCircle, Brain, Library, Bot, Sparkles, Users, Boxes, FileText, Crown, ListChecks, Plug, Server } from "lucide-react";
+import type { ReactNode } from "react";
 import { useStore, type Section } from "@/store/useStore";
 import { findActiveProfile, isUsableAvatar, profileInitials } from "@/lib/userProfiles";
 import { cn } from "@/utils/cn";
@@ -21,6 +22,8 @@ const NAV: Array<{ id: Section; label: string; Icon: typeof MessageCircle }> = [
 export function Rail() {
   const section = useStore((s) => s.section);
   const setSection = useStore((s) => s.setSection);
+  const agentMode = useStore((s) => s.agentMode);
+  const setAgentMode = useStore((s) => s.setAgentMode);
   const userProfiles = useStore((s) => s.userProfiles);
   const activeUserProfileId = useStore((s) => s.activeUserProfileId);
   const activeProfile = findActiveProfile(userProfiles, activeUserProfileId);
@@ -42,9 +45,33 @@ export function Rail() {
           </svg>
         </div>
 
+        <div className="mt-3 w-full px-2">
+          <div
+            className="flex flex-col gap-1 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--chip)] p-1"
+            role="group"
+            aria-label="Conversation mode"
+          >
+            <ModeButton
+              active={agentMode === "chat"}
+              onClick={() => setAgentMode("chat")}
+              title="Chat mode — talk to the LLM (memory, knowledge, web only)"
+              label="Chat"
+            >
+              <MessageCircle className="h-4 w-4" strokeWidth={1.9} />
+            </ModeButton>
+            <ModeButton
+              active={agentMode === "agent"}
+              onClick={() => setAgentMode("agent")}
+              title="Agent mode — full tools (files, shell, sub-agents, …)"
+              label="Agent"
+            >
+              <Bot className="h-4 w-4" strokeWidth={1.9} />
+            </ModeButton>
+          </div>
+        </div>
+
         <nav aria-label="Workspace" className="mt-3 flex flex-col items-center gap-1">
-          {NAV.map(({ id, label, Icon }) => {
-            const active = section === id;
+          {NAV.map(({ id, label, Icon }) => {            const active = section === id;
             return (
               <button
                 key={id}
@@ -115,5 +142,38 @@ export function Rail() {
         </button>
       </div>
     </aside>
+  );
+}
+
+function ModeButton({
+  active,
+  onClick,
+  title,
+  label,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  title: string;
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      title={title}
+      aria-label={label}
+      className={cn(
+        "flex w-full flex-col items-center gap-0.5 rounded-[var(--radius-sm)] px-1 py-1.5 transition-all duration-150 active:scale-95",
+        active
+          ? "bg-[var(--secondary)] text-[var(--secondary-fg)]"
+          : "text-[var(--muted)] hover:text-[var(--fg)]",
+      )}
+    >
+      {children}
+      <span className="text-[9px] font-semibold uppercase leading-none tracking-wide">{label}</span>
+    </button>
   );
 }

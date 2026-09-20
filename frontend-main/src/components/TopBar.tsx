@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Settings, ListTodo, Paperclip, Brain, History, Boxes, Crown, MoreVertical, GitBranch, Copy, Pencil } from "lucide-react";
+import { Plus, Settings, ListTodo, Paperclip, Brain, History, Boxes, Crown, MoreVertical, GitBranch, Copy, Pencil, MessageCircle } from "lucide-react";
 import { useStore, type Section } from "@/store/useStore";
 import { DEFAULT_PROFILE_ID } from "@/lib/userProfiles";
 import { cn } from "@/utils/cn";
@@ -65,6 +65,8 @@ export function TopBar() {
   const mcpServers = useStore((s) => s.mcpServers);
   const userProfiles = useStore((s) => s.userProfiles);
   const setSection = useStore((s) => s.setSection);
+  const agentMode = useStore((s) => s.agentMode);
+  const isChatMode = agentMode === "chat";
 
   const label = contextLabel(section, {
     knowledge: knowledge.length,
@@ -106,7 +108,7 @@ export function TopBar() {
           </span>
         )}
         {/* Which top-level agent chat turns run as (only shown when a Custom Agent is active). */}
-        {activeAgent && (
+        {!isChatMode && activeAgent && (
           <button
             type="button"
             onClick={() => setSection("customagents")}
@@ -118,7 +120,7 @@ export function TopBar() {
           </button>
         )}
         {/* Which CEO the chat runs under (only shown when a CEO is active and no Custom Agent). */}
-        {activeCeoAgent && (
+        {!isChatMode && activeCeoAgent && (
           <button
             type="button"
             onClick={() => setSection("ceo")}
@@ -128,6 +130,16 @@ export function TopBar() {
             <Crown className="h-3.5 w-3.5 shrink-0 text-[var(--secondary)]" />
             <span className="truncate max-w-[10rem]">{activeCeoAgent.name}</span>
           </button>
+        )}
+        {/* Chat-mode indicator (chat turns use only memory + knowledge + web tools). */}
+        {isChatMode && (
+          <span
+            title="Chat mode — memory, knowledge, and web only. Switch back to Agent in the sidebar for full tools."
+            className="inline-flex min-w-0 items-center gap-1.5 rounded-full bg-[var(--chip)] px-2.5 py-1 text-xs font-medium text-[var(--muted)]"
+          >
+            <MessageCircle className="h-3.5 w-3.5 shrink-0 text-[var(--secondary)]" />
+            <span className="truncate max-w-[10rem]">Chat</span>
+          </span>
         )}
       </div>
 

@@ -4,6 +4,7 @@ import { config, ensureWorkspace } from "./config.js";
 import { createProviderRegistry } from "./agents/providers/registry.js";
 import { createToolRegistry } from "./agents/tools/index.js";
 import { AgentRunner } from "./agents/agent.js";
+import { ChatRunner } from "./agents/chat.js";
 import { SessionStore } from "./services/sessionStore.js";
 import { PlanApprovalStore } from "./services/planApprovalStore.js";
 import { QuestionStore } from "./services/questionStore.js";
@@ -47,6 +48,9 @@ function main(): void {
   const memoryAgent = new MemoryAgentService(providers, tools, config, db);
   const mcp = new McpManager(db.appState, config);
   const agent = new AgentRunner(providers, tools, config, planApprovals, askQuestions, memoryAgent, mcp);
+  // Chat mode: lightweight conversational assistant with only memory + knowledge + web tools.
+  // Streams onto the same event buffer, so resume/replay/persistence work identically.
+  const chatRunner = new ChatRunner(providers, tools, config, memoryAgent);
   // The multi-agent team runner: drives a whole agent team (head + members) for one chat turn,
   // streaming onto the same event buffer the single agent uses.
   const multiAgent = new MultiAgentRunner(providers, tools, config, mcp);
@@ -117,6 +121,7 @@ function main(): void {
       mainAgentPrompts,
       connectors,
       mcp,
+      chatRunner,
     ),
   );
   app.use("/api/files", buildFilesRouter(config));

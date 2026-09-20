@@ -25,6 +25,10 @@ import {
 } from "../agents/customagent/index.js";
 import type { MainAgentPromptManager } from "../agents/mainagentprompt/index.js";
 import {
+  ChatRunner,
+  type RunChatRequest,
+} from "../agents/chat.js";
+import {
   normalizeConnectorWire,
   type ConnectorManager,
   type ConnectorWire,
@@ -80,6 +84,23 @@ function parseMemoryAgentInterval(value: unknown, fallback: number): number {
   const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
   if (!Number.isFinite(n)) return fallback;
   return Math.min(50, Math.max(1, Math.floor(n)));
+}
+
+/**
+ * Parse the chat/agent mode switch. Chat mode is a lightweight conversational mode with only
+ * memory + knowledge + web tools. Accepts `chat_mode: true` (or "chat"/"yes"/1) and the
+ * `agent_mode: "chat"` spelling (case-insensitive). Anything else means full agent mode.
+ */
+function parseChatMode(body: StreamBody): boolean {
+  const direct = body.chat_mode;
+  if (direct === true || direct === 1) return true;
+  if (typeof direct === "string") {
+    const v = direct.trim().toLowerCase();
+    if (v === "chat" || v === "yes" || v === "on" || v === "true" || v === "1") return true;
+  }
+  const mode = body.agent_mode;
+  if (typeof mode === "string" && mode.trim().toLowerCase() === "chat") return true;
+  return false;
 }
 
 interface StreamBody {
@@ -161,6 +182,14 @@ interface StreamBody {
    */
   memory_agent_enabled?: unknown;
   memory_agent_interval?: unknown;
+  /**
+   * Chat mode: when true, run this turn as a lightweight conversational assistant with only
+   * memory + knowledge + web tools (no files, shell, sub-agents, connectors, MCP, teams).
+   * Accepts `chat_mode: true` or `agent_mode: "chat"` spellings. Takes precedence over
+   * CEO / team / Custom Agent modes. Defaults to agent mode.
+   */
+  chat_mode?: unknown;
+  agent_mode?: unknown;
 }
 
 /**
@@ -330,6 +359,7 @@ export function buildChatRouter(
   mainAgentPrompts: MainAgentPromptManager,
   connectors: ConnectorManager,
   mcp: McpManager,
+  chatRunner: ChatRunner,
 ): Router {
   const router = Router();
 
@@ -531,6 +561,51 @@ export function buildChatRouter(
       session.eventBuffer = buffer;
       session.abortController = abortController;
       session.running = true;
+
+      // Chat mode: lightweight conversational assistant with only memory + knowledge + web
+      // tools. Takes precedence over CEO / team / Custom Agent modes — a chat turn never
+      // routes to teams or custom agents. Streams onto the very same buffer, so
+      // resume/replay/persistence all work identically.
+      if (parseChatMode(body)) {
+        const chatRequest: RunChatRequest = {
+          chatId,
+          userMessage: body.user_message!,
+          provider: body.provider!,
+          model: body.model!,
+          apiKey: effectiveApiKey(body),
+          baseUrl: body.base_url,
+          customProvider: body.custom_provider,
+          temperature: sanitizeTemperature(body.temperature),
+          effort: normalizeEffort(body.effort),
+          tavilyApiKey: body.tavily_api_key,
+          exaApiKey: body.exa_api_key,
+          serpapiApiKey: body.serpapi_api_key,
+          searchProvider: body.search_provider,
+          fetchProvider: body.fetch_provider,
+          firecrawlApiKey: body.firecrawl_api_key,
+          memory: normalizeMemoryFiles(body.memory),
+          knowledge: normalizeKnowledgeFiles(body.knowledge),
+          memoryAgentEnabled: parseMemoryAgentEnabled(body.memory_agent_enabled, config.memoryAgentEnabled),
+          memoryAgentInterval: parseMemoryAgentInterval(body.memory_agent_interval, config.memoryAgentInterval),
+        };
+
+        void chatRunner
+          .run(chatRequest, session, buffer, abortController.signal)
+          .catch((error) => {
+            buffer.append("error", {
+              code: "chat_crashed",
+              message: error instanceof Error ? error.message : String(error),
+            });
+            buffer.setDone();
+            session.running = false;
+          })
+          .finally(() => {
+            settleTurn(chatId, session, buffer);
+          });
+
+        await streamFromBuffer(res, buffer, body.since_event_id ?? -1);
+        return;
+      }
 
       // CEO multi-agent mode: when the frontend has an active CEO enabled, route the FIRST user input
       // to the CEO agent, which controls the head/leaders of its teams. Takes precedence over ordinary

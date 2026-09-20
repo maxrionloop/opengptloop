@@ -16,6 +16,7 @@ export function Composer({ onSend, onStop }: { onSend: (text: string) => void; o
   const customProviders = useStore((s) => s.customProviders);
   const setSettingsOpen = useStore((s) => s.setSettingsOpen);
   const setSection = useStore((s) => s.setSection);
+  const agentMode = useStore((s) => s.agentMode);
   const workspacePath = useStore((s) => s.workspacePath);
   const setWorkspacePath = useStore((s) => s.setWorkspacePath);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
@@ -192,7 +193,7 @@ export function Composer({ onSend, onStop }: { onSend: (text: string) => void; o
                   {workspacePath ? workspacePath.split("/").pop() || workspacePath : "Workspace"}
                 </span>
               </button>
-              <TaskModePicker />
+              {agentMode !== "chat" && <TaskModePicker />}
             </div>
 
             {streaming ? (

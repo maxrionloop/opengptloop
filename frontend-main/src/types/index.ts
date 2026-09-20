@@ -877,6 +877,9 @@ export interface BackendMessage {
   content: string;
 }
 
+/** Top-level conversation mode: full agent vs. lightweight chat-only assistant. */
+export type AgentMode = "agent" | "chat";
+
 /** Payload sent to POST /api/chat/stream to start (or reconnect to) a turn. */
 export interface StreamRequest {
   chat_id: string;
@@ -892,6 +895,10 @@ export interface StreamRequest {
   /** Reasoning effort preset or custom string; forwarded to the provider. */
   effort?: string;
   since_event_id?: number;
+  /** Chat mode: when true, run as a lightweight assistant with only memory + knowledge + web tools. */
+  chat_mode?: boolean;
+  /** Agent-mode spelling of the same switch ("chat" = chat mode, anything else = agent mode). */
+  agent_mode?: AgentMode;
   tavily_api_key?: string;
   exa_api_key?: string;
   serpapi_api_key?: string;
