@@ -9,7 +9,19 @@ import { Modal } from "@/components/ui/Modal";
 import { Button, Field, TextArea, TextInput } from "@/components/ui/primitives";
 import { cn } from "@/utils/cn";
 
-export function Composer({ onSend, onStop }: { onSend: (text: string) => void; onStop: () => void }) {
+export function Composer({
+  onSend,
+  onStop,
+  showFade = true,
+  showHint = true,
+}: {
+  onSend: (text: string) => void;
+  onStop: () => void;
+  /** The soft top gradient shown when the composer is docked at the bottom of the page. */
+  showFade?: boolean;
+  /** The "Haku can be wrong" footnote under the box. */
+  showHint?: boolean;
+}) {
   const [value, setValue] = useState("");
   const streaming = useStore((s) => s.streaming);
   const settings = useStore((s) => s.settings);
@@ -93,10 +105,12 @@ export function Composer({ onSend, onStop }: { onSend: (text: string) => void; o
 
   return (
     <div className="relative shrink-0 px-6 pb-5 pt-2 max-[640px]:px-3 max-[640px]:pb-3">
-      <div
-        className="pointer-events-none absolute inset-x-0 bottom-full h-10"
-        style={{ background: "linear-gradient(to top, var(--bg), transparent)" }}
-      />
+      {showFade && (
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-full h-10"
+          style={{ background: "linear-gradient(to top, var(--bg), transparent)" }}
+        />
+      )}
 
       <div className="mx-auto w-full max-w-3xl">
         {!ready && (
@@ -226,9 +240,11 @@ export function Composer({ onSend, onStop }: { onSend: (text: string) => void; o
           </div>
         </div>
 
-        <p className="mx-auto mt-3 max-w-3xl text-center text-xs text-[var(--subtle)]">
-          Haku can be wrong. Check anything that matters.
-        </p>
+        {showHint && (
+          <p className="mx-auto mt-3 max-w-3xl text-center text-xs text-[var(--subtle)]">
+            Haku can be wrong. Check anything that matters.
+          </p>
+        )}
       </div>
 
       <WorkspaceModal

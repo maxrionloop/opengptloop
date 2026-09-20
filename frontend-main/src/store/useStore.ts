@@ -41,6 +41,7 @@ import type {
   UserProfile,
 } from "@/types";
 import { uid, newSessionId } from "@/utils/id";
+import { currentRoute, routeToPath, type Route } from "@/lib/router";
 import type { BackendBootPayload } from "@/lib/backendState";
 import { forkSessionData } from "@/lib/backendState";
 import { CUSTOM_PROVIDER_PREFIX } from "@/lib/providers";
@@ -185,6 +186,14 @@ interface AppState {
   /** True once the store has been hydrated from the backend database. */
   hydrated: boolean;
   section: Section;
+  /**
+   * The active top-level page, derived from the URL: "home" (landing) or a chat
+   * session. Kept in sync with `window.location` via the `navigate` / `setRoute`
+   * actions and a popstate listener in App.
+   */
+  route: Route;
+  /** Whether the sidebar chat-history flyout is open. */
+  historyOpen: boolean;
   providers: ProviderMeta[];
   models: ModelInfo[];
   modelsLoading: boolean;
@@ -490,6 +499,16 @@ interface AppState {
   setModels: (m: ModelInfo[]) => void;
   setModelsLoading: (v: boolean) => void;
   setSection: (section: Section) => void;
+  /** Navigate to a route, updating the browser URL (pushState, or replaceState). */
+  navigate: (route: Route, opts?: { replace?: boolean }) => void;
+  /** Set the active route WITHOUT touching browser history (used by the popstate listener). */
+  setRoute: (route: Route) => void;
+  /** Start a brand-new chat: clears the active session + ephemeral state and lands on Home. */
+  newChat: () => void;
+  /** Open an existing (or link-shared) chat by id: selects it and navigates to /chat/<id>. */
+  openConversationById: (id: string) => void;
+  /** Toggle the sidebar chat-history flyout. */
+  setHistoryOpen: (v: boolean) => void;
   setSettingsOpen: (v: boolean) => void;
   setTodosOpen: (v: boolean) => void;
   setTeamMonitorOpen: (v: boolean) => void;
@@ -788,6 +807,8 @@ export const useStore = create<AppState>()(
 
       hydrated: false,
       section: "chat",
+      route: currentRoute(),
+      historyOpen: false,
       providers: [],
       models: [],
       modelsLoading: false,
@@ -1030,7 +1051,15 @@ export const useStore = create<AppState>()(
           profileId: activeProfileIdOf(get()),
           loaded: true,
         };
-        set((s) => ({ conversations: [conv, ...s.conversations], currentId: id, section: "chat" }));
+        // Every new chat session starts completely fresh: the todo list is reset so no
+        // past-session todos leak in. The backend keys todos, the memory agent, and every
+        // sub-agent session by this brand-new chat id, so they all start clean too.
+        set((s) => ({
+          conversations: [conv, ...s.conversations],
+          currentId: id,
+          section: "chat",
+          todos: [],
+        }));
         return id;
       },
 
@@ -1103,7 +1132,10 @@ export const useStore = create<AppState>()(
         return get().newConversation();
       },
 
-      selectConversation: (id) => set({ currentId: id, section: "chat" }),
+      selectConversation: (id) => {
+        set({ currentId: id, section: "chat", historyOpen: false });
+        get().navigate({ name: "chat", sessionId: id });
+      },
 
       deleteConversation: (id) =>
         set((s) => {
@@ -1835,6 +1867,9 @@ export const useStore = create<AppState>()(
           activeRun: null,
           section: "chat",
         });
+        // Switching profile lands on a clean home page so the URL never points at a chat
+        // that belongs to the profile we just left.
+        get().navigate({ name: "home" }, { replace: true });
         return null;
       },
 
@@ -1925,6 +1960,7 @@ export const useStore = create<AppState>()(
           activeRun: null,
           section: "chat",
         }));
+        get().navigate({ name: "home" }, { replace: true });
         return copy.id;
       },
 
@@ -1970,6 +2006,7 @@ export const useStore = create<AppState>()(
           profileStates: { ...s.profileStates, [id]: { ...cloneJson(fresh), currentId: null } },
           profileSessions: { ...s.profileSessions, [id]: [] },
         });
+        get().navigate({ name: "home" }, { replace: true });
         return null;
       },
 
@@ -2354,6 +2391,55 @@ export const useStore = create<AppState>()(
       setModels: (models) => set({ models }),
       setModelsLoading: (modelsLoading) => set({ modelsLoading }),
       setSection: (section) => set({ section }),
+
+      navigate: (route, opts) => {
+        if (typeof window !== "undefined") {
+          const path = routeToPath(route);
+          if (path !== window.location.pathname) {
+            if (opts?.replace) window.history.replaceState({}, "", path);
+            else window.history.pushState({}, "", path);
+          }
+        }
+        set({ route });
+      },
+
+      setRoute: (route) => set({ route }),
+
+      newChat: () => {
+        // A brand-new chat starts on Home with a clean slate — no active session and no
+        // carried-over todos. The actual backend session id is minted on first send
+        // (see newConversation), which also keys a fresh memory agent + sub-agent context.
+        get().navigate({ name: "home" });
+        set({ currentId: null, section: "chat", todos: [], historyOpen: false });
+      },
+
+      openConversationById: (id) => {
+        const clean = id.trim();
+        if (!clean) return;
+        set((s) => {
+          const exists = s.conversations.some((c) => c.id === clean);
+          // Link-shared / unknown ids get a lazy stub; loadConversationIfNeeded fills or
+          // heals it (marking it empty when the backend has no such session).
+          const conversations = exists
+            ? s.conversations
+            : [
+                {
+                  id: clean,
+                  title: "New thread",
+                  messages: [],
+                  createdAt: Date.now(),
+                  updatedAt: Date.now(),
+                  profileId: activeProfileIdOf(s),
+                  loaded: false as const,
+                },
+                ...s.conversations,
+              ];
+          return { conversations, currentId: clean, section: "chat", historyOpen: false };
+        });
+        get().navigate({ name: "chat", sessionId: clean });
+      },
+
+      setHistoryOpen: (historyOpen) => set({ historyOpen }),
       setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
       setTodosOpen: (todosOpen) => set({ todosOpen }),
       setTeamMonitorOpen: (teamMonitorOpen) => set({ teamMonitorOpen }),

@@ -44,7 +44,7 @@ function contextLabel(section: Section, counts: Record<string, number>): string 
 
 export function TopBar() {
   const section = useStore((s) => s.section);
-  const newConversation = useStore((s) => s.newConversation);
+  const newChat = useStore((s) => s.newChat);
   const setSettingsOpen = useStore((s) => s.setSettingsOpen);
   const setTodosOpen = useStore((s) => s.setTodosOpen);
   const setFilesOpen = useStore((s) => s.setFilesOpen);
@@ -152,12 +152,12 @@ export function TopBar() {
         {isChat ? (
           <button
             type="button"
-            onClick={() => newConversation()}
-            title="New thread"
-            aria-label="New thread"
+            onClick={() => newChat()}
+            title="New chat"
+            aria-label="New chat"
             className="inline-flex h-11 items-center gap-1.5 rounded-full bg-[var(--chip)] pl-4 pr-2 text-xs font-medium tracking-[0.02em] text-[var(--muted)] transition-colors hover:bg-[var(--chip-hover)] hover:text-[var(--fg)] active:scale-[0.98]"
           >
-            New thread
+            New chat
             <span className="grid h-7 w-7 place-items-center rounded-full text-[var(--muted)]">
               <Plus className="h-4 w-4" strokeWidth={1.9} />
             </span>

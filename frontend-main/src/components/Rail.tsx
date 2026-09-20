@@ -1,11 +1,10 @@
-import { MessageCircle, Brain, Library, Bot, Sparkles, Users, Boxes, FileText, Crown, ListChecks, Plug, Server, Cpu, Settings } from "lucide-react";
+import { MessageCircle, Brain, Library, Bot, Sparkles, Users, Boxes, FileText, Crown, ListChecks, Plug, Server, Cpu, Settings, Plus, History } from "lucide-react";
 import type { ReactNode } from "react";
 import { useStore, type Section } from "@/store/useStore";
 import { findActiveProfile, isUsableAvatar, profileInitials } from "@/lib/userProfiles";
 import { cn } from "@/utils/cn";
 
 const NAV: Array<{ id: Section; label: string; Icon: typeof MessageCircle }> = [
-  { id: "chat", label: "Chat history", Icon: MessageCircle },
   { id: "models", label: "Models", Icon: Cpu },
   { id: "customagents", label: "Custom agents", Icon: Boxes },
   { id: "systemprompts", label: "Custom system prompts", Icon: FileText },
@@ -25,6 +24,9 @@ export function Rail() {
   const setSection = useStore((s) => s.setSection);
   const agentMode = useStore((s) => s.agentMode);
   const setAgentMode = useStore((s) => s.setAgentMode);
+  const newChat = useStore((s) => s.newChat);
+  const historyOpen = useStore((s) => s.historyOpen);
+  const setHistoryOpen = useStore((s) => s.setHistoryOpen);
   const userProfiles = useStore((s) => s.userProfiles);
   const activeUserProfileId = useStore((s) => s.activeUserProfileId);
   const activeProfile = findActiveProfile(userProfiles, activeUserProfileId);
@@ -45,6 +47,50 @@ export function Rail() {
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
             <circle cx="12" cy="12" r="7.25" stroke="currentColor" strokeWidth="1.8" />
           </svg>
+        </div>
+
+        <div className="mt-3 flex flex-col items-center gap-1">
+          {/* New chat — always starts fresh and lands on the home page. */}
+          <button
+            type="button"
+            onClick={() => newChat()}
+            title="New chat"
+            aria-label="New chat"
+            className="group relative grid h-11 w-11 place-items-center rounded-[var(--radius-md)] bg-[var(--secondary)] text-[var(--secondary-fg)] transition-transform duration-150 hover:brightness-110 active:scale-95"
+          >
+            <Plus className="h-5 w-5" strokeWidth={2} />
+            <span className="sr-only">New chat</span>
+            <span
+              className="pointer-events-none absolute left-[calc(100%+0.75rem)] top-1/2 z-40 -translate-y-1/2 translate-x-[-4px] whitespace-nowrap rounded-[var(--radius-sm)] bg-[var(--secondary)] px-2.5 py-1.5 text-xs font-medium text-[var(--secondary-fg)] opacity-0 transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100 max-[640px]:hidden"
+              style={{ boxShadow: "var(--shadow-card)" }}
+            >
+              New chat
+            </span>
+          </button>
+
+          {/* Chat history — opens the flyout listing every past chat session. */}
+          <button
+            type="button"
+            onClick={() => setHistoryOpen(!historyOpen)}
+            aria-pressed={historyOpen}
+            title="Chat history"
+            aria-label="Chat history"
+            className={cn(
+              "group relative grid h-11 w-11 place-items-center rounded-[var(--radius-md)] transition-all duration-150 active:scale-95",
+              historyOpen
+                ? "bg-[var(--secondary)] text-[var(--secondary-fg)]"
+                : "text-[var(--muted)] hover:bg-[color:color-mix(in_oklab,var(--fg)_6%,transparent)] hover:text-[var(--fg)]",
+            )}
+          >
+            <History className="h-5 w-5" strokeWidth={1.7} />
+            <span className="sr-only">Chat history</span>
+            <span
+              className="pointer-events-none absolute left-[calc(100%+0.75rem)] top-1/2 z-40 -translate-y-1/2 translate-x-[-4px] whitespace-nowrap rounded-[var(--radius-sm)] bg-[var(--secondary)] px-2.5 py-1.5 text-xs font-medium text-[var(--secondary-fg)] opacity-0 transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100 max-[640px]:hidden"
+              style={{ boxShadow: "var(--shadow-card)" }}
+            >
+              Chat history
+            </span>
+          </button>
         </div>
 
         <div className="mt-3 w-full px-2">

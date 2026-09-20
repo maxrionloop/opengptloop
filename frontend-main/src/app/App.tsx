@@ -1,23 +1,6 @@
 import { useEffect, useRef } from "react";
-import { Rail } from "@/components/Rail";
-import { TopBar } from "@/components/TopBar";
-import { Composer } from "@/components/Composer";
 import { NetworkBanner } from "@/components/NetworkBanner";
-import { ChatPanel } from "@/components/chat/ChatPanel";
-import { ModelsPanel } from "@/components/panels/ModelsPanel";
-import { MemoryPanel } from "@/components/panels/MemoryPanel";
-import { KnowledgePanel } from "@/components/panels/KnowledgePanel";
-import { AgentsPanel } from "@/components/panels/AgentsPanel";
-import { SkillsPanel } from "@/components/panels/SkillsPanel";
-import { TeamsPanel } from "@/components/panels/TeamsPanel";
-import { CeoPanel } from "@/components/panels/CeoPanel";
-import { CustomAgentsPanel } from "@/components/panels/CustomAgentsPanel";
-import { MainAgentPromptsPanel } from "@/components/panels/MainAgentPromptsPanel";
-import { TaskModesPanel } from "@/components/panels/TaskModesPanel";
-import { ConnectorsPanel } from "@/components/panels/ConnectorsPanel";
-import { McpPanel } from "@/components/panels/McpPanel";
-import { ProfilesPanel } from "@/components/panels/ProfilesPanel";
-import { SettingsPanel } from "@/components/panels/SettingsPanel";
+import { ChatHistory } from "@/components/ChatHistory";
 import { SettingsModal } from "@/components/editors/SettingsModal";
 import { TodoPanel } from "@/components/overlays/TodoPanel";
 import { FilesPanel } from "@/components/overlays/FilesPanel";
@@ -25,8 +8,11 @@ import { PreviewPanel } from "@/components/overlays/PreviewPanel";
 import { MemoryAgentPanel } from "@/components/overlays/MemoryAgentPanel";
 import { MemoryAgentSessionsPanel } from "@/components/overlays/MemoryAgentSessionsPanel";
 import { TeamMonitorPanel } from "@/components/overlays/TeamMonitorPanel";
+import { HomePage } from "@/pages/HomePage";
+import { ChatPage } from "@/pages/ChatPage";
 import { useStore } from "@/store/useStore";
 import { useChatStream, useConnectionWatch } from "@/hooks/useChatStream";
+import { parseLocation } from "@/lib/router";
 import { fetchProviders } from "@/lib/api";
 import { exchangeMcpOAuthCode, fetchMcpServers } from "@/lib/mcp";
 import { fetchWorkspace } from "@/lib/workspace";
@@ -39,6 +25,7 @@ import {
 
 export function App() {
   const section = useStore((s) => s.section);
+  const route = useStore((s) => s.route);
   const currentId = useStore((s) => s.currentId);
   const hydrated = useStore((s) => s.hydrated);
   const setProviders = useStore((s) => s.setProviders);
@@ -46,6 +33,17 @@ export function App() {
   const bootedRef = useRef(false);
 
   useConnectionWatch();
+
+  // Keep the store's route in sync with browser back/forward navigation.
+  useEffect(() => {
+    const onPop = () => {
+      const next = parseLocation(window.location.pathname);
+      if (next.name === "chat") useStore.getState().openConversationById(next.sessionId);
+      else useStore.getState().setRoute(next);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   // Boot: hydrate the runtime store from the backend SQLite database, start the
   // change-sync bridge, then re-attach to any run the backend is still executing —
@@ -76,6 +74,7 @@ export function App() {
           Boolean(oauthCode) &&
           (oauthState ?? "").startsWith("mcp_");
         if (connected || oauthError || isFrontendReturn) {
+          // Strip the query string but keep the current path (home or /chat/<id>).
           window.history.replaceState({}, "", window.location.pathname);
           if (isFrontendReturn && oauthCode && oauthState) {
             // Frontend redirect mode: complete the code exchange with the backend.
@@ -100,22 +99,35 @@ export function App() {
       startStatePersistence();
 
       const store = useStore.getState();
-      const activeId = store.currentId;
-      if (activeId) await loadConversationIfNeeded(activeId);
-      useStore.getState().ensureConversation();
+      const activeRoute = store.route;
+      if (activeRoute.name === "chat") {
+        // Deep link / refresh on /chat/<id>: open that session (adds a stub for unknown
+        // ids; the effect below loads its snapshot from the database).
+        store.openConversationById(activeRoute.sessionId);
+      } else {
+        // Home: lazily load the last-active session so switching to it is instant, but
+        // stay on the landing page.
+        const activeId = store.currentId;
+        if (activeId) await loadConversationIfNeeded(activeId);
+      }
 
       // Load the memory-agent sessions overview and re-attach to any run the backend
       // queue is still executing (the agent keeps running regardless of the browser).
       void attachLatestMemoryAgentRun();
 
-      // Re-attach to a still-running stream (survives refresh/close/reconnect) —
-      // but only when that run belongs to the active profile. Profiles are strictly
-      // isolated: another profile's running turn must never surface here.
+      // Re-attach to a still-running stream (survives refresh/close/reconnect) — but only
+      // when we are actually viewing that chat, and it belongs to the active profile.
+      // Profiles are strictly isolated: another profile's running turn must never surface.
       const running = payload.sessions.find((s) => s.running);
       if (running) {
         const peer = useStore.getState();
         const owner = peer.conversations.find((c) => c.id === running.id);
-        if (owner && (owner.profileId ?? null) === (peer.activeUserProfileId ?? null)) {
+        const viewingRun = peer.route.name === "chat" && peer.route.sessionId === running.id;
+        if (
+          viewingRun &&
+          owner &&
+          (owner.profileId ?? null) === (peer.activeUserProfileId ?? null)
+        ) {
           await loadConversationIfNeeded(running.id);
           void resume({
             chatId: running.id,
@@ -134,38 +146,19 @@ export function App() {
     void loadConversationIfNeeded(currentId);
   }, [hydrated, currentId]);
 
+  // The landing page shows only when we are on the home route and not inside a workspace
+  // panel; everything else (a live chat, or any open panel) uses the full chat shell.
+  const showHome = route.name === "home" && section === "chat";
+
   return (
-    <div className="flex h-dvh w-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
-      <Rail />
+    <>
+      {showHome ? (
+        <HomePage onSend={send} onStop={stop} />
+      ) : (
+        <ChatPage onSend={send} onStop={stop} />
+      )}
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar />
-
-        <main className="relative flex min-h-0 flex-1 flex-col">
-          {section === "chat" && <ChatPanel onSend={send} />}
-          {section !== "chat" && (
-            <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6 max-[640px]:px-4">
-              {section === "memory" && <MemoryPanel />}
-              {section === "models" && <ModelsPanel />}
-              {section === "knowledge" && <KnowledgePanel />}
-              {section === "agents" && <AgentsPanel />}
-              {section === "skills" && <SkillsPanel />}
-              {section === "teams" && <TeamsPanel />}
-              {section === "ceo" && <CeoPanel />}
-              {section === "customagents" && <CustomAgentsPanel />}
-              {section === "systemprompts" && <MainAgentPromptsPanel />}
-              {section === "taskmodes" && <TaskModesPanel />}
-              {section === "connectors" && <ConnectorsPanel />}
-              {section === "mcp" && <McpPanel />}
-              {section === "profiles" && <ProfilesPanel />}
-              {section === "settings" && <SettingsPanel />}
-            </div>
-          )}
-        </main>
-
-        <Composer onSend={send} onStop={stop} />
-      </div>
-
+      <ChatHistory />
       <NetworkBanner />
       <SettingsModal />
       <TodoPanel />
@@ -174,6 +167,6 @@ export function App() {
       <MemoryAgentPanel />
       <MemoryAgentSessionsPanel />
       <TeamMonitorPanel />
-    </div>
+    </>
   );
 }

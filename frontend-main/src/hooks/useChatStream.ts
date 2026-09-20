@@ -270,6 +270,9 @@ export function useChatStream(onFilesChanged?: () => void) {
 
       const store = useStore.getState();
       const convId = store.ensureConversation();
+      // Any send lands on the chat page for this session, keeping the URL (/chat/<id>)
+      // in sync — no-op when we are already there (see navigate's path guard).
+      store.navigate({ name: "chat", sessionId: convId });
       const conv = useStore.getState().conversations.find((c) => c.id === convId)!;
 
       const start = buildStartRequest(convId, trimmed);
