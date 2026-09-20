@@ -1,4 +1,4 @@
-import { MessageCircle, Brain, Library, Bot, Sparkles, Users, Boxes, FileText, Crown, ListChecks, Plug, Server, Cpu } from "lucide-react";
+import { MessageCircle, Brain, Library, Bot, Sparkles, Users, Boxes, FileText, Crown, ListChecks, Plug, Server, Cpu, Settings } from "lucide-react";
 import type { ReactNode } from "react";
 import { useStore, type Section } from "@/store/useStore";
 import { findActiveProfile, isUsableAvatar, profileInitials } from "@/lib/userProfiles";
@@ -30,6 +30,7 @@ export function Rail() {
   const activeProfile = findActiveProfile(userProfiles, activeUserProfileId);
   const showAvatar = isUsableAvatar(activeProfile.avatar);
   const profilesActive = section === "profiles";
+  const settingsActive = section === "settings";
 
   return (
     <aside
@@ -101,7 +102,29 @@ export function Rail() {
         </nav>
       </div>
 
-      <div className="mt-auto flex flex-col items-center pb-4">
+      <div className="mt-auto flex flex-col items-center gap-2 pb-4">
+        <button
+          type="button"
+          onClick={() => setSection("settings")}
+          aria-current={settingsActive ? "page" : undefined}
+          title="Settings"
+          aria-label="Settings"
+          className={cn(
+            "group relative grid h-11 w-11 place-items-center rounded-[var(--radius-md)] transition-all duration-150 active:scale-95",
+            settingsActive
+              ? "bg-[var(--secondary)] text-[var(--secondary-fg)]"
+              : "text-[var(--muted)] hover:bg-[color:color-mix(in_oklab,var(--fg)_6%,transparent)] hover:text-[var(--fg)]",
+          )}
+        >
+          <Settings className="h-5 w-5" strokeWidth={1.7} />
+          <span className="sr-only">Settings</span>
+          <span
+            className="pointer-events-none absolute left-[calc(100%+0.75rem)] top-1/2 z-40 -translate-y-1/2 translate-x-[-4px] whitespace-nowrap rounded-[var(--radius-sm)] bg-[var(--secondary)] px-2.5 py-1.5 text-xs font-medium text-[var(--secondary-fg)] opacity-0 transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100 max-[640px]:hidden"
+            style={{ boxShadow: "var(--shadow-card)" }}
+          >
+            Settings
+          </span>
+        </button>
         <button
           type="button"
           onClick={() => setSection("profiles")}

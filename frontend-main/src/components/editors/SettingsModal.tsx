@@ -1,8 +1,7 @@
-import { useEffect, useState } from "react";
-import { Check, Pencil, Plug, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Check, Pencil, Plug, Plus, RefreshCw, Rocket, Search, Trash2, X } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { fetchModels, fetchProviders } from "@/lib/api";
-import { validateComposioKey } from "@/lib/connectors";
 import {
   FALLBACK_PROVIDERS,
   LMSTUDIO_DEFAULT_BASE_URL,
@@ -10,14 +9,25 @@ import {
   isCustomProviderId,
   isLocalProviderId,
 } from "@/lib/providers";
-import { EFFORT_PRESETS, type CustomHeader, type CustomProvider } from "@/types";
+import type { CustomHeader, CustomProvider } from "@/types";
 import { Modal } from "@/components/ui/Modal";
-import { Button, Field, Select, TextInput } from "@/components/ui/primitives";
+import { Button, Field, TextInput } from "@/components/ui/primitives";
 import { cn } from "@/utils/cn";
 
+/**
+ * Quick start popup.
+ *
+ * Minimal first-run setup: AI model provider only (provider + API key / base
+ * URL + model + custom providers). Every other preference lives on the
+ * dedicated Settings page in the sidebar.
+ *
+ * The popup cannot be dismissed until a provider is configured and a model is
+ * selected, so the app never ends up in an unusable state.
+ */
 export function SettingsModal() {
   const open = useStore((s) => s.settingsOpen);
   const setOpen = useStore((s) => s.setSettingsOpen);
+  const hydrated = useStore((s) => s.hydrated);
   const providers = useStore((s) => s.providers);
   const models = useStore((s) => s.models);
   const modelsLoading = useStore((s) => s.modelsLoading);
@@ -28,9 +38,6 @@ export function SettingsModal() {
   const setModelsLoading = useStore((s) => s.setModelsLoading);
   const setSettings = useStore((s) => s.setSettings);
   const setApiKey = useStore((s) => s.setApiKey);
-  const setSearchProvider = useStore((s) => s.setSearchProvider);
-  const setFetchProvider = useStore((s) => s.setFetchProvider);
-  const setSearchApiKey = useStore((s) => s.setSearchApiKey);
   const updateCustomProvider = useStore((s) => s.updateCustomProvider);
   const deleteCustomProvider = useStore((s) => s.deleteCustomProvider);
   const selectCustomProvider = useStore((s) => s.selectCustomProvider);
@@ -38,25 +45,12 @@ export function SettingsModal() {
   const [error, setError] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  // Whether the effort control is in "custom string" mode vs. preset buttons.
-  const [effortCustom, setEffortCustom] = useState(false);
-  // Composio key validation state (null = not checked yet in this session).
-  const [composioCheck, setComposioCheck] = useState<"ok" | "bad" | null>(null);
-  const [composioChecking, setComposioChecking] = useState(false);
+  const [providerQuery, setProviderQuery] = useState("");
+  const [modelQuery, setModelQuery] = useState("");
 
   useEffect(() => {
     if (open && providers.length === 0) fetchProviders().then(setProviders).catch(() => {});
   }, [open, providers.length, setProviders]);
-
-  // Defensive fallbacks for settings hydrated before these fields existed.
-  const effort = settings.effort ?? "high";
-  const temperature = typeof settings.temperature === "number" ? settings.temperature : 0.6;
-  const effortIsPreset = (EFFORT_PRESETS as readonly string[]).includes(effort);
-  // When the modal opens, reflect the stored effort: custom mode iff it's not a preset.
-  useEffect(() => {
-    if (open) setEffortCustom(!effortIsPreset);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
 
   const builtIns = providers.length > 0 ? providers : FALLBACK_PROVIDERS;
   const isCustom = isCustomProviderId(settings.provider);
@@ -65,9 +59,50 @@ export function SettingsModal() {
   const currentKey = isCustom ? (selectedCustom?.apiKey ?? "") : (settings.apiKeys[settings.provider] ?? "");
   const defaultBaseUrl = isCustom ? selectedCustom?.baseUrl : builtIns.find((p) => p.id === settings.provider)?.defaultBaseUrl;
   const modelOptions = isCustom ? (selectedCustom?.models ?? []).filter((m) => m.trim()) : models.map((m) => m.id);
+  const isLocal = isLocalProviderId(settings.provider);
+
+  const allProviders = useMemo(
+    () => [
+      ...builtIns.map((p) => ({ id: p.id, label: p.label, custom: false as const })),
+      ...customProviders.map((p) => ({ id: p.id, label: p.name || p.id, custom: true as const })),
+    ],
+    [builtIns, customProviders],
+  );
+
+  const filteredProviders = useMemo(() => {
+    const q = providerQuery.trim().toLowerCase();
+    if (!q) return allProviders;
+    return allProviders.filter((p) => p.label.toLowerCase().includes(q) || p.id.toLowerCase().includes(q));
+  }, [allProviders, providerQuery]);
+
+  const filteredModels = useMemo(() => {
+    const q = modelQuery.trim().toLowerCase();
+    if (!q) return modelOptions;
+    return modelOptions.filter((m) => m.toLowerCase().includes(q));
+  }, [modelOptions, modelQuery]);
+
+  /** Ready = a usable provider credential (or local/custom) plus a selected model. */
+  const ready = useMemo(() => {
+    if (!settings.model.trim()) return false;
+    if (isCustom) return Boolean(selectedCustom);
+    if (isLocal) return true;
+    return Boolean((settings.apiKeys[settings.provider] ?? "").trim());
+  }, [settings, isCustom, selectedCustom, isLocal]);
+
+  // First run: force the quick start open until the model is configured.
+  useEffect(() => {
+    if (hydrated && !ready && !open) setOpen(true);
+  }, [hydrated, ready, open, setOpen]);
+
+  const requestClose = () => {
+    if (!ready) return;
+    setOpen(false);
+    setEditorOpen(false);
+  };
 
   const handleProvider = (value: string) => {
     setError(null);
+    setModelQuery("");
     if (isCustomProviderId(value)) {
       selectCustomProvider(value);
       setModels([]);
@@ -76,8 +111,6 @@ export function SettingsModal() {
       setModels([]);
     }
   };
-
-  const isLocal = isLocalProviderId(settings.provider);
 
   const loadModels = async () => {
     if (!currentKey && !isLocal) {
@@ -98,420 +131,185 @@ export function SettingsModal() {
     }
   };
 
-  const paidSearch = settings.searchProvider !== "duckduckgo";
-
   return (
     <>
       <Modal
         open={open}
-        onClose={() => { setOpen(false); setEditorOpen(false); }}
-        title="Settings"
+        onClose={requestClose}
+        title="Quick start"
+        icon={<Rocket className="h-4 w-4" />}
         size="lg"
-        footer={<Button onClick={() => { setOpen(false); setEditorOpen(false); }}>Done</Button>}
+        footer={
+          <div className="flex w-full items-center justify-between gap-3">
+            <span className={cn("text-xs", ready ? "text-[var(--success)]" : "text-[var(--muted)]")}>
+              {ready ? "Ready — you can start chatting." : "Add your API key and pick a model to continue."}
+            </span>
+            <Button onClick={requestClose} disabled={!ready} title={ready ? "Done" : "Configure a provider and model first"}>
+              <Check className="h-4 w-4" /> Done
+            </Button>
+          </div>
+        }
       >
-        <div className="space-y-6 p-5">
-          {/* Provider + model */}
-          <section className="space-y-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--subtle)]">Model provider</h3>
-            <Field label="Provider">
-              <Select value={settings.provider} onChange={(e) => handleProvider(e.target.value)}>
-                <optgroup label="Providers">
-                  {builtIns.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.label}
-                    </option>
-                  ))}
-                </optgroup>
-                {customProviders.length > 0 && (
-                  <optgroup label="Custom providers">
-                    {customProviders.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name || p.id}
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-              </Select>
-            </Field>
+        <div className="space-y-5 p-5">
+          <p className="m-0 text-sm leading-relaxed text-[var(--muted)]">
+            Connect an AI model to start. Everything else lives on the Settings page.
+          </p>
 
+          {/* 1 · Provider */}
+          <section className="space-y-2.5">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--subtle)]">1 · Provider</h3>
+            <div className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg)] px-3 py-2">
+              <Search className="h-4 w-4 shrink-0 text-[var(--subtle)]" />
+              <input
+                value={providerQuery}
+                onChange={(e) => setProviderQuery(e.target.value)}
+                placeholder="Search providers…"
+                aria-label="Search providers"
+                className="w-full bg-transparent text-sm text-[var(--fg)] outline-none placeholder:text-[var(--subtle)]"
+              />
+              {providerQuery && (
+                <button type="button" onClick={() => setProviderQuery("")} aria-label="Clear provider search" className="text-[var(--subtle)] hover:text-[var(--fg)]">
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+            {filteredProviders.length === 0 ? (
+              <p className="m-0 px-1 py-2 text-center text-xs text-[var(--subtle)]">No providers match “{providerQuery}”.</p>
+            ) : (
+              <div className="grid max-h-52 grid-cols-2 gap-1.5 overflow-auto max-[520px]:grid-cols-1">
+                {filteredProviders.map((p) => {
+                  const active = settings.provider === p.id;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => handleProvider(p.id)}
+                      aria-pressed={active}
+                      className={cn(
+                        "flex items-center gap-2 rounded-[var(--radius-md)] border px-3 py-2 text-left transition-colors",
+                        active ? "border-[var(--secondary)] bg-[var(--chip)]" : "border-[var(--border)] hover:border-[var(--secondary)]",
+                      )}
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-[var(--fg)]">{p.label}</span>
+                        <span className="block truncate font-mono text-[10px] text-[var(--subtle)]">{p.custom ? "custom" : p.id}</span>
+                      </span>
+                      {active && <Check className="h-4 w-4 shrink-0 text-[var(--secondary)]" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          {/* 2 · Key & endpoint */}
+          <section className="space-y-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--subtle)]">2 · Key & endpoint</h3>
             {isCustom ? (
-              <div className="space-y-2 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--chip)] p-3">
-                <p className="text-xs text-[var(--muted)]">Connected to {selectedCustom?.baseUrl || "no base URL"}</p>
-                {modelOptions.length > 0 ? (
-                  <>
-                    <Select value={settings.model || modelOptions[0]} onChange={(e) => setSettings({ model: e.target.value })}>
-                      <option value="" disabled>
-                        Select a model…
-                      </option>
-                      {modelOptions.map((m) => (
-                        <option key={m} value={m}>
-                          {m}
-                        </option>
-                      ))}
-                    </Select>
-                    <div className="flex flex-wrap gap-1.5">
-                      {modelOptions.map((m) => (
-                        <button key={m} onClick={() => setSettings({ model: m })} className={cn("rounded-full border px-2.5 py-1 text-xs", settings.model === m ? "border-[var(--secondary)] bg-[var(--secondary)] text-[var(--secondary-fg)]" : "border-[var(--border)] text-[var(--fg)] hover:border-[var(--secondary)]")}>
-                          {m}
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <TextInput value={settings.model} onChange={(e) => setSettings({ model: e.target.value })} placeholder="No models yet — add one below" />
-                )}
-                {selectedCustom && (
-                  <button onClick={() => { setEditingId(selectedCustom.id); setEditorOpen(true); }} className="text-xs font-medium text-[var(--secondary)] hover:underline">
-                    Edit or add models
-                  </button>
-                )}
+              <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--chip)] p-3 text-xs text-[var(--muted)]">
+                Connected to {selectedCustom?.baseUrl || "no base URL"}. Manage its models below.
               </div>
             ) : (
               <>
-                {isLocal ? (
+                {isLocal && (
                   <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--chip)] p-3 text-xs leading-relaxed text-[var(--muted)]">
-                    Use models running on your own computer — no API key needed. Start Ollama
-                    (`ollama serve`, then `ollama pull llama3.1`) or LM Studio (start its local
-                    server), then Load models or type the model id below.
+                    Local models need no API key. Start Ollama (`ollama serve`) or LM Studio, then load models.
                   </div>
-                ) : null}
-                <Field label={isLocal ? `API key (${settings.provider}, optional)` : `API key (${settings.provider})`}>
-                  <TextInput type="password" value={currentKey} onChange={(e) => setApiKey(settings.provider, e.target.value)} placeholder={isLocal ? "Not needed for local servers" : "sk-…"} />
+                )}
+                <Field label={isLocal ? "API key (optional)" : "API key"}>
+                  <TextInput type="password" value={currentKey} onChange={(e) => setApiKey(settings.provider, e.target.value)} placeholder={isLocal ? "Not needed" : "sk-…"} />
                 </Field>
-                <Field label={isLocal ? "Server URL (Ollama / LM Studio / any local server)" : "Base URL (optional override)"}>
-                  <TextInput value={settings.baseUrl} onChange={(e) => setSettings({ baseUrl: e.target.value })} placeholder={defaultBaseUrl ? `Default: ${defaultBaseUrl}` : "https://…/v1"} />
+                <Field label="Base URL (optional)">
+                  <TextInput value={settings.baseUrl} onChange={(e) => setSettings({ baseUrl: e.target.value })} placeholder={defaultBaseUrl ? `Default: ${defaultBaseUrl}` : "https://…/v1"} className="font-mono text-xs" />
                   {isLocal && (
                     <div className="mt-2 flex flex-wrap gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setSettings({ baseUrl: OLLAMA_DEFAULT_BASE_URL })}
-                        className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] text-[var(--fg)] hover:border-[var(--secondary)]"
-                      >
-                        Ollama · localhost:11434
+                      <button type="button" onClick={() => setSettings({ baseUrl: OLLAMA_DEFAULT_BASE_URL })} className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] text-[var(--fg)] hover:border-[var(--secondary)]">
+                        Ollama · :11434
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => setSettings({ baseUrl: LMSTUDIO_DEFAULT_BASE_URL })}
-                        className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] text-[var(--fg)] hover:border-[var(--secondary)]"
-                      >
-                        LM Studio · localhost:1234
+                      <button type="button" onClick={() => setSettings({ baseUrl: LMSTUDIO_DEFAULT_BASE_URL })} className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] text-[var(--fg)] hover:border-[var(--secondary)]">
+                        LM Studio · :1234
                       </button>
                     </div>
                   )}
                 </Field>
-                <Field label="Model">
-                  <div className="flex gap-2">
-                    <Select value={settings.model} onChange={(e) => setSettings({ model: e.target.value })} className="flex-1">
-                      {modelOptions.length === 0 ? (
-                        <option value={settings.model}>{settings.model || "Load models →"}</option>
-                      ) : (
-                        modelOptions.map((m) => (
-                          <option key={m} value={m}>
-                            {m}
-                          </option>
-                        ))
-                      )}
-                    </Select>
-                    <Button variant="outline" onClick={loadModels} disabled={modelsLoading}>
-                      <RefreshCw className={cn("h-4 w-4", modelsLoading && "animate-spin")} /> Load
-                    </Button>
-                  </div>
-                </Field>
-                {settings.model && (
-                  <TextInput value={settings.model} onChange={(e) => setSettings({ model: e.target.value })} placeholder="Or type a model id" className="font-mono text-xs" />
-                )}
               </>
             )}
           </section>
 
-          {/* Model behavior: reasoning effort + temperature */}
-          <section className="space-y-4 border-t border-[var(--border)] pt-5">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--subtle)]">Model behavior</h3>
-
-            {/* Reasoning effort */}
-            <Field label="Reasoning effort">
-              <div className="flex flex-wrap items-center gap-1.5">
-                {EFFORT_PRESETS.map((level) => {
-                  const active = !effortCustom && effort === level;
+          {/* 3 · Model */}
+          <section className="space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--subtle)]">3 · Model</h3>
+              {!isCustom && (
+                <button
+                  type="button"
+                  onClick={loadModels}
+                  disabled={modelsLoading}
+                  className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--border)] px-2 py-1 text-[10px] text-[var(--muted)] hover:border-[var(--secondary)] disabled:opacity-50"
+                >
+                  <RefreshCw className={cn("h-3 w-3", modelsLoading && "animate-spin")} />
+                  {modelsLoading ? "Loading…" : "Load models"}
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg)] px-3 py-2">
+              <Search className="h-4 w-4 shrink-0 text-[var(--subtle)]" />
+              <input
+                value={modelQuery}
+                onChange={(e) => setModelQuery(e.target.value)}
+                placeholder="Search models…"
+                aria-label="Search models"
+                className="w-full bg-transparent text-sm text-[var(--fg)] outline-none placeholder:text-[var(--subtle)]"
+              />
+              {modelQuery && (
+                <button type="button" onClick={() => setModelQuery("")} aria-label="Clear model search" className="text-[var(--subtle)] hover:text-[var(--fg)]">
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+            {filteredModels.length === 0 ? (
+              <p className="m-0 px-1 py-2 text-center text-xs text-[var(--subtle)]">
+                {modelOptions.length === 0 ? "No models yet — press Load models or add a custom provider." : "No matching models."}
+              </p>
+            ) : (
+              <div className="max-h-52 space-y-0.5 overflow-auto rounded-[var(--radius-md)] border border-[var(--border)] p-1.5">
+                {filteredModels.map((m) => {
+                  const active = settings.model === m;
                   return (
                     <button
-                      key={level}
+                      key={m}
                       type="button"
-                      onClick={() => { setEffortCustom(false); setSettings({ effort: level }); }}
-                      className={cn(
-                        "rounded-full border px-3 py-1 text-xs font-medium capitalize transition-colors",
-                        active
-                          ? "border-[var(--secondary)] bg-[var(--secondary)] text-[var(--secondary-fg)]"
-                          : "border-[var(--border)] text-[var(--fg)] hover:border-[var(--secondary)]",
-                      )}
+                      onClick={() => setSettings({ model: m })}
+                      aria-pressed={active}
+                      className={cn("flex w-full items-center gap-2 rounded-[var(--radius-sm)] px-2 py-1.5 text-left hover:bg-[var(--chip)]", active && "bg-[var(--chip)]")}
                     >
-                      {level}
+                      <span className="min-w-0 flex-1 truncate font-mono text-xs text-[var(--fg)]">{m}</span>
+                      {active && <Check className="h-3.5 w-3.5 shrink-0 text-[var(--secondary)]" />}
                     </button>
                   );
                 })}
-                <button
-                  type="button"
-                  onClick={() => setEffortCustom(true)}
-                  className={cn(
-                    "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
-                    effortCustom
-                      ? "border-[var(--secondary)] bg-[var(--secondary)] text-[var(--secondary-fg)]"
-                      : "border-[var(--border)] text-[var(--fg)] hover:border-[var(--secondary)]",
-                  )}
-                >
-                  Custom
-                </button>
-              </div>
-            </Field>
-            {effortCustom && (
-              <TextInput
-                value={effort}
-                onChange={(e) => setSettings({ effort: e.target.value })}
-                placeholder="Custom effort (e.g. minimal, xhigh) — passed to the model"
-                className="font-mono text-xs"
-              />
-            )}
-            <p className="text-xs text-[var(--muted)]">
-              Higher effort lets reasoning models think longer before answering. Models without
-              reasoning support ignore this and run normally. Default is <strong>high</strong>.
-            </p>
-
-            {/* Temperature */}
-            <Field label="Temperature" hint={temperature.toFixed(2)}>
-              <div className="flex items-center gap-3">
-                <input
-                  type="range"
-                  min={0}
-                  max={2}
-                  step={0.05}
-                  value={settings.temperature}
-                  onChange={(e) => setSettings({ temperature: clampTemp(Number(e.target.value)) })}
-                  className="h-1.5 flex-1 cursor-pointer appearance-none rounded-full bg-[var(--border)] accent-[var(--secondary)]"
-                />
-                <input
-                  type="number"
-                  min={0}
-                  max={2}
-                  step={0.05}
-                  value={settings.temperature}
-                  onChange={(e) => setSettings({ temperature: clampTemp(Number(e.target.value)) })}
-                  className="w-20 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg)] px-2 py-1.5 text-sm text-[var(--fg)] outline-none focus:border-[var(--secondary)]"
-                />
-              </div>
-            </Field>
-            <p className="text-xs text-[var(--muted)]">
-              Lower values make responses more focused and deterministic; higher values more creative.
-              Range 0–2. Models that don't support custom temperatures ignore this.
-            </p>
-          </section>
-
-          {/* Web search */}
-          <section className="space-y-3 border-t border-[var(--border)] pt-5">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--subtle)]">Web search</h3>
-            <Field label="Search provider">
-              <Select value={settings.searchProvider} onChange={(e) => setSearchProvider(e.target.value as never)}>
-                <option value="duckduckgo">DuckDuckGo (free)</option>
-                <option value="tavily">Tavily</option>
-                <option value="exa">Exa</option>
-                <option value="serpapi">SerpAPI</option>
-              </Select>
-            </Field>
-            {paidSearch && (
-              <div className="grid gap-3">
-                <Field label="Tavily API key">
-                  <TextInput type="password" value={settings.tavilyApiKey} onChange={(e) => setSearchApiKey("tavily", e.target.value)} placeholder="tvly-…" />
-                </Field>
-                <Field label="Exa API key">
-                  <TextInput type="password" value={settings.exaApiKey} onChange={(e) => setSearchApiKey("exa", e.target.value)} placeholder="exa-…" />
-                </Field>
-                <Field label="SerpAPI key">
-                  <TextInput type="password" value={settings.serpapiApiKey} onChange={(e) => setSearchApiKey("serpapi", e.target.value)} placeholder="SerpAPI key" />
-                </Field>
               </div>
             )}
-          </section>
-
-          {/* Web fetch */}
-          <section className="space-y-3 border-t border-[var(--border)] pt-5">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--subtle)]">Web fetch</h3>
-            <Field label="Fetch provider">
-              <Select value={settings.fetchProvider} onChange={(e) => setFetchProvider(e.target.value as never)}>
-                <option value="builtin">Built-in scraper (free)</option>
-                <option value="firecrawl">Firecrawl</option>
-              </Select>
+            <Field label="Or type a model id">
+              <TextInput value={settings.model} onChange={(e) => setSettings({ model: e.target.value })} placeholder="e.g. gpt-4o-mini" className="font-mono text-xs" />
             </Field>
-            {settings.fetchProvider === "firecrawl" && (
-              <Field label="Firecrawl API key">
-                <TextInput type="password" value={settings.firecrawlApiKey} onChange={(e) => setSearchApiKey("firecrawl", e.target.value)} placeholder="fc-…" />
-              </Field>
-            )}
-          </section>
-
-          {/* Sub-agent sessions */}
-          <section className="space-y-3 border-t border-[var(--border)] pt-5">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--subtle)]">Sub-agent sessions</h3>
-            <Field label="Reuse sub-agent sessions">
-              <Select
-                value={settings.enableReuseSubAgentSession ?? "no"}
-                onChange={(e) => setSettings({ enableReuseSubAgentSession: e.target.value === "yes" ? "yes" : "no" })}
-              >
-                <option value="no">No — disabled</option>
-                <option value="yes">Yes — enabled</option>
-              </Select>
-            </Field>
-            <p className="text-xs text-[var(--muted)]">
-              When enabled, the agent can list previously run sub-agent sessions and continue any of
-              them with their preserved conversation context (list_sub_agent_sessions /
-              reuse_same_sub_agent_session). When disabled, both tools are hidden from the agent.
-            </p>
-          </section>
-
-          {/* Memory agent */}
-          <section className="space-y-3 border-t border-[var(--border)] pt-5">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--subtle)]">Memory agent</h3>
-            <Field label="Memory agent">
-              <Select
-                value={settings.memoryAgentEnabled ?? "yes"}
-                onChange={(e) => setSettings({ memoryAgentEnabled: e.target.value === "yes" ? "yes" : "no" })}
-              >
-                <option value="yes">On — build memory (default)</option>
-                <option value="no">Off — never build memory</option>
-              </Select>
-            </Field>
-            <p className="text-xs text-[var(--muted)]">
-              When off, the background memory agent never starts, so no extra LLM tokens are spent
-              on memory building. Default is on.
-            </p>
-            <Field label="Build memory after every N tasks" hint="default 3">
-              <TextInput
-                type="number"
-                min={1}
-                max={50}
-                value={settings.memoryAgentInterval ?? 3}
-                onChange={(e) => {
-                  const n = Number(e.target.value);
-                  setSettings({
-                    memoryAgentInterval: Number.isFinite(n) ? Math.min(50, Math.max(1, Math.floor(n))) : 3,
-                  });
-                }}
-                placeholder="3"
-              />
-            </Field>
-            <p className="text-xs text-[var(--muted)]">
-              The memory agent stays idle before that — e.g. with 3, tasks 1–2 produce no run and
-              task 3 triggers a memory build, then again after tasks 6, 9, …
-            </p>
-          </section>
-
-          {/* Multi-agent teams */}
-          <section className="space-y-3 border-t border-[var(--border)] pt-5">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--subtle)]">Agent teams (multi-agent)</h3>
-            <Field label="Enable agent teams">
-              <Select
-                value={settings.enableAgentTeams ?? "no"}
-                onChange={(e) => setSettings({ enableAgentTeams: e.target.value === "yes" ? "yes" : "no" })}
-              >
-                <option value="no">No — single agent (default)</option>
-                <option value="yes">Yes — use the active agent team</option>
-              </Select>
-            </Field>
-            <p className="text-xs text-[var(--muted)]">
-              When enabled, your chat goes to the active team's head/leader, who delegates to the
-              members and coordinates them. Create and activate teams from the “Agent teams” page in
-              the sidebar. When disabled, chat uses the normal single agent.
-            </p>
-            <Field label="Agent-to-agent messaging (send_message_to_team)">
-              <Select
-                value={settings.enableSendMessageToTeam ?? "no"}
-                onChange={(e) => setSettings({ enableSendMessageToTeam: e.target.value === "yes" ? "yes" : "no" })}
-              >
-                <option value="no">No — disabled (default)</option>
-                <option value="yes">Yes — members can message each other</option>
-              </Select>
-            </Field>
-            <p className="text-xs text-[var(--muted)]">
-              This sensitive tool lets any team member message any other member directly for
-              peer-to-peer coordination. When disabled, members only report up to the leader
-              (message_team_leader) and the tool is hidden entirely.
-            </p>
-          </section>
-
-          {/* CEO multi-agent system */}
-          <section className="space-y-3 border-t border-[var(--border)] pt-5">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--subtle)]">CEO agent (multi-team)</h3>
-            <Field label="Enable CEO agent">
-              <Select
-                value={settings.enableCeoAgents ?? "no"}
-                onChange={(e) => setSettings({ enableCeoAgents: e.target.value === "yes" ? "yes" : "no" })}
-              >
-                <option value="no">No (default)</option>
-                <option value="yes">Yes — use the active CEO agent</option>
-              </Select>
-            </Field>
-            <p className="text-xs text-[var(--muted)]">
-              When enabled, your chat goes to the active CEO agent, who controls the head/leaders of
-              the teams it manages — assigning them tasks, and the leaders then coordinate their own
-              members. Create and activate a CEO from the “CEO agents” page in the sidebar. Takes
-              precedence over a single agent team when both are active.
-            </p>
-          </section>
-
-          {/* Connectors (Composio) */}
-          <section className="space-y-3 border-t border-[var(--border)] pt-5">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--subtle)]">App connectors (Composio)</h3>
-            <Field label="Composio API key">
-              <div className="flex gap-2">
-                <TextInput
-                  type="password"
-                  value={settings.composioApiKey ?? ""}
-                  onChange={(e) => { setSettings({ composioApiKey: e.target.value }); setComposioCheck(null); }}
-                  placeholder="ak-…"
-                  className="flex-1"
-                />
-                <Button
-                  variant="outline"
-                  onClick={async () => {
-                    setComposioChecking(true);
-                    const ok = await validateComposioKey(settings.composioApiKey || undefined);
-                    setComposioCheck(ok ? "ok" : "bad");
-                    setComposioChecking(false);
-                  }}
-                  disabled={composioChecking || !(settings.composioApiKey ?? "").trim()}
-                >
-                  <Plug className={cn("h-4 w-4", composioChecking && "animate-spin")} />
-                  {composioCheck === "ok" ? "Valid" : "Test"}
-                </Button>
-              </div>
-            </Field>
-            {composioCheck === "bad" && (
-              <p className="text-xs text-[var(--danger)]">That key was rejected by Composio. Check it and try again.</p>
-            )}
-            <p className="text-xs text-[var(--muted)]">
-              Powers the Connectors page (GitHub, Slack, Notion, Gmail, Outlook). Get a key at{" "}
-              <a href="https://app.composio.dev" target="_blank" rel="noreferrer" className="text-[var(--secondary)] hover:underline">
-                app.composio.dev
-              </a>{" "}
-              — once connected, every app tool is available to the agent as native function calls.
-            </p>
           </section>
 
           {/* Custom providers */}
-          <section className="space-y-3 border-t border-[var(--border)] pt-5">
+          <section className="space-y-2.5 border-t border-[var(--border)] pt-4">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--subtle)]">Custom providers</h3>
             {customProviders.length > 0 && (
               <ul className="space-y-2">
                 {customProviders.map((p) => (
-                  <li key={p.id} className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--border)] p-3">
+                  <li key={p.id} className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--border)] p-2.5">
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-[var(--fg)]">
+                      <p className="m-0 truncate text-sm font-medium text-[var(--fg)]">
                         {p.name || p.id}
                         {settings.provider === p.id && <span className="ml-2 rounded-full bg-[var(--secondary)] px-1.5 py-0.5 text-[10px] text-[var(--secondary-fg)]">Active</span>}
                       </p>
-                      <p className="truncate text-xs text-[var(--subtle)]">
-                        {p.baseUrl || "no base URL"} · {p.models.filter((m) => m.trim()).length} model(s)
-                      </p>
+                      <p className="m-0 truncate text-xs text-[var(--subtle)]">{p.baseUrl || "no base URL"} · {p.models.filter((m) => m.trim()).length} model(s)</p>
                     </div>
-                    <button onClick={() => selectCustomProvider(p.id)} title="Set active" className="grid h-8 w-8 place-items-center rounded-[var(--radius-md)] text-[var(--subtle)] hover:bg-[var(--chip)] hover:text-[var(--fg)]">
+                    <button onClick={() => selectCustomProvider(p.id)} title="Use" className="grid h-8 w-8 place-items-center rounded-[var(--radius-md)] text-[var(--subtle)] hover:bg-[var(--chip)] hover:text-[var(--fg)]">
                       <Plug className="h-4 w-4" />
                     </button>
                     <button onClick={() => { setEditingId(p.id); setEditorOpen(true); }} title="Edit" className="grid h-8 w-8 place-items-center rounded-[var(--radius-md)] text-[var(--subtle)] hover:bg-[var(--chip)] hover:text-[var(--fg)]">
@@ -529,7 +327,8 @@ export function SettingsModal() {
             </Button>
           </section>
 
-          {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
+          {error && <p className="m-0 text-xs text-[var(--danger)]">{error}</p>}
+          {!ready && <p className="m-0 text-xs text-[var(--warning)]">This popup stays open until a provider and model are set.</p>}
         </div>
       </Modal>
 
@@ -546,12 +345,6 @@ export function SettingsModal() {
       )}
     </>
   );
-}
-
-/** Clamp an untrusted temperature to the provider-safe 0–2 range (NaN → 0.6 default). */
-function clampTemp(value: number): number {
-  if (!Number.isFinite(value)) return 0.6;
-  return Math.min(2, Math.max(0, Math.round(value * 100) / 100));
 }
 
 function CustomProviderEditor({
@@ -633,7 +426,7 @@ function CustomProviderEditor({
             </Button>
           </div>
         </div>
-        {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
+        {error && <p className="m-0 text-sm text-[var(--danger)]">{error}</p>}
       </div>
     </Modal>
   );

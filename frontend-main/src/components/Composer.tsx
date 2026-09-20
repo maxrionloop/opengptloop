@@ -109,7 +109,7 @@ export function Composer({ onSend, onStop }: { onSend: (text: string) => void; o
               color: "var(--warning)",
             }}
           >
-            Add your API key and pick a model in Settings to start chatting.
+            Add your API key and pick a model in Quick start to begin chatting.
           </button>
         )}
 

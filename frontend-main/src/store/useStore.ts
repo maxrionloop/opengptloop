@@ -89,7 +89,8 @@ export type Section =
   | "taskmodes"
   | "connectors"
   | "mcp"
-  | "profiles";
+  | "profiles"
+  | "settings";
 
 /** Connection state surfaced to the user. Slow ≠ offline; only a lost connection is "offline". */
 export type Connection = "online" | "reconnecting" | "offline";

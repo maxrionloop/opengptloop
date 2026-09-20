@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Settings, ListTodo, Paperclip, Brain, History, Boxes, Crown, MoreVertical, GitBranch, Copy, Pencil, MessageCircle } from "lucide-react";
+import { Plus, Rocket, ListTodo, Paperclip, Brain, History, Boxes, Crown, MoreVertical, GitBranch, Copy, Pencil, MessageCircle } from "lucide-react";
 import { useStore, type Section } from "@/store/useStore";
 import { DEFAULT_PROFILE_ID } from "@/lib/userProfiles";
 import { cn } from "@/utils/cn";
@@ -186,9 +186,16 @@ export function TopBar() {
         <TopIcon title="Attached files" onClick={() => setFilesOpen(true)} count={attachedFiles.length}>
           <Paperclip className="h-[18px] w-[18px]" strokeWidth={1.7} />
         </TopIcon>
-        <TopIcon title="Settings" onClick={() => setSettingsOpen(true)}>
-          <Settings className="h-5 w-5" strokeWidth={1.7} />
-        </TopIcon>
+        <button
+          type="button"
+          onClick={() => setSettingsOpen(true)}
+          title="Quick start — connect an AI model"
+          aria-label="Quick start"
+          className="inline-flex h-11 items-center gap-1.5 rounded-full bg-[var(--secondary)] px-4 text-xs font-medium text-[var(--secondary-fg)] transition-transform hover:brightness-110 active:scale-[0.98]"
+        >
+          <Rocket className="h-4 w-4" strokeWidth={1.9} />
+          Quick start
+        </button>
         <BranchMenu />
       </div>
     </header>

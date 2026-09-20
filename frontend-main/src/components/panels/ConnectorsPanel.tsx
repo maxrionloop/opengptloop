@@ -43,7 +43,7 @@ const STATUS_STYLE: Record<ConnectorStatus, { label: string; cls: string }> = {
  * (main, custom, sub-agents, teams, CEO) as native function calls.
  */
 export function ConnectorsPanel() {
-  const setSettingsOpen = useStore((s) => s.setSettingsOpen);
+  const setSection = useStore((s) => s.setSection);
   const setConnector = useStore((s) => s.setConnector);
   const removeConnector = useStore((s) => s.removeConnector);
   const setConnectors = useStore((s) => s.setConnectors);
@@ -173,7 +173,7 @@ export function ConnectorsPanel() {
               The key is stored with your settings and only ever sent to the backend.
             </p>
           </div>
-          <Button variant="outline" onClick={() => setSettingsOpen(true)}>
+          <Button variant="outline" onClick={() => setSection("settings")}>
             Open Settings
           </Button>
         </div>

@@ -17,6 +17,7 @@ import { TaskModesPanel } from "@/components/panels/TaskModesPanel";
 import { ConnectorsPanel } from "@/components/panels/ConnectorsPanel";
 import { McpPanel } from "@/components/panels/McpPanel";
 import { ProfilesPanel } from "@/components/panels/ProfilesPanel";
+import { SettingsPanel } from "@/components/panels/SettingsPanel";
 import { SettingsModal } from "@/components/editors/SettingsModal";
 import { TodoPanel } from "@/components/overlays/TodoPanel";
 import { FilesPanel } from "@/components/overlays/FilesPanel";
@@ -157,6 +158,7 @@ export function App() {
               {section === "connectors" && <ConnectorsPanel />}
               {section === "mcp" && <McpPanel />}
               {section === "profiles" && <ProfilesPanel />}
+              {section === "settings" && <SettingsPanel />}
             </div>
           )}
         </main>
