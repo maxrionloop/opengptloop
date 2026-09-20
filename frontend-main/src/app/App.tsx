@@ -4,6 +4,7 @@ import { TopBar } from "@/components/TopBar";
 import { Composer } from "@/components/Composer";
 import { NetworkBanner } from "@/components/NetworkBanner";
 import { ChatPanel } from "@/components/chat/ChatPanel";
+import { ModelsPanel } from "@/components/panels/ModelsPanel";
 import { MemoryPanel } from "@/components/panels/MemoryPanel";
 import { KnowledgePanel } from "@/components/panels/KnowledgePanel";
 import { AgentsPanel } from "@/components/panels/AgentsPanel";
@@ -144,6 +145,7 @@ export function App() {
           {section !== "chat" && (
             <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6 max-[640px]:px-4">
               {section === "memory" && <MemoryPanel />}
+              {section === "models" && <ModelsPanel />}
               {section === "knowledge" && <KnowledgePanel />}
               {section === "agents" && <AgentsPanel />}
               {section === "skills" && <SkillsPanel />}

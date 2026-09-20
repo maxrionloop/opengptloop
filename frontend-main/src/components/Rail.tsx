@@ -1,4 +1,4 @@
-import { MessageCircle, Brain, Library, Bot, Sparkles, Users, Boxes, FileText, Crown, ListChecks, Plug, Server } from "lucide-react";
+import { MessageCircle, Brain, Library, Bot, Sparkles, Users, Boxes, FileText, Crown, ListChecks, Plug, Server, Cpu } from "lucide-react";
 import type { ReactNode } from "react";
 import { useStore, type Section } from "@/store/useStore";
 import { findActiveProfile, isUsableAvatar, profileInitials } from "@/lib/userProfiles";
@@ -6,6 +6,7 @@ import { cn } from "@/utils/cn";
 
 const NAV: Array<{ id: Section; label: string; Icon: typeof MessageCircle }> = [
   { id: "chat", label: "Chat history", Icon: MessageCircle },
+  { id: "models", label: "Models", Icon: Cpu },
   { id: "customagents", label: "Custom agents", Icon: Boxes },
   { id: "systemprompts", label: "Custom system prompts", Icon: FileText },
   { id: "taskmodes", label: "Task modes", Icon: ListChecks },

@@ -13,6 +13,8 @@ function contextLabel(section: Section, counts: Record<string, number>): string 
   switch (section) {
     case "memory":
       return "Across threads";
+    case "models":
+      return `${counts.models} provider${counts.models === 1 ? "" : "s"}`;
     case "knowledge":
       return `${counts.knowledge} source${counts.knowledge === 1 ? "" : "s"}`;
     case "agents":
@@ -63,6 +65,8 @@ export function TopBar() {
   const taskModes = useStore((s) => s.taskModes);
   const connectors = useStore((s) => s.connectors);
   const mcpServers = useStore((s) => s.mcpServers);
+  const providers = useStore((s) => s.providers);
+  const customProviders = useStore((s) => s.customProviders);
   const userProfiles = useStore((s) => s.userProfiles);
   const setSection = useStore((s) => s.setSection);
   const agentMode = useStore((s) => s.agentMode);
@@ -80,6 +84,7 @@ export function TopBar() {
     connectors: connectors.filter((c) => c.status === "active").length,
     mcp: mcpServers.filter((m) => m.status === "connected").length,
     profiles: userProfiles.length,
+    models: providers.length + customProviders.length,
   });
   const isChat = section === "chat";
   const activeAgent = customAgents.find((a) => a.id === activeCustomAgentId) ?? null;
