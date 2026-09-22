@@ -17,7 +17,6 @@ import { ConnectorsPanel } from "@/components/panels/ConnectorsPanel";
 import { McpPanel } from "@/components/panels/McpPanel";
 import { ProfilesPanel } from "@/components/panels/ProfilesPanel";
 import { SettingsModal } from "@/components/editors/SettingsModal";
-import { TodoPanel } from "@/components/overlays/TodoPanel";
 import { FilesPanel } from "@/components/overlays/FilesPanel";
 import { PreviewPanel } from "@/components/overlays/PreviewPanel";
 import { MemoryAgentPanel } from "@/components/overlays/MemoryAgentPanel";
@@ -179,7 +178,6 @@ export function App() {
       <NetworkBanner />
       <SettingsModal />
       <GlobalSearchPanel />
-      <TodoPanel />
       <FilesPanel />
       <PreviewPanel />
       <MemoryAgentPanel />

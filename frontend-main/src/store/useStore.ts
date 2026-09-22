@@ -187,7 +187,6 @@ interface AppState {
   models: ModelInfo[];
   modelsLoading: boolean;
   settingsOpen: boolean;
-  todosOpen: boolean;
   searchOpen: boolean;
   filesOpen: boolean;
   teamMonitorOpen: boolean;
@@ -490,7 +489,6 @@ interface AppState {
   setModelsLoading: (v: boolean) => void;
   setSection: (section: Section) => void;
   setSettingsOpen: (v: boolean) => void;
-  setTodosOpen: (v: boolean) => void;
   setSearchOpen: (v: boolean) => void;
   setTeamMonitorOpen: (v: boolean) => void;
   setStreaming: (v: boolean) => void;
@@ -792,7 +790,6 @@ export const useStore = create<AppState>()(
       models: [],
       modelsLoading: false,
       settingsOpen: false,
-      todosOpen: false,
       searchOpen: false,
       filesOpen: false,
       teamMonitorOpen: false,
@@ -2356,7 +2353,6 @@ export const useStore = create<AppState>()(
       setModelsLoading: (modelsLoading) => set({ modelsLoading }),
       setSection: (section) => set({ section }),
       setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
-      setTodosOpen: (todosOpen) => set({ todosOpen }),
       setSearchOpen: (searchOpen) => set({ searchOpen }),
       setTeamMonitorOpen: (teamMonitorOpen) => set({ teamMonitorOpen }),
       setStreaming: (streaming) => set({ streaming }),

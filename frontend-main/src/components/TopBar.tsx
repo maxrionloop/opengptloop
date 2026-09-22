@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Settings, ListTodo, Paperclip, Brain, History, Boxes, Crown, MoreVertical, GitBranch, Copy, Pencil, MessageCircle, Search } from "lucide-react";
+import { Plus, Settings, Paperclip, Brain, History, Boxes, Crown, MoreVertical, GitBranch, Copy, Pencil, MessageCircle, Search } from "lucide-react";
 import { useStore, type Section } from "@/store/useStore";
 import { DEFAULT_PROFILE_ID } from "@/lib/userProfiles";
 import { cn } from "@/utils/cn";
@@ -44,7 +44,6 @@ export function TopBar() {
   const section = useStore((s) => s.section);
   const newConversation = useStore((s) => s.newConversation);
   const setSettingsOpen = useStore((s) => s.setSettingsOpen);
-  const setTodosOpen = useStore((s) => s.setTodosOpen);
   const setFilesOpen = useStore((s) => s.setFilesOpen);
   const setMemoryAgentOpen = useStore((s) => s.setMemoryAgentOpen);
   const setMemoryAgentSessionsOpen = useStore((s) => s.setMemoryAgentSessionsOpen);
@@ -52,7 +51,6 @@ export function TopBar() {
   const knowledge = useStore((s) => s.knowledge);
   const subAgents = useStore((s) => s.subAgents);
   const skills = useStore((s) => s.skills);
-  const todos = useStore((s) => s.todos);
   const attachedFiles = useStore((s) => s.attachedFiles);
   const agentTeams = useStore((s) => s.agentTeams);
   const ceoAgents = useStore((s) => s.ceoAgents);
@@ -177,9 +175,6 @@ export function TopBar() {
         </TopIcon>
         <TopIcon title="Memory agent sessions" onClick={() => setMemoryAgentSessionsOpen(true)}>
           <History className="h-[18px] w-[18px]" strokeWidth={1.7} />
-        </TopIcon>
-        <TopIcon title="Todo list" onClick={() => setTodosOpen(true)} count={todos.length}>
-          <ListTodo className="h-[18px] w-[18px]" strokeWidth={1.7} />
         </TopIcon>
         <TopIcon title="Attached files" onClick={() => setFilesOpen(true)} count={attachedFiles.length}>
           <Paperclip className="h-[18px] w-[18px]" strokeWidth={1.7} />

@@ -181,6 +181,7 @@ function Shell({
   status,
   expandable,
   panel,
+  defaultOpen,
 }: {
   icon: ReactNode;
   label: ReactNode;
@@ -188,8 +189,9 @@ function Shell({
   status: ToolActivityStatus;
   expandable: boolean;
   panel?: () => ReactNode;
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen === true);
   return (
     <div className="w-full max-w-full">
       <button
@@ -960,6 +962,7 @@ function TodoChip({ tool }: { tool: ToolActivity }) {
       label={tool.label}
       status={tool.status}
       expandable={hasResult || todos.length > 0}
+      defaultOpen
       pills={<Pill>{data?.count ?? todos.length} todo(s)</Pill>}
       panel={() =>
         todos.length === 0 ? (
