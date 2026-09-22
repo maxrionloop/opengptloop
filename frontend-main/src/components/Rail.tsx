@@ -1,4 +1,4 @@
-import { MessageCircle, Brain, Library, Bot, Sparkles, Users, Boxes, FileText, Crown, ListChecks, Plug, Server } from "lucide-react";
+import { MessageCircle, Brain, Library, Bot, Sparkles, Users, Boxes, FileText, Crown, ListChecks, Plug, Server, Search } from "lucide-react";
 import type { ReactNode } from "react";
 import { useStore, type Section } from "@/store/useStore";
 import { findActiveProfile, isUsableAvatar, profileInitials } from "@/lib/userProfiles";
@@ -22,6 +22,7 @@ const NAV: Array<{ id: Section; label: string; Icon: typeof MessageCircle }> = [
 export function Rail() {
   const section = useStore((s) => s.section);
   const setSection = useStore((s) => s.setSection);
+  const setSearchOpen = useStore((s) => s.setSearchOpen);
   const agentMode = useStore((s) => s.agentMode);
   const setAgentMode = useStore((s) => s.setAgentMode);
   const userProfiles = useStore((s) => s.userProfiles);
@@ -68,6 +69,25 @@ export function Rail() {
               <Bot className="h-4 w-4" strokeWidth={1.9} />
             </ModeButton>
           </div>
+        </div>
+
+        <div className="mt-3 flex w-full justify-center px-2">
+          <button
+            type="button"
+            onClick={() => setSearchOpen(true)}
+            title="Search everything (Ctrl+K)"
+            aria-label="Search everything"
+            className="group relative grid h-11 w-11 place-items-center rounded-[var(--radius-md)] text-[var(--muted)] transition-all duration-150 hover:bg-[color:color-mix(in_oklab,var(--fg)_6%,transparent)] hover:text-[var(--fg)] active:scale-95"
+          >
+            <Search className="h-5 w-5" strokeWidth={1.7} />
+            <span className="sr-only">Search everything</span>
+            <span
+              className="pointer-events-none absolute left-[calc(100%+0.75rem)] top-1/2 z-40 -translate-y-1/2 translate-x-[-4px] whitespace-nowrap rounded-[var(--radius-sm)] bg-[var(--secondary)] px-2.5 py-1.5 text-xs font-medium text-[var(--secondary-fg)] opacity-0 transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100 max-[640px]:hidden"
+              style={{ boxShadow: "var(--shadow-card)" }}
+            >
+              Search everything
+            </span>
+          </button>
         </div>
 
         <nav aria-label="Workspace" className="mt-3 flex flex-col items-center gap-1">

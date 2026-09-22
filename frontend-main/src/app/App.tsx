@@ -23,6 +23,7 @@ import { PreviewPanel } from "@/components/overlays/PreviewPanel";
 import { MemoryAgentPanel } from "@/components/overlays/MemoryAgentPanel";
 import { MemoryAgentSessionsPanel } from "@/components/overlays/MemoryAgentSessionsPanel";
 import { TeamMonitorPanel } from "@/components/overlays/TeamMonitorPanel";
+import { GlobalSearchPanel } from "@/components/overlays/GlobalSearchPanel";
 import { useStore } from "@/store/useStore";
 import { useChatStream, useConnectionWatch } from "@/hooks/useChatStream";
 import { fetchProviders } from "@/lib/api";
@@ -132,6 +133,19 @@ export function App() {
     void loadConversationIfNeeded(currentId);
   }, [hydrated, currentId]);
 
+  // Global search shortcut: Cmd/Ctrl+K toggles the search-everything popup.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        const next = !useStore.getState().searchOpen;
+        useStore.getState().setSearchOpen(next);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
       <Rail />
@@ -164,6 +178,7 @@ export function App() {
 
       <NetworkBanner />
       <SettingsModal />
+      <GlobalSearchPanel />
       <TodoPanel />
       <FilesPanel />
       <PreviewPanel />

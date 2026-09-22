@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Settings, ListTodo, Paperclip, Brain, History, Boxes, Crown, MoreVertical, GitBranch, Copy, Pencil, MessageCircle } from "lucide-react";
+import { Plus, Settings, ListTodo, Paperclip, Brain, History, Boxes, Crown, MoreVertical, GitBranch, Copy, Pencil, MessageCircle, Search } from "lucide-react";
 import { useStore, type Section } from "@/store/useStore";
 import { DEFAULT_PROFILE_ID } from "@/lib/userProfiles";
 import { cn } from "@/utils/cn";
@@ -165,6 +165,9 @@ export function TopBar() {
           )
         )}
 
+        <TopIcon title="Search everything (Ctrl+K)" onClick={() => useStore.getState().setSearchOpen(true)}>
+          <Search className="h-[18px] w-[18px]" strokeWidth={1.7} />
+        </TopIcon>
         <TopIcon
           title="Memory agent"
           onClick={() => setMemoryAgentOpen(true)}
