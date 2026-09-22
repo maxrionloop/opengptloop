@@ -1,5 +1,7 @@
 import { useState, type ReactNode } from "react";
 import {
+  Archive,
+  ArchiveRestore,
   Bot,
   Blocks,
   Braces,
@@ -33,6 +35,7 @@ import {
   Plug,
   QrCode,
   Repeat2,
+  Save,
   Search,
   Server,
   Terminal,
@@ -258,6 +261,10 @@ export function ToolChip({ tool }: { tool: ToolActivity }) {
   if (tool.name === "list_sub_agent_sessions") return <ListSubAgentSessionsChip tool={tool} />;
   if (tool.name === "reuse_same_sub_agent_session") return <ReuseSessionChip tool={tool} />;
   if (tool.name === "wait") return <WaitChip tool={tool} />;
+  if (tool.name === "create_checkpoint") return <CreateCheckpointChip tool={tool} />;
+  if (tool.name === "list_checkpoints") return <ListCheckpointsChip tool={tool} />;
+  if (tool.name === "delete_checkpoint") return <DeleteCheckpointChip tool={tool} />;
+  if (tool.name === "restore_checkpoint") return <RestoreCheckpointChip tool={tool} />;
   if (isConnectorTool(tool.name)) return <ConnectorChip tool={tool} />;
   if (isMcpTool(tool.name)) return <McpChip tool={tool} />;
   return <GenericChip tool={tool} />;
@@ -1690,6 +1697,156 @@ function McpChip({ tool }: { tool: ToolActivity }) {
             </div>
           )}
           {!data && !error && <div className="text-[var(--muted)]">No result yet.</div>}
+        </>
+      )}
+    />
+  );
+}
+
+/* ------------------------------------------------------------ checkpoints */
+
+/** create_checkpoint — the saved backup name, file, and size. */
+function CreateCheckpointChip({ tool }: { tool: ToolActivity }) {
+  const { data, error, args, hasResult } = parts(tool);
+  const name: string = (data?.name as string) ?? (args.name as string) ?? "";
+  return (
+    <Shell
+      icon={<Save className="h-3.5 w-3.5" />}
+      label={tool.label}
+      status={tool.status}
+      expandable={hasResult}
+      pills={data?.name ? <Pill tone="accent">saved</Pill> : undefined}
+      panel={() => (
+        <>
+          {error?.message && <div className="text-[var(--danger)]">{error.message}</div>}
+          {data ? (
+            <>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="flex items-center gap-1 font-medium text-[var(--fg)]">
+                  <Archive className="h-3 w-3" />
+                  {name}
+                </span>
+                {typeof data.file_count === "number" && <Pill>{data.file_count} file(s)</Pill>}
+                {typeof data.size_bytes === "number" && <Pill>{formatBytes(data.size_bytes)}</Pill>}
+              </div>
+              {typeof data.file === "string" && (
+                <div className="break-all font-mono text-[var(--muted)]">{data.file}</div>
+              )}
+              {data.message && <div className="text-[var(--muted)]">{String(data.message)}</div>}
+            </>
+          ) : (
+            !error && <div className="text-[var(--muted)]">Creating checkpoint…</div>
+          )}
+        </>
+      )}
+    />
+  );
+}
+
+/** list_checkpoints — every checkpoint name + description, in a dropdown. */
+function ListCheckpointsChip({ tool }: { tool: ToolActivity }) {
+  const { data, error, hasResult } = parts(tool);
+  const checkpoints: any[] = (data?.checkpoints as any[]) ?? [];
+  return (
+    <Shell
+      icon={<List className="h-3.5 w-3.5" />}
+      label={tool.label}
+      status={tool.status}
+      expandable={hasResult}
+      pills={checkpoints.length > 0 ? <Pill>{checkpoints.length}</Pill> : undefined}
+      panel={() => (
+        <>
+          {error?.message && <div className="text-[var(--danger)]">{error.message}</div>}
+          {checkpoints.length === 0 && !error && (
+            <div className="text-[var(--muted)]">No checkpoints yet.</div>
+          )}
+          {checkpoints.map((c, i) => (
+            <div
+              key={i}
+              className="flex flex-wrap items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--border)] px-2 py-1.5"
+            >
+              <span className="flex items-center gap-1 font-medium text-[var(--fg)]">
+                <Archive className="h-3 w-3" />
+                {String(c.name ?? "")}
+              </span>
+              {typeof c.file_count === "number" && <Pill>{c.file_count} file(s)</Pill>}
+              <span className="w-full text-[var(--muted)]">{String(c.description ?? "")}</span>
+            </div>
+          ))}
+        </>
+      )}
+    />
+  );
+}
+
+/** delete_checkpoint — mirrors the delete_sub_agent chip. */
+function DeleteCheckpointChip({ tool }: { tool: ToolActivity }) {
+  const { data, error, args, hasResult } = parts(tool);
+  const name: string = (data?.name as string) ?? (args.name as string) ?? "";
+  return (
+    <Shell
+      icon={<Trash2 className="h-3.5 w-3.5" />}
+      label={tool.label}
+      status={tool.status}
+      expandable={hasResult}
+      pills={data?.deleted ? <Pill tone="danger">deleted</Pill> : undefined}
+      panel={() => (
+        <>
+          {error?.message && <div className="text-[var(--danger)]">{error.message}</div>}
+          {data?.deleted && (
+            <>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="flex items-center gap-1 font-medium text-[var(--fg)]">
+                  <Archive className="h-3 w-3" />
+                  {name}
+                </span>
+              </div>
+              {data.message && <div className="text-[var(--muted)]">{String(data.message)}</div>}
+            </>
+          )}
+          {!data && !error && <div className="text-[var(--muted)]">No data.</div>}
+        </>
+      )}
+    />
+  );
+}
+
+/** restore_checkpoint — the restored checkpoint plus its automatic safety backup. */
+function RestoreCheckpointChip({ tool }: { tool: ToolActivity }) {
+  const { data, error, args, hasResult } = parts(tool);
+  const name: string = (data?.name as string) ?? (args.name as string) ?? "";
+  return (
+    <Shell
+      icon={<ArchiveRestore className="h-3.5 w-3.5" />}
+      label={tool.label}
+      status={tool.status}
+      expandable={hasResult}
+      pills={data?.name ? <Pill tone="accent">restored</Pill> : undefined}
+      panel={() => (
+        <>
+          {error?.message && <div className="text-[var(--danger)]">{error.message}</div>}
+          {data ? (
+            <>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="flex items-center gap-1 font-medium text-[var(--fg)]">
+                  <ArchiveRestore className="h-3 w-3" />
+                  {name}
+                </span>
+                {typeof data.restored_files === "number" && <Pill>{data.restored_files} file(s)</Pill>}
+              </div>
+              {typeof data.safety_backup === "string" && (
+                <div>
+                  <Label>Safety backup</Label>
+                  <div className="mt-1 break-all font-mono text-[var(--muted)]">
+                    {data.safety_backup}
+                  </div>
+                </div>
+              )}
+              {data.message && <div className="text-[var(--muted)]">{String(data.message)}</div>}
+            </>
+          ) : (
+            !error && <div className="text-[var(--muted)]">Restoring checkpoint…</div>
+          )}
         </>
       )}
     />

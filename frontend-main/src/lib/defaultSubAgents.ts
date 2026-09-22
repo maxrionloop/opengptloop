@@ -1,7 +1,7 @@
 import type { SubAgent } from "@/types";
 
 /**
- * The canonical tool set granted to every default (pre-added) sub-agent — the 30 tools a sub-agent
+ * The canonical tool set granted to every default (pre-added) sub-agent — the 34 tools a sub-agent
  * is allowed to use. It mirrors the backend constant DEFAULT_SUB_AGENT_TOOLS in
  * gptloop/src/agents/sub-agents/index.ts: every registered tool except the 14 restricted sub-agent
  * tools (SUB_AGENT_RESTRICTED_TOOLS). Keep the two in sync.
@@ -37,6 +37,10 @@ export const DEFAULT_SUB_AGENT_TOOLS: readonly string[] = [
   "knowledge_edit",
   "knowledge_delete",
   "wait",
+  "create_checkpoint",
+  "list_checkpoints",
+  "delete_checkpoint",
+  "restore_checkpoint",
 ];
 
 const FIXED_CREATED_AT = 0;

@@ -39,6 +39,10 @@ import { knowledgeDeleteTool } from "./knowledge_delete.js";
 import { embedUrlTool } from "./embedUrl.js";
 import { attachFilesTool } from "./attachFiles.js";
 import { waitTool } from "./wait.js";
+import { createCheckpointTool } from "./create_checkpoint.js";
+import { listCheckpointsTool } from "./list_checkpoints.js";
+import { deleteCheckpointTool } from "./delete_checkpoint.js";
+import { restoreCheckpointTool } from "./restore_checkpoint.js";
 import { deleteSubAgentTool } from "./delete_sub_agent.js";
 import { listSubAgentSessionsTool } from "./list_sub_agent_sessions.js";
 import { reuseSameSubAgentSessionTool } from "./reuse_same_sub_agent_session.js";
@@ -113,6 +117,10 @@ export { askUserTool, ASK_ANSWERED, ASK_TIMEOUT } from "./askuser.js";
 export { embedUrlTool } from "./embedUrl.js";
 export { attachFilesTool, formatFileSizeLabel } from "./attachFiles.js";
 export { waitTool, WAIT_MIN_SECONDS, WAIT_MAX_SECONDS } from "./wait.js";
+export { createCheckpointTool } from "./create_checkpoint.js";
+export { listCheckpointsTool } from "./list_checkpoints.js";
+export { deleteCheckpointTool } from "./delete_checkpoint.js";
+export { restoreCheckpointTool } from "./restore_checkpoint.js";
 export { deleteSubAgentTool, DELETE_DEFAULT_SUB_AGENT_ERROR } from "./delete_sub_agent.js";
 export { listSubAgentSessionsTool } from "./list_sub_agent_sessions.js";
 export { reuseSameSubAgentSessionTool } from "./reuse_same_sub_agent_session.js";
@@ -194,6 +202,10 @@ export function createToolRegistry(): ToolRegistry {
     embedUrlTool,
     attachFilesTool,
     waitTool,
+    createCheckpointTool,
+    listCheckpointsTool,
+    deleteCheckpointTool,
+    restoreCheckpointTool,
     deleteSubAgentTool,
     listSubAgentSessionsTool,
     reuseSameSubAgentSessionTool,
@@ -250,6 +262,10 @@ export const tools = {
   embedUrlTool,
   attachFilesTool,
   waitTool,
+  createCheckpointTool,
+  listCheckpointsTool,
+  deleteCheckpointTool,
+  restoreCheckpointTool,
   deleteSubAgentTool,
   listSubAgentSessionsTool,
   reuseSameSubAgentSessionTool,

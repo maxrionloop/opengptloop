@@ -50,7 +50,7 @@ export function humanizeToolName(name: string): string {
 }
 
 /**
- * The bundled fallback list of the 30 tools a sub-agent may be granted (all registered tools minus
+ * The bundled fallback list of the 34 tools a sub-agent may be granted (all registered tools minus
  * the restricted sub-agent tools). Used only when the backend `/api/tools` fetch fails.
  */
 export const SUB_AGENT_TOOLS: readonly SubAgentToolMeta[] = [
@@ -84,6 +84,10 @@ export const SUB_AGENT_TOOLS: readonly SubAgentToolMeta[] = [
   { name: "knowledge_edit", label: "Edit knowledge", description: "Exact old→new replacement inside a knowledge file." },
   { name: "knowledge_delete", label: "Delete knowledge", description: "Delete a knowledge file." },
   { name: "wait", label: "Wait", description: "Pause for a set number of seconds (1–180) before continuing." },
+  { name: "create_checkpoint", label: "Create checkpoint", description: "Save a backup ZIP of the current workspace so it can be restored later." },
+  { name: "list_checkpoints", label: "List checkpoints", description: "List every available checkpoint with its name and description." },
+  { name: "delete_checkpoint", label: "Delete checkpoint", description: "Delete a checkpoint and its related data by its exact name." },
+  { name: "restore_checkpoint", label: "Restore checkpoint", description: "Restore the workspace to a previously saved checkpoint (a safety backup is created first)." },
 ] as const;
 
 /**
