@@ -58,11 +58,22 @@ export class OpenAICompatibleProvider implements Provider {
           (item.provider as string) ||
           (architecture?.tokenizer as string) ||
           null,
-        context_window:
-          (item.context_length as number) ||
-          (topProvider?.context_length as number) ||
-          (item.max_context_window as number) ||
-          null,
+        context_window: numOrNull(
+          item.context_length ??
+            item.context_window ??
+            topProvider?.context_length ??
+            item.max_context_window ??
+            item.max_context_length,
+        ),
+        max_output_tokens: numOrNull(
+          item.max_completion_tokens ??
+            item.max_output_tokens ??
+            item.max_tokens ??
+            topProvider?.max_completion_tokens,
+        ),
+        pricing: pricingOrNull(item.pricing ?? item.price ?? null),
+        description: strOrNull(item.description ?? item.human_description ?? null),
+        capabilities: capabilitiesOrNull(item),
       });
     }
     models.sort((a, b) => a.label.toLowerCase().localeCompare(b.label.toLowerCase()));
@@ -187,4 +198,77 @@ async function safeText(response: Response): Promise<string> {
   } catch {
     return "<no body>";
   }
+}
+
+function numOrNull(value: unknown): number | null {
+  const n = typeof value === "string" && value.trim() !== "" ? Number(value) : (value as number);
+  if (typeof n !== "number" || !Number.isFinite(n) || n <= 0) return null;
+  return Math.floor(n);
+}
+
+function strOrNull(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed.slice(0, 500) : null;
+}
+
+function priceNum(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) && value >= 0 ? value : null;
+  if (typeof value === "string" && value.trim() !== "") {
+    const n = Number(value);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  }
+  return null;
+}
+
+/**
+ * Normalize provider pricing into per-1M-token USD numbers when the provider
+ * advertises it (OpenRouter-style `{ prompt, completion }` strings). Returns
+ * null when the provider does not expose pricing, so callers leave it empty
+ * and keep working normally.
+ */
+function pricingOrNull(raw: unknown): import("./types.js").ModelPricing | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  const prompt = priceNum(r.prompt ?? r.prompt_tokens ?? r.input ?? r.input_price);
+  const completion = priceNum(
+    r.completion ?? r.completion_tokens ?? r.output ?? r.output_price,
+  );
+  if (prompt === null && completion === null) return null;
+  return { prompt, completion, currency: "USD", unit: "1M tokens" };
+}
+
+/**
+ * Derive capability tags from common provider shapes without ever throwing.
+ * Covers OpenRouter-style `architecture.modality` + `supported_parameters`,
+ * plus generic `capabilities` / `modalities` arrays. Unknown shapes yield null.
+ */
+function capabilitiesOrNull(item: Record<string, unknown>): string[] | null {
+  const out = new Set<string>();
+  try {
+    const arch = item.architecture as Record<string, unknown> | undefined;
+    const modality = typeof arch?.modality === "string" ? arch.modality.toLowerCase() : "";
+    if (modality.includes("image")) out.add("vision");
+    if (modality.includes("audio")) out.add("audio");
+    if (modality.includes("video")) out.add("video");
+    const params = arch?.supported_parameters;
+    if (Array.isArray(params)) {
+      const lowered = params.map((p) => String(p).toLowerCase());
+      if (lowered.includes("tools") || lowered.includes("tool_choice")) out.add("tools");
+      if (lowered.includes("reasoning") || lowered.includes("reasoning_effort") || lowered.includes("thinking")) out.add("reasoning");
+      if (lowered.includes("response_format") || lowered.includes("structured_outputs")) out.add("structured-output");
+    }
+    const caps = item.capabilities ?? item.modalities;
+    if (Array.isArray(caps)) {
+      for (const c of caps) {
+        const s = String(c).toLowerCase().trim();
+        if (s) out.add(s.slice(0, 32));
+      }
+    }
+    if (typeof item.supports_tools === "boolean" && item.supports_tools) out.add("tools");
+    if (typeof item.supports_vision === "boolean" && item.supports_vision) out.add("vision");
+  } catch {
+    return null;
+  }
+  return out.size > 0 ? Array.from(out).sort() : null;
 }

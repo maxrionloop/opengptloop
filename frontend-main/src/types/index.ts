@@ -4,12 +4,23 @@ export interface ProviderMeta {
   defaultBaseUrl: string;
 }
 
+export interface ModelPricing {
+  prompt?: number | null;
+  completion?: number | null;
+  currency?: string | null;
+  unit?: string | null;
+}
+
 export interface ModelInfo {
   id: string;
   provider: string;
   label: string;
   owned_by?: string | null;
   context_window?: number | null;
+  max_output_tokens?: number | null;
+  pricing?: ModelPricing | null;
+  description?: string | null;
+  capabilities?: string[] | null;
 }
 
 /** Custom HTTP header pair the user configures for a custom provider. */

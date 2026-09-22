@@ -39,6 +39,13 @@ class XkiroProvider extends OpenAICompatibleProvider {
         owned_by: (item.owned_by as string) || (item.provider as string) || null,
         context_window:
           (item.context_length as number) || (item.max_context_window as number) || null,
+        max_output_tokens: null,
+        pricing: null,
+        description:
+          typeof item.description === "string" && item.description.trim()
+            ? (item.description as string).slice(0, 500)
+            : null,
+        capabilities: null,
       });
     }
     models.sort((a, b) => a.label.toLowerCase().localeCompare(b.label.toLowerCase()));

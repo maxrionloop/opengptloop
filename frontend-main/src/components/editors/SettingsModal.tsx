@@ -220,6 +220,7 @@ export function SettingsModal() {
                 {settings.model && (
                   <TextInput value={settings.model} onChange={(e) => setSettings({ model: e.target.value })} placeholder="Or type a model id" className="font-mono text-xs" />
                 )}
+                {!isCustom && <ModelMetadataCard />}
               </>
             )}
           </section>
@@ -552,6 +553,110 @@ export function SettingsModal() {
 function clampTemp(value: number): number {
   if (!Number.isFinite(value)) return 0.6;
   return Math.min(2, Math.max(0, Math.round(value * 100) / 100));
+}
+
+function formatTokens(n: number | null | undefined): string | null {
+  if (typeof n !== "number" || !Number.isFinite(n) || n <= 0) return null;
+  if (n >= 1_000_000) {
+    const v = n / 1_000_000;
+    return `${Number.isInteger(v) ? v : v.toFixed(1)}M tokens`;
+  }
+  if (n >= 1000) {
+    const v = n / 1000;
+    return `${Number.isInteger(v) ? v : v.toFixed(1)}K tokens`;
+  }
+  return `${n.toLocaleString()} tokens`;
+}
+
+function formatPrice(n: number | null | undefined): string | null {
+  if (typeof n !== "number" || !Number.isFinite(n) || n < 0) return null;
+  if (n === 0) return "$0";
+  if (n < 0.01) return `$${n.toFixed(6)}`;
+  if (n < 1) return `$${n.toFixed(4)}`;
+  return `$${n.toFixed(2)}`;
+}
+
+function ModelMetadataCard() {
+  const models = useStore((s) => s.models);
+  const settings = useStore((s) => s.settings);
+  const selected = models.find((m) => m.id === settings.model);
+  if (!selected) return null;
+  const context = formatTokens(selected.context_window);
+  const maxOutput = formatTokens(selected.max_output_tokens);
+  const promptPrice = formatPrice(selected.pricing?.prompt);
+  const completionPrice = formatPrice(selected.pricing?.completion);
+  const hasPricing = promptPrice !== null || completionPrice !== null;
+  const capabilities = Array.isArray(selected.capabilities)
+    ? selected.capabilities.filter((c) => typeof c === "string" && c.trim()).slice(0, 8)
+    : [];
+  const hasAny =
+    context !== null ||
+    maxOutput !== null ||
+    hasPricing ||
+    (selected.owned_by ?? "").trim() ||
+    capabilities.length > 0 ||
+    (selected.description ?? "").trim();
+  if (!hasAny) return null;
+
+  return (
+    <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--chip)] p-3">
+      <p className="m-0 mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--subtle)]">
+        Model details
+      </p>
+      <dl className="m-0 grid gap-1.5 text-xs">
+        {context && (
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="text-[var(--muted)]">Context limit</dt>
+            <dd className="m-0 font-medium tabular-nums text-[var(--fg)]">{context}</dd>
+          </div>
+        )}
+        {maxOutput && (
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="text-[var(--muted)]">Max output</dt>
+            <dd className="m-0 font-medium tabular-nums text-[var(--fg)]">{maxOutput}</dd>
+          </div>
+        )}
+        {hasPricing && (
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="text-[var(--muted)]">Price per 1M tokens</dt>
+            <dd className="m-0 font-medium tabular-nums text-[var(--fg)]">
+              {promptPrice ?? "—"} in / {completionPrice ?? "—"} out
+            </dd>
+          </div>
+        )}
+        {(selected.owned_by ?? "").trim() && (
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="text-[var(--muted)]">By</dt>
+            <dd className="m-0 max-w-[60%] truncate text-right font-medium text-[var(--fg)]">
+              {selected.owned_by}
+            </dd>
+          </div>
+        )}
+        {capabilities.length > 0 && (
+          <div className="flex flex-wrap items-center justify-end gap-1 pt-1">
+            {capabilities.map((c) => (
+              <span
+                key={c}
+                className="rounded-full border border-[var(--border)] bg-[var(--bg)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]"
+              >
+                {c}
+              </span>
+            ))}
+          </div>
+        )}
+      </dl>
+      {(selected.description ?? "").trim() && (
+        <p className="m-0 mt-2 line-clamp-2 text-[11px] leading-relaxed text-[var(--muted)]">
+          {selected.description}
+        </p>
+      )}
+      {!context && !hasPricing && (
+        <p className="m-0 mt-1 text-[11px] text-[var(--subtle)]">
+          This provider does not publish limits or pricing — chatting works normally.
+        </p>
+      )}
+    </div>
+  );
 }
 
 function CustomProviderEditor({

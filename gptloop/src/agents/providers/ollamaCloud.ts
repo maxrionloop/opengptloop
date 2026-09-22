@@ -39,6 +39,10 @@ class OllamaCloudProvider extends OpenAICompatibleProvider {
         label: id,
         owned_by: "ollama",
         context_window: null,
+        max_output_tokens: null,
+        pricing: null,
+        description: null,
+        capabilities: null,
       });
     }
     models.sort((a, b) => a.label.toLowerCase().localeCompare(b.label.toLowerCase()));

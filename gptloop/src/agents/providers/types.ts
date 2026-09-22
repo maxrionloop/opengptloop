@@ -27,12 +27,31 @@ export interface ToolCall {
   };
 }
 
+export interface ModelPricing {
+  /** Price per 1M prompt tokens (in USD when known). Null when unknown. */
+  prompt?: number | null;
+  /** Price per 1M completion tokens (in USD when known). Null when unknown. */
+  completion?: number | null;
+  /** Currency of the prices above (defaults to "USD" when prices are present). */
+  currency?: string | null;
+  /** Unit the prices are quoted in (defaults to "1M tokens"). */
+  unit?: string | null;
+}
+
 export interface ProviderModel {
   id: string;
   provider: string;
   label: string;
   owned_by?: string | null;
   context_window?: number | null;
+  /** Max output/completion tokens when the provider advertises it. Null when unknown. */
+  max_output_tokens?: number | null;
+  /** Per-1M-token pricing when the provider advertises it. Null when unsupported. */
+  pricing?: ModelPricing | null;
+  /** Short human description when the provider supplies one. Null when unknown. */
+  description?: string | null;
+  /** Capability tags (e.g. "tools", "vision", "reasoning") when derivable. Null when unknown. */
+  capabilities?: string[] | null;
 }
 
 export interface ProviderMetadata {
