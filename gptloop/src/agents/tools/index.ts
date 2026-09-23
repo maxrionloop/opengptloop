@@ -4,6 +4,7 @@ import { fileWriteTool } from "./fileWrite.js";
 import { fileListTool } from "./fileList.js";
 import { grepTool } from "./grep.js";
 import { astgrepTool } from "./astgrep.js";
+import { globTool } from "./glob.js";
 import { strReplaceTool } from "./strReplace.js";
 import { applyMultipleEditsTool } from "./applyMultipleEdits.js";
 import { applyPatchTool } from "./applyPatch.js";
@@ -106,6 +107,7 @@ export { applyPatchTool, parsePatch, summarizePatch, PatchError } from "./applyP
 export { readImageTool, SUPPORTED_IMAGE_EXTENSIONS } from "./readImage.js";
 export { scanQrCodeTool, SUPPORTED_QR_EXTENSIONS, MAX_QR_IMAGE_BYTES } from "./scanQrCode.js";
 export { grepTool, MAX_GREP_MATCHES, MAX_GREP_LINE_CHARS, includeToRegExp } from "./grep.js";
+export { globTool, MAX_GLOB_MATCHES } from "./glob.js";
 export {
   astgrepTool,
   ASTGREP_LANGUAGES,
@@ -201,6 +203,7 @@ export function createToolRegistry(): ToolRegistry {
     fileListTool,
     grepTool,
     astgrepTool,
+    globTool,
     strReplaceTool,
     applyMultipleEditsTool,
     applyPatchTool,
@@ -271,6 +274,7 @@ export const tools = {
   fileListTool,
   grepTool,
   astgrepTool,
+  globTool,
   strReplaceTool,
   applyMultipleEditsTool,
   applyPatchTool,

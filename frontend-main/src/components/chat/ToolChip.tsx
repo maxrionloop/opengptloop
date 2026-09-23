@@ -88,6 +88,7 @@ const ICONS: Record<string, typeof Terminal> = {
   file_list: FolderTree,
   grep: Search,
   astgrep: Braces,
+  glob: FolderTree,
   str_replace: Pencil,
   apply_multiple_edits: PencilLine,
   apply_patch: FileDiff,
@@ -241,6 +242,7 @@ export function ToolChip({ tool }: { tool: ToolActivity }) {
   if (tool.name === "file_read") return <FileReadChip tool={tool} />;
   if (tool.name === "grep") return <GrepChip tool={tool} />;
   if (tool.name === "astgrep") return <AstGrepChip tool={tool} />;
+  if (tool.name === "glob") return <GlobChip tool={tool} />;
   if (tool.name === "str_replace") return <StrReplaceChip tool={tool} />;
   if (tool.name === "apply_multiple_edits") return <ApplyEditsChip tool={tool} />;
   if (tool.name === "apply_patch") return <ApplyPatchChip tool={tool} />;
@@ -708,6 +710,48 @@ function AstGrepChip({ tool }: { tool: ToolActivity }) {
               </div>
             );
           })}
+          {typeof data?.message === "string" && data.message && (
+            <div className="text-[var(--muted)]">{data.message}</div>
+          )}
+        </>
+      )}
+    />
+  );
+}
+
+function GlobChip({ tool }: { tool: ToolActivity }) {
+  const { data, error, args, hasResult } = parts(tool);
+  const matches: string[] = Array.isArray(data?.matches) ? (data.matches as string[]) : [];
+  return (
+    <Shell
+      icon={<FolderTree className="h-3.5 w-3.5" />}
+      label={tool.label}
+      status={tool.status}
+      expandable={hasResult}
+      pills={matches.length > 0 ? <Pill>{matches.length} match(es)</Pill> : undefined}
+      panel={() => (
+        <>
+          {error?.message && <div className="text-[var(--danger)]">Glob failed: {error.message}</div>}
+          {data && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Pill>
+                <span className="font-mono">/{String(data.pattern ?? args.pattern ?? "")}</span>
+              </Pill>
+              {typeof data.path === "string" && data.path && <Pill>{data.path}</Pill>}
+              {data.truncated && <Pill tone="warn">capped at 100</Pill>}
+            </div>
+          )}
+          {matches.length === 0 && !error && (
+            <div className="text-[var(--muted)]">No files matched.</div>
+          )}
+          {matches.map((m, i) => (
+            <div key={i} className="flex items-start gap-1.5 font-mono text-[11px]">
+              <span className="flex shrink-0 items-center gap-0.5 text-[var(--muted)]">
+                <FileText className="h-2.5 w-2.5" />
+              </span>
+              <span className="whitespace-pre-wrap break-all text-[var(--fg)]">{m}</span>
+            </div>
+          ))}
           {typeof data?.message === "string" && data.message && (
             <div className="text-[var(--muted)]">{data.message}</div>
           )}

@@ -50,7 +50,7 @@ export function humanizeToolName(name: string): string {
 }
 
 /**
- * The bundled fallback list of the 44 tools a sub-agent may be granted (all registered tools minus
+ * The bundled fallback list of the 45 tools a sub-agent may be granted (all registered tools minus
  * the restricted sub-agent tools). Used only when the backend `/api/tools` fetch fails.
  */
 export const SUB_AGENT_TOOLS: readonly SubAgentToolMeta[] = [
@@ -59,6 +59,7 @@ export const SUB_AGENT_TOOLS: readonly SubAgentToolMeta[] = [
   { name: "file_list", label: "List files", description: "List files and directories inside a workspace directory." },
   { name: "grep", label: "Search file contents", description: "Fast regex search over file contents (ripgrep style, up to 50 matches with file, line, content)." },
   { name: "astgrep", label: "AST code search", description: "Structural code search with AST patterns and $UPPERCASE wildcards (up to 50 matches with file, line, matched code, captures)." },
+  { name: "glob", label: "Glob files", description: "Find files and directories matching a glob pattern (up to 100 matches)." },
   { name: "str_replace", label: "Edit file", description: "Exact string replacement inside an existing file." },
   { name: "apply_multiple_edits", label: "Apply multiple edits", description: "Apply several exact edits to one file in a single validated call." },
   { name: "apply_patch", label: "Apply patch", description: "Edit files by applying a structured multi-file patch (add/update/delete/rename) in one validated call." },
