@@ -86,6 +86,7 @@ const ICONS: Record<string, typeof Terminal> = {
   file_write: FilePlus2,
   file_read: FileText,
   file_list: FolderTree,
+  grep: Search,
   str_replace: Pencil,
   apply_multiple_edits: PencilLine,
   apply_patch: FileDiff,
@@ -237,6 +238,7 @@ export function ToolChip({ tool }: { tool: ToolActivity }) {
   if (tool.name === "shell_view") return <ShellViewChip tool={tool} />;
   if (tool.name === "bash_write_to_process") return <BashWriteChip tool={tool} />;
   if (tool.name === "file_read") return <FileReadChip tool={tool} />;
+  if (tool.name === "grep") return <GrepChip tool={tool} />;
   if (tool.name === "str_replace") return <StrReplaceChip tool={tool} />;
   if (tool.name === "apply_multiple_edits") return <ApplyEditsChip tool={tool} />;
   if (tool.name === "apply_patch") return <ApplyPatchChip tool={tool} />;
@@ -572,6 +574,57 @@ function FileReadChip({ tool }: { tool: ToolActivity }) {
                 </div>
               )}
             </>
+          )}
+        </>
+      )}
+    />
+  );
+}
+
+function GrepChip({ tool }: { tool: ToolActivity }) {
+  const { data, error, args, hasResult } = parts(tool);
+  const matches: Array<{ path?: string; line_number?: number; content?: string }> =
+    (data?.matches as Array<{ path?: string; line_number?: number; content?: string }>) ?? [];
+  return (
+    <Shell
+      icon={<Search className="h-3.5 w-3.5" />}
+      label={tool.label}
+      status={tool.status}
+      expandable={hasResult}
+      pills={matches.length > 0 ? <Pill>{matches.length} match(es)</Pill> : undefined}
+      panel={() => (
+        <>
+          {error?.message && <div className="text-[var(--danger)]">Search failed: {error.message}</div>}
+          {data && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Pill>
+                <span className="font-mono">/{String(data.pattern ?? args.pattern ?? "")}</span>
+              </Pill>
+              {typeof data.path === "string" && data.path && <Pill>{data.path}</Pill>}
+              {typeof data.include === "string" && data.include && <Pill>{data.include}</Pill>}
+              {data.truncated && <Pill tone="warn">capped at 50</Pill>}
+            </div>
+          )}
+          {matches.length === 0 && !error && (
+            <div className="text-[var(--muted)]">No matches found.</div>
+          )}
+          {matches.map((m, i) => (
+            <div key={i} className="flex items-start gap-1.5 font-mono text-[11px]">
+              <span className="flex shrink-0 items-center gap-0.5 text-[var(--muted)]">
+                <FileText className="h-2.5 w-2.5" />
+                {m.path}
+              </span>
+              <span className="flex shrink-0 items-center gap-0.5 text-[var(--muted)]">
+                <Hash className="h-2.5 w-2.5" />
+                {m.line_number}
+              </span>
+              {m.content != null && (
+                <span className="whitespace-pre-wrap break-all text-[var(--fg)]">{m.content}</span>
+              )}
+            </div>
+          ))}
+          {typeof data?.message === "string" && data.message && (
+            <div className="text-[var(--muted)]">{data.message}</div>
           )}
         </>
       )}

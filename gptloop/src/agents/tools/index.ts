@@ -2,6 +2,7 @@ import { ToolRegistry } from "./registry.js";
 import { fileReadTool } from "./fileRead.js";
 import { fileWriteTool } from "./fileWrite.js";
 import { fileListTool } from "./fileList.js";
+import { grepTool } from "./grep.js";
 import { strReplaceTool } from "./strReplace.js";
 import { applyMultipleEditsTool } from "./applyMultipleEdits.js";
 import { applyPatchTool } from "./applyPatch.js";
@@ -91,6 +92,7 @@ export { applyMultipleEditsTool } from "./applyMultipleEdits.js";
 export { applyPatchTool, parsePatch, summarizePatch, PatchError } from "./applyPatch.js";
 export { readImageTool, SUPPORTED_IMAGE_EXTENSIONS } from "./readImage.js";
 export { scanQrCodeTool, SUPPORTED_QR_EXTENSIONS, MAX_QR_IMAGE_BYTES } from "./scanQrCode.js";
+export { grepTool, MAX_GREP_MATCHES, MAX_GREP_LINE_CHARS, includeToRegExp } from "./grep.js";
 export { callSubAgentTool } from "./call_sub_agent.js";
 export { callMultipleSubAgentsTool } from "./call_multiple_sub_agents.js";
 export { listSubAgentsTool } from "./list_sub_agents.js";
@@ -165,6 +167,7 @@ export function createToolRegistry(): ToolRegistry {
     fileReadTool,
     fileWriteTool,
     fileListTool,
+    grepTool,
     strReplaceTool,
     applyMultipleEditsTool,
     applyPatchTool,
@@ -225,6 +228,7 @@ export const tools = {
   fileReadTool,
   fileWriteTool,
   fileListTool,
+  grepTool,
   strReplaceTool,
   applyMultipleEditsTool,
   applyPatchTool,
