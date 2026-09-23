@@ -77,6 +77,12 @@ export interface ExecuteOptions {
   trigger: "auto" | "manual";
   /** Abort signal for shutdown; the run also has its own timeout. */
   signal?: AbortSignal;
+  /**
+   * Invoked synchronously with the new run id as soon as the run row is created — before
+   * the agent execution starts. Lets the scheduler hand the run id back immediately while
+   * the run continues in the background.
+   */
+  onStarted?: (runId: string) => void;
 }
 
 export interface ExecuteOutcome {
@@ -129,6 +135,9 @@ export class ScheduleRunner {
     const runId = createScheduleRunId();
     const startedAt = Date.now();
     db.scheduleRuns.create(runId, schedule.id, options.trigger);
+    // Hand the run id back synchronously so manual "run now" calls return immediately
+    // while the execution continues in the background.
+    options.onStarted?.(runId);
 
     // The per-schedule chat id keeps sub-agent sessions + memory-agent
     // attribution scoped to this schedule across runs (never a live chat).

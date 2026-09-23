@@ -15,12 +15,16 @@ const schema = z
 type ScheduleRunNowArgs = z.infer<typeof schema>;
 
 /**
- * schedule_run_now — immediately execute a scheduled task without waiting for its next
- * scheduled time.
+ * schedule_run_now — immediately start executing a scheduled task without waiting for its next
+ * scheduled time. Fire-and-forget: returns right away with the run id while the run continues
+ * in the background — never wait for it to finish; check the schedule's execution history
+ * later for the outcome.
  */
 export const scheduleRunNowTool = defineTool({
   name: "schedule_run_now",
-  description: "Immediately execute a scheduled task without waiting for its next scheduled time.",
+  description:
+    "Immediately start executing a scheduled task without waiting for its next scheduled time. " +
+    "Returns right away while the run continues in the background — do not wait for it to finish.",
   schema,
   label: (args: ScheduleRunNowArgs) => {
     const id = typeof args.schedule_id === "string" ? args.schedule_id.trim() : "";

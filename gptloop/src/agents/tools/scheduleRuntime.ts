@@ -346,7 +346,10 @@ class ScheduleRunner {
         schedule_id: id,
         schedule_name: current.name,
         run_id: runId,
-        message: `Schedule "${current.name}" is executing now. Check its execution history for the outcome.`,
+        message:
+          `Schedule "${current.name}" started running in the background (run ${runId}). It ` +
+          "executes independently — continue with your work and check the execution history " +
+          "later for the outcome.",
       },
     };
   }

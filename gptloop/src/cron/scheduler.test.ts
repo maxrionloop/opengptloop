@@ -39,10 +39,15 @@ function makeHarness(opts: { deferred?: boolean } = {}): Harness {
   harness.releaseDeferred = (): void => release();
 
   const runner = {
-    execute: async (schedule: ScheduleConfig, options: { trigger: "auto" | "manual" }): Promise<ExecuteOutcome> => {
+    execute: async (
+      schedule: ScheduleConfig,
+      options: { trigger: "auto" | "manual"; onStarted?: (runId: string) => void },
+    ): Promise<ExecuteOutcome> => {
       harness.calls.push({ scheduleId: schedule.id, trigger: options.trigger });
       const runId = `run_${harness.calls.length}_${Date.now().toString(36)}`;
       scheduleRuns.create(runId, schedule.id, options.trigger);
+      // Mirror the real runner: hand the run id back synchronously at row creation.
+      options.onStarted?.(runId);
       if (opts.deferred === true) {
         await new Promise<void>((resolve) => {
           release = resolve;
@@ -176,6 +181,32 @@ describe("scheduler lifecycle", () => {
       assert.equal(slow.calls[0]!.trigger, "manual");
       assert.equal(slow.store.get(created.id)!.runCount, 1);
       assert.equal(await slow.scheduler.runNow("missing"), null);
+    } finally {
+      slow.releaseDeferred();
+      slow.scheduler.stop();
+    }
+  });
+
+  it("runNow returns the run id immediately without waiting for execution", async () => {
+    const slow = makeHarness({ deferred: true });
+    try {
+      const created = slow.store.create({ name: "m", prompt: "p", kind: "daily", time: "09:00" });
+      (slow.scheduler as unknown as { started: boolean }).started = true;
+      (slow.scheduler as unknown as { abortController: AbortController }).abortController = new AbortController();
+      // Returns the run id while the execution is still blocked on the deferred release.
+      const runId = await slow.scheduler.runNow(created.id);
+      assert.ok(typeof runId === "string" && runId.length > 0);
+      // The run started (row exists, claim held) but has no outcome yet.
+      assert.equal(slow.store.get(created.id)!.runCount, 0);
+      assert.equal(slow.store.get(created.id)!.running, true);
+      assert.equal(slow.db.scheduleRuns.runningFor(created.id)?.status, "running");
+      slow.releaseDeferred();
+      // The background run settles on its own after the release.
+      for (let i = 0; i < 100 && slow.store.get(created.id)!.runCount === 0; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.equal(slow.store.get(created.id)!.runCount, 1);
+      assert.equal(slow.store.get(created.id)!.running, false);
     } finally {
       slow.releaseDeferred();
       slow.scheduler.stop();

@@ -148,15 +148,39 @@ export class ScheduleScheduler {
   }
 
   /**
-   * Trigger an immediate manual run (the Schedule page "Run now" action).
-   * Returns the run id, or null when the schedule is missing/completed or an
-   * execution is already in flight.
+   * Trigger an immediate manual run (the Schedule page "Run now" action and the
+   * schedule_run_now agent tool). Returns the run id IMMEDIATELY while the execution
+   * continues in the background — it never waits for the run to finish. Returns null
+   * when the schedule is missing/completed or an execution is already in flight.
    */
   async runNow(id: string): Promise<string | null> {
     const schedule = this.deps.store.get(id);
     if (!schedule || isTerminalSchedule(schedule)) return null;
     if (schedule.running || this.inFlight.has(id)) return null;
-    return this.executeDue(schedule, "manual").catch(() => null);
+    return this.startDue(schedule, "manual");
+  }
+
+  /**
+   * Claim + launch one run, returning its run id immediately without waiting for the
+   * execution to finish. The atomic DB claim is the duplicate-execution guard: only the
+   * winner launches; losers (a racing tick or manual run) get null. The launched run
+   * keeps executing in the background and releases the claim when it settles.
+   */
+  private startDue(schedule: ScheduleConfig, trigger: "auto" | "manual"): string | null {
+    if (!this.deps.db.schedules.claimRun(schedule.id)) return null;
+    let runId: string | null = null;
+    const task = this.runClaimed(schedule, trigger, (rid) => {
+      runId = rid;
+    }).finally(() => {
+      this.inFlight.delete(schedule.id);
+      try {
+        this.deps.db.schedules.releaseRun(schedule.id);
+      } catch {
+        // best effort — the next boot resets the flag
+      }
+    });
+    this.inFlight.set(schedule.id, task);
+    return runId;
   }
 
   /**
@@ -177,11 +201,16 @@ export class ScheduleScheduler {
     return task;
   }
 
-  private async runClaimed(schedule: ScheduleConfig, trigger: "auto" | "manual"): Promise<string | null> {
+  private async runClaimed(
+    schedule: ScheduleConfig,
+    trigger: "auto" | "manual",
+    onStarted?: (runId: string) => void,
+  ): Promise<string | null> {
     try {
       const outcome = await this.deps.runner.execute(schedule, {
         trigger,
         signal: this.abortController?.signal,
+        onStarted,
       });
       return outcome.runId;
     } catch {
