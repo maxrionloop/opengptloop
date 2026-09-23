@@ -440,13 +440,79 @@ export interface TodoRuntime {
   write(todos: TodoItem[], ctx: ToolContext): TodoItem[];
 }
 
+/**
+ * Which top-level agent a schedule runs as. Schedules created by the agent tools always run as
+ * the SAME agent that is active in the turn: the built-in Default Agent, or the active Custom
+ * Agent (with its id). Team/CEO/sub-agent turns resolve to the Default Agent — the scheduler
+ * only executes default or custom agents.
+ */
+export interface ScheduleAgentIdentity {
+  type: "default" | "custom";
+  customAgentId?: string | null;
+  provider: string;
+  model: string;
+}
+
+/** Cadence choices accepted by the schedule_create tool (mapped to the cron kinds). */
+export type ScheduleCreateCadence =
+  | "one_time"
+  | "every_x"
+  | "daily"
+  | "weekly"
+  | "monthly"
+  | "custom_cron";
+
+/** Normalized input for creating a schedule (mirrors the schedule_create zod schema). */
+export interface ScheduleCreateInput {
+  scheduleName: string;
+  taskPrompt: string;
+  cadence: ScheduleCreateCadence;
+  date?: string;
+  time?: string;
+  interval?: number;
+  intervalUnit?: "minutes" | "hours" | "days";
+  weekdays?: string[];
+  dayOfMonth?: number;
+  cronExpression?: string;
+  timezone: string;
+  startDate?: string;
+  endDate?: string;
+}
+
+/**
+ * Runtime bridge injected into the ToolContext so the schedule_* tools can manage the
+ * persistent cron system (schedules table + background scheduler). Built per turn with the
+ * turn's agent identity, so schedules created by the agent run as that same agent.
+ * Absent when the backend schedule system is unavailable (e.g. in tests without a store).
+ */
+export interface ScheduleRuntime {
+  /** The agent identity schedules created through this runtime will run as. */
+  readonly agent: ScheduleAgentIdentity;
+  /** List schedules filtered by status (active / paused / all). */
+  list(status: "active" | "paused" | "all"): ToolResult;
+  /** Full details of one schedule by id. */
+  get(id: string): ToolResult;
+  /** Create and activate a schedule running as this runtime's agent. */
+  create(input: ScheduleCreateInput): ToolResult;
+  /**
+   * Replace only the task prompt of a schedule. Timing, cadence, timezone, and every
+   * other setting are preserved — in particular the computed next run is untouched.
+   */
+  updatePrompt(id: string, prompt: string): ToolResult;
+  /** Turn a schedule on (enabled) or off (paused). */
+  setEnabled(id: string, enabled: boolean): ToolResult;
+  /** Permanently delete a schedule and its execution history. */
+  remove(id: string): ToolResult;
+  /** Immediately execute a schedule (manual run) without waiting for its next fire time. */
+  runNow(id: string): Promise<ToolResult>;
+}
+
 /** Result of a skill_initialize call. */
 export interface SkillInitializeResult {
   success: boolean;
   initialized: InitializedSkill[];
   failed: FailedSkill[];
 }
-
 /** A skill as surfaced to the agent by list_skills — name, description, and its file tree. */
 export interface SkillListEntry {
   name: string;
@@ -524,6 +590,10 @@ export interface ToolContext {
   /** Knowledge runtime — present for main-agent tool calls and forwarded to sub-agent tool calls so
    * a sub-agent granted the knowledge_* tools can read/maintain the shared knowledge base. */
   knowledge?: KnowledgeRuntime;
+  /** Schedule runtime — present for main-agent tool calls and forwarded to sub-agent tool calls so
+   * an agent granted the schedule_* tools can manage the persistent cron system. Absent when the
+   * backend schedule system is unavailable. */
+  schedules?: ScheduleRuntime;
   /** Multi-agent team runtime — present ONLY when the tool call belongs to a team agent (head or
    * member) running inside an active agent team. Absent for the normal single agent and sub-agents,
    * which is why the five team collaboration tools are unavailable outside a team. */

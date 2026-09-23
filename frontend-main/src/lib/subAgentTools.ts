@@ -50,7 +50,7 @@ export function humanizeToolName(name: string): string {
 }
 
 /**
- * The bundled fallback list of the 36 tools a sub-agent may be granted (all registered tools minus
+ * The bundled fallback list of the 44 tools a sub-agent may be granted (all registered tools minus
  * the restricted sub-agent tools). Used only when the backend `/api/tools` fetch fails.
  */
 export const SUB_AGENT_TOOLS: readonly SubAgentToolMeta[] = [
@@ -90,6 +90,14 @@ export const SUB_AGENT_TOOLS: readonly SubAgentToolMeta[] = [
   { name: "list_checkpoints", label: "List checkpoints", description: "List every available checkpoint with its name and description." },
   { name: "delete_checkpoint", label: "Delete checkpoint", description: "Delete a checkpoint and its related data by its exact name." },
   { name: "restore_checkpoint", label: "Restore checkpoint", description: "Restore the workspace to a previously saved checkpoint (a safety backup is created first)." },
+  { name: "schedule_create", label: "Create schedule", description: "Create a background schedule that runs an agent task at a time or recurrence." },
+  { name: "schedule_list", label: "List schedules", description: "List scheduled tasks filtered by their current status." },
+  { name: "schedule_update", label: "Update schedule", description: "Update the task prompt of a schedule without affecting its next run." },
+  { name: "schedule_on", label: "Turn on schedule", description: "Turn on a paused schedule so it runs as scheduled." },
+  { name: "schedule_off", label: "Turn off schedule", description: "Turn off an active schedule (paused, can be turned on again)." },
+  { name: "schedule_run_now", label: "Run schedule now", description: "Immediately execute a scheduled task without waiting." },
+  { name: "schedule_delete", label: "Delete schedule", description: "Permanently delete a scheduled task." },
+  { name: "schedule_get", label: "Get schedule", description: "Get the complete details of a scheduled task." },
 ] as const;
 
 /**

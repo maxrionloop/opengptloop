@@ -19,6 +19,9 @@ import type {
 import { createSubAgentRuntime } from "../../subagents.js";
 import { resolveDefaultSubAgents, mergeDefaultSubAgents } from "../../sub-agents/index.js";
 import { allowedCeoAgentTools } from "../../tools/teamTools.js";
+import { createScheduleRuntime } from "../../tools/scheduleRuntime.js";
+import type { ScheduleStore } from "../../../cron/store.js";
+import type { ScheduleScheduler } from "../../../cron/scheduler.js";
 import { isVisionCapableModel } from "../../../utils/vision.js";
 import type { ConnectorRuntime } from "../../connectors/runtime.js";
 import type { McpRuntime } from "../../mcp/runtime.js";
@@ -85,11 +88,16 @@ export interface CeoOrchestratorDeps {
   contexts: Map<string, CeoAgentContext>;
   chatId: string;
   model: string;
+  /** Provider id snapshot for schedules created by CEO-system agents (resolved at run). */
+  providerId?: string;
   apiKey: string;
   baseUrl?: string;
   temperature?: number;
   effort?: string;
   web: WebToolsConfig;
+  /** Optional persistent schedule store + background scheduler for the schedule_* tools. */
+  scheduleStore?: ScheduleStore;
+  scheduleScheduler?: ScheduleScheduler;
   memory: MemoryRuntime;
   knowledge: KnowledgeRuntime;
   skills: SkillRuntime;
@@ -499,6 +507,11 @@ export class CeoOrchestrator {
       todos: this.deps.todos,
       memory: this.deps.memory,
       knowledge: this.deps.knowledge,
+      schedules: createScheduleRuntime({
+        store: this.deps.scheduleStore,
+        scheduler: this.deps.scheduleScheduler,
+        agent: { type: "default", provider: this.deps.providerId ?? "", model: this.deps.model },
+      }),
       connectors: this.deps.connectors.active ? this.deps.connectors : undefined,
       mcp: this.deps.mcp?.active ? this.deps.mcp : undefined,
       model: this.deps.model,

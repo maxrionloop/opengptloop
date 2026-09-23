@@ -28,6 +28,7 @@ import type { KnowledgeFile, MemoryFile, MemoryRuntime, TodoItem } from "./tools
 import type { MemoryAgentService } from "./memoryagent/index.js";
 import { ALL_MULTI_AGENT_TOOL_NAMES } from "./tools/teamTools.js";
 import type { McpManager } from "./mcp/index.js";
+import { createScheduleRuntime } from "./tools/scheduleRuntime.js";
 import {
   ConnectorRuntime,
   type ConnectorWire,
@@ -173,6 +174,22 @@ export class AgentRunner {
      */
     private readonly mcpManager?: McpManager,
   ) {}
+
+  /**
+   * Attach the persistent schedule store + background scheduler (called once at boot).
+   * When set, the schedule_* tools can manage the cron system; schedules created through
+   * them run as the same agent that is active in the turn (Default or Custom Agent).
+   */
+  setSchedules(
+    store?: import("../cron/store.js").ScheduleStore,
+    scheduler?: import("../cron/scheduler.js").ScheduleScheduler,
+  ): void {
+    this.scheduleStore = store;
+    this.scheduleScheduler = scheduler;
+  }
+
+  private scheduleStore?: import("../cron/store.js").ScheduleStore;
+  private scheduleScheduler?: import("../cron/scheduler.js").ScheduleScheduler;
 
   /**
    * Execute a full autonomous turn: stream reasoning + tokens, run tools natively, and
@@ -355,6 +372,22 @@ export class AgentRunner {
       // TodoWrite / read_todos tools read and update. Present only for main-agent tool calls.
       const todoRuntime = createTodoRuntime(request.todos ?? []);
 
+      // Schedule runtime for this turn — a bridge over the persistent cron system (SQLite
+      // schedules table + background scheduler) so the schedule_* tools can create/list/
+      // update/on/off/run-now/delete/inspect schedules. Schedules created here run as the
+      // SAME agent that is active this turn: the Custom Agent handling it (with its id),
+      // or the built-in Default Agent.
+      const scheduleRuntime = createScheduleRuntime({
+        store: this.scheduleStore,
+        scheduler: this.scheduleScheduler,
+        agent: {
+          type: request.customAgent ? "custom" : "default",
+          customAgentId: request.customAgent?.id ?? null,
+          provider: request.provider,
+          model: request.model,
+        },
+      });
+
       const visibleAnswer: string[] = [];
       const visibleReasoning: string[] = [];
       let iteration = 0;
@@ -479,6 +512,7 @@ export class AgentRunner {
               todos: todoRuntime,
               memory: memoryRuntime,
               knowledge: knowledgeRuntime,
+              schedules: scheduleRuntime,
               toolCallId: toolCall.id ?? undefined,
               chatId: request.chatId,
               emit: send,

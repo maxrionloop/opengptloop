@@ -40,6 +40,22 @@ export class CeoAgentRunner {
     private readonly mcpManager?: McpManager,
   ) {}
 
+  /**
+   * Attach the persistent schedule store + background scheduler (called once at boot).
+   * When set, CEO, leader, and member agents granted the schedule_* tools can manage the
+   * cron system (schedules run as the Default Agent).
+   */
+  setSchedules(
+    store?: import("../../../cron/store.js").ScheduleStore,
+    scheduler?: import("../../../cron/scheduler.js").ScheduleScheduler,
+  ): void {
+    this.scheduleStore = store;
+    this.scheduleScheduler = scheduler;
+  }
+
+  private scheduleStore?: import("../../../cron/store.js").ScheduleStore;
+  private scheduleScheduler?: import("../../../cron/scheduler.js").ScheduleScheduler;
+
   async run(
     request: RunCeoRequest,
     session: ChatSession,
@@ -121,6 +137,7 @@ export class CeoAgentRunner {
         contexts: ceoSession.contexts,
         chatId: request.chatId,
         model: request.model,
+        providerId: request.provider,
         apiKey: request.apiKey,
         baseUrl: request.baseUrl,
         temperature: request.temperature,
@@ -134,6 +151,8 @@ export class CeoAgentRunner {
         userSubAgents: request.subAgents ?? [],
         connectors,
         mcp: mcp?.active ? mcp : undefined,
+        scheduleStore: this.scheduleStore,
+        scheduleScheduler: this.scheduleScheduler,
         send,
         signal,
       });

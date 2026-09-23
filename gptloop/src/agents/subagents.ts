@@ -760,8 +760,8 @@ class SubAgentRunner {
   /**
    * Tool-execution context for a sub-agent. It carries the sub-agent's own abort signal (the
    * background signal when detached) and forwards the shared memory / knowledge / skill runtimes
-   * plus the SSE emitter from the main turn, so a sub-agent granted those tools (memory_*,
-   * knowledge_*, list_skills / skill_initialize / create_skill) can actually use them. It
+   * plus the schedule runtime and the SSE emitter from the main turn, so a sub-agent granted those tools (memory_*,
+   * knowledge_*, skill_*, schedule_*) can actually use them. It
    * intentionally does NOT forward the sub-agent runtime (no recursion), the todo
    * runtime, or the human-in-the-loop runtimes — those tools are restricted from sub-agents.
    */
@@ -779,6 +779,7 @@ class SubAgentRunner {
       memory: outerCtx.memory,
       knowledge: outerCtx.knowledge,
       skills: outerCtx.skills,
+      schedules: outerCtx.schedules,
       connectors: this.deps.connectors,
       mcp: this.deps.mcp,
     };

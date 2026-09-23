@@ -57,6 +57,14 @@ import { messageTeamLeaderTool } from "./message_team_leader.js";
 import { assignTasksToTeamsTool } from "./assign_tasks_to_teams.js";
 import { listTeamsTool } from "./list_teams.js";
 import { reportTaskCompletionToCeoTool } from "./report_task_completion_to_ceo.js";
+import { scheduleCreateTool } from "./schedule_create.js";
+import { scheduleListTool } from "./schedule_list.js";
+import { scheduleUpdateTool } from "./schedule_update.js";
+import { scheduleOnTool } from "./schedule_on.js";
+import { scheduleOffTool } from "./schedule_off.js";
+import { scheduleRunNowTool } from "./schedule_run_now.js";
+import { scheduleDeleteTool } from "./schedule_delete.js";
+import { scheduleGetTool } from "./schedule_get.js";
 
 export { ToolRegistry } from "./registry.js";
 export type {
@@ -77,6 +85,10 @@ export type {
   KnowledgeFile,
   KnowledgeRuntime,
   KnowledgeReadOptions,
+  ScheduleAgentIdentity,
+  ScheduleCreateCadence,
+  ScheduleCreateInput,
+  ScheduleRuntime,
 } from "./types.js";
 export { defineTool } from "./types.js";
 export { webSearchTool, SEARCH_PROVIDERS } from "./webSearch.js";
@@ -145,6 +157,16 @@ export { messageTeamLeaderTool } from "./message_team_leader.js";
 export { assignTasksToTeamsTool } from "./assign_tasks_to_teams.js";
 export { listTeamsTool } from "./list_teams.js";
 export { reportTaskCompletionToCeoTool } from "./report_task_completion_to_ceo.js";
+export { scheduleCreateTool } from "./schedule_create.js";
+export { scheduleListTool } from "./schedule_list.js";
+export { scheduleUpdateTool } from "./schedule_update.js";
+export { scheduleOnTool } from "./schedule_on.js";
+export { scheduleOffTool } from "./schedule_off.js";
+export { scheduleRunNowTool } from "./schedule_run_now.js";
+export { scheduleDeleteTool } from "./schedule_delete.js";
+export { scheduleGetTool } from "./schedule_get.js";
+export { createScheduleRuntime, requireSchedules } from "./scheduleRuntime.js";
+export type { ScheduleRuntimeDeps } from "./scheduleRuntime.js";
 export {
   TEAM_TOOL_NAMES,
   CEO_TOOL_NAMES,
@@ -232,6 +254,14 @@ export function createToolRegistry(): ToolRegistry {
     assignTasksToTeamsTool,
     listTeamsTool,
     reportTaskCompletionToCeoTool,
+    scheduleCreateTool,
+    scheduleListTool,
+    scheduleUpdateTool,
+    scheduleOnTool,
+    scheduleOffTool,
+    scheduleRunNowTool,
+    scheduleDeleteTool,
+    scheduleGetTool,
   ]);
 }
 
@@ -294,4 +324,12 @@ export const tools = {
   assignTasksToTeamsTool,
   listTeamsTool,
   reportTaskCompletionToCeoTool,
+  scheduleCreateTool,
+  scheduleListTool,
+  scheduleUpdateTool,
+  scheduleOnTool,
+  scheduleOffTool,
+  scheduleRunNowTool,
+  scheduleDeleteTool,
+  scheduleGetTool,
 };

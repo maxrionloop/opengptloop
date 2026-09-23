@@ -103,6 +103,13 @@ function main(): void {
   const scheduler = new ScheduleScheduler({ db, store: scheduleStore, runner: scheduleRunner });
   scheduler.start();
 
+  // Attach the persistent schedule system to every agent surface so the schedule_* tools can
+  // create/list/update/on/off/run-now/delete/inspect schedules. Schedules created by the
+  // single/custom agent run as that same agent; team/CEO agents create Default-Agent schedules.
+  agent.setSchedules(scheduleStore, scheduler);
+  multiAgent.setSchedules(scheduleStore, scheduler);
+  ceoAgent.setSchedules(scheduleStore, scheduler);
+
   const app = express();
   app.use(
     cors({

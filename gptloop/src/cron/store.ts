@@ -452,6 +452,36 @@ export class ScheduleStore {
   }
 
   /**
+   * Update only the task prompt of a schedule, preserving everything else — timing, cadence,
+   * timezone, windows, and in particular the computed `nextRunAt`, which is carried over
+   * untouched so a prompt edit never shifts the next run. Returns null when missing.
+   * Throws on an empty or oversized prompt.
+   */
+  updatePrompt(id: string, prompt: string): ScheduleConfig | null {
+    const existing = this.get(id);
+    if (!existing) return null;
+    const clean = prompt.trim();
+    if (!clean) throw new Error("A task prompt is required — describe what the agent should do.");
+    if (clean.length > PROMPT_MAX) {
+      throw new Error(`The task prompt must be ${PROMPT_MAX} characters or fewer.`);
+    }
+    const record = this.toRecord({ ...existing, prompt: clean }, {
+      id: existing.id,
+      createdAt: existing.createdAt,
+      runCount: existing.runCount,
+      running: existing.running,
+      lastRunAt: existing.lastRunAt,
+      lastStatus: existing.lastStatus,
+      lastError: existing.lastError,
+    });
+    // Preserve the computed next run: a prompt-only edit must not affect timing.
+    record.nextRunAt = existing.nextRunAt;
+    this.schedules.save(record);
+    const saved = this.schedules.get(id);
+    return saved ? rowToConfig(saved) : null;
+  }
+
+  /**
    * Post-run bookkeeping: bump the run count, record the outcome, advance (or
    * clear) the next run, and auto-disable one-time / expired schedules.
    * Called by the scheduler after every finished execution.
