@@ -135,6 +135,56 @@ CREATE TABLE IF NOT EXISTS memory_agent_events (
   created_at     INTEGER NOT NULL,
   PRIMARY KEY (run_id, event_id)
 ) WITHOUT ROWID;
+
+-- Scheduled / cron tasks. Owned and executed entirely by the backend scheduler
+-- (src/cron/): the frontend only manages them through the schedules API, so they
+-- keep running with no browser open. One row per schedule; execution attempts
+-- live in schedule_runs.
+CREATE TABLE IF NOT EXISTS schedules (
+  id              TEXT PRIMARY KEY,            -- 16-char alphanumeric schedule id
+  name            TEXT NOT NULL DEFAULT '',
+  prompt          TEXT NOT NULL DEFAULT '',    -- task prompt executed by the agent
+  agent_type      TEXT NOT NULL DEFAULT 'default', -- 'default' | 'custom'
+  custom_agent_id TEXT,                         -- Custom Agent id when agent_type = 'custom'
+  provider        TEXT NOT NULL DEFAULT '',
+  model           TEXT NOT NULL DEFAULT '',
+  kind            TEXT NOT NULL DEFAULT 'once', -- once | interval | daily | weekly | monthly | cron
+  cron            TEXT NOT NULL DEFAULT '',    -- custom 5-field cron expression (kind = 'cron')
+  interval_minutes INTEGER,                    -- every-X cadence (kind = interval)
+  time            TEXT,                        -- HH:MM wall time in timezone (daily/weekly/monthly)
+  weekdays        TEXT NOT NULL DEFAULT '[]',  -- JSON array of 0-6 (Sun-Sat, kind = 'weekly')
+  day_of_month    INTEGER,                     -- 1-31 (kind = 'monthly')
+  run_at          INTEGER,                     -- one-time UTC epoch ms (kind = 'once')
+  start_at        INTEGER,                     -- optional window start (UTC epoch ms)
+  end_at          INTEGER,                     -- optional window end (UTC epoch ms)
+  timezone        TEXT NOT NULL DEFAULT 'UTC', -- IANA timezone for wall-time math
+  enabled         INTEGER NOT NULL DEFAULT 1,
+  running         INTEGER NOT NULL DEFAULT 0,  -- 1 while an execution is in flight
+  last_run_at     INTEGER,
+  next_run_at     INTEGER,
+  last_status     TEXT,                        -- completed | failed (of the latest finished run)
+  last_error      TEXT,
+  run_count       INTEGER NOT NULL DEFAULT 0,
+  created_at      INTEGER NOT NULL,
+  updated_at      INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_schedules_next ON schedules (enabled, next_run_at);
+
+-- One row per schedule execution (automatic or manual). Stores the outcome the
+-- Schedule page renders as execution history/logs.
+CREATE TABLE IF NOT EXISTS schedule_runs (
+  id          TEXT PRIMARY KEY,                -- 12-char alphanumeric run id
+  schedule_id TEXT NOT NULL,
+  trigger     TEXT NOT NULL DEFAULT 'auto',    -- auto | manual
+  status      TEXT NOT NULL DEFAULT 'running', -- running | completed | failed
+  output      TEXT NOT NULL DEFAULT '',        -- final agent answer (capped)
+  error       TEXT,
+  started_at  INTEGER NOT NULL,
+  finished_at INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_schedule_runs_schedule ON schedule_runs (schedule_id, started_at DESC);
 `;
 
 /** Create all tables/indexes (idempotent) and stamp the schema version. */

@@ -41,6 +41,7 @@ import type {
   UserProfile,
 } from "@/types";
 import { uid, newSessionId } from "@/utils/id";
+import type { Schedule } from "@/lib/schedules";
 import type { BackendBootPayload } from "@/lib/backendState";
 import { forkSessionData } from "@/lib/backendState";
 import { CUSTOM_PROVIDER_PREFIX } from "@/lib/providers";
@@ -86,6 +87,7 @@ export type Section =
   | "customagents"
   | "systemprompts"
   | "taskmodes"
+  | "schedules"
   | "connectors"
   | "mcp"
   | "profiles";
@@ -392,6 +394,17 @@ interface AppState {
   setMcpServerEnabled: (id: string, enabled: boolean) => void;
   /** Switch one server tool on/off locally (the panel persists it via the API). */
   setMcpToolEnabled: (id: string, tool: string, enabled: boolean) => void;
+
+  // Schedules (persistent cron tasks, executed by the backend scheduler)
+  /**
+   * Ephemeral mirror of the backend schedules list, refreshed from the
+   * schedules API by the Schedule page. The backend SQLite database is the
+   * source of truth — this slice is never synced through the app-state
+   * bridge and never touches browser storage.
+   */
+  schedules: Schedule[];
+  /** Replace the whole schedule list (used after a backend fetch). */
+  setSchedules: (schedules: Schedule[]) => void;
 
   // User profiles (account identities with fully isolated workspace state)
   addUserProfile: (input: Omit<UserProfile, "id" | "createdAt" | "updatedAt">) => UserProfile;
@@ -778,6 +791,7 @@ export const useStore = create<AppState>()(
       agentMode: "agent",
       connectors: [],
       mcpServers: [],
+      schedules: [],
       userProfiles: mergeProfilesWithDefaults([]),
       activeUserProfileId: null,
       profileStates: {},
@@ -1683,6 +1697,9 @@ export const useStore = create<AppState>()(
             return { ...m, disabledTools: [...disabled] };
           }),
         })),
+
+      // ---- Schedules (persistent cron tasks, backend-owned) ----------------
+      setSchedules: (schedules) => set(() => ({ schedules })),
 
       // ---- User profiles (account identities with fully isolated state) --------
       addUserProfile: (input) => {

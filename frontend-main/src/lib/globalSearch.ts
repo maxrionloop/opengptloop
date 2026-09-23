@@ -17,6 +17,7 @@ export type SearchTarget =
   | { kind: "customagent"; agentId: string }
   | { kind: "systemprompt"; promptId: string }
   | { kind: "taskmode"; modeId: string }
+  | { kind: "schedule"; scheduleId: string }
   | { kind: "connector"; connectorId: string }
   | { kind: "mcp"; serverId: string; tool?: string }
   | { kind: "profile"; profileId: string }
@@ -71,6 +72,7 @@ export interface SearchState {
   mainAgentPrompts: Array<{ id: string; name: string; description: string; content: string }>;
   taskModes: Array<{ id: string; name: string; prompt: string }>;
   planModePrompt: string;
+  schedules: Array<{ id: string; name: string; prompt: string; kind: string; status: string }>;
   connectors: Array<{ connectorId: string; status: string; accountLabel: string }>;
   mcpServers: Array<{
     id: string;
@@ -101,6 +103,7 @@ const SECTION_INDEX: Array<{ section: Section; label: string; keywords: string; 
   { section: "customagents", label: "Custom agents", keywords: "custom agents main agent persona tools", hint: "Go to custom agents" },
   { section: "systemprompts", label: "Custom system prompts", keywords: "system prompt instructions main agent template", hint: "Go to system prompts" },
   { section: "taskmodes", label: "Task modes", keywords: "task modes plan default custom prompt mode", hint: "Go to task modes" },
+  { section: "schedules", label: "Schedules", keywords: "schedules cron recurring automation tasks background", hint: "Go to schedules" },
   { section: "connectors", label: "Connectors", keywords: "connectors github slack notion gmail outlook composio apps integration", hint: "Go to connectors" },
   { section: "mcp", label: "MCP servers", keywords: "mcp model context protocol servers tools oauth remote local", hint: "Go to MCP" },
   { section: "profiles", label: "Profiles", keywords: "profiles account user identity avatar", hint: "Go to profiles" },
@@ -544,9 +547,25 @@ export function searchEverything(rawQuery: string, state: SearchState): SearchRe
     );
   }
 
+  // Schedules
+  for (const s of state.schedules) {
+    const hay = `${s.name} ${s.prompt} ${s.kind} ${s.status} schedule cron`.toLowerCase();
+    if (!includes(hay, q)) continue;
+    push(
+      {
+        id: `schedule-${s.id}`,
+        group: "Schedules",
+        title: s.name,
+        snippet: `${s.kind} · ${s.status}`,
+        hint: "Open schedules",
+        target: { kind: "schedule", scheduleId: s.id },
+      },
+      2,
+    );
+  }
+
   // Todos
-  for (const t of state.todos) {
-    const hay = `${t.content} ${t.status} ${t.priority} todo`.toLowerCase();
+  for (const t of state.todos) {    const hay = `${t.content} ${t.status} ${t.priority} todo`.toLowerCase();
     if (!includes(hay, q)) continue;
     push(
       {

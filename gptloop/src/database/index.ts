@@ -10,6 +10,8 @@ import { SubAgentRunsRepo } from "./repositories/subAgentRunsRepo.js";
 import { SnapshotsRepo } from "./repositories/snapshotsRepo.js";
 import { AppStateRepo } from "./repositories/appStateRepo.js";
 import { MemoryAgentRunsRepo } from "./repositories/memoryAgentRunsRepo.js";
+import { SchedulesRepo } from "./repositories/schedulesRepo.js";
+import { ScheduleRunsRepo } from "./repositories/scheduleRunsRepo.js";
 
 export {
   createChatSessionId,
@@ -17,6 +19,8 @@ export {
   createCustomAgentId,
   createMainAgentPromptId,
   createUserProfileId,
+  createScheduleId,
+  createScheduleRunId,
   isSafeSessionId,
 } from "./ids.js";
 import { createChatSessionId as createChatSessionIdFn, isSafeSessionId as isSafeSessionIdFn } from "./ids.js";
@@ -25,6 +29,12 @@ export { APP_STATE_KEYS, isAppStateKey, type AppStateKey } from "./repositories/
 export type { SessionRow } from "./repositories/sessionsRepo.js";
 export type { StoredStreamEvent } from "./repositories/eventsRepo.js";
 export type { SubAgentRunRow } from "./repositories/subAgentRunsRepo.js";
+export type { ScheduleRow, ScheduleRecord } from "./repositories/schedulesRepo.js";
+export type {
+  ScheduleRunRow,
+  ScheduleRunStatus,
+  ScheduleRunTrigger,
+} from "./repositories/scheduleRunsRepo.js";
 export type {
   MemoryAgentRunRow,
   MemoryAgentRunStatus,
@@ -47,6 +57,8 @@ export class GptLoopDatabase {
   readonly snapshots: SnapshotsRepo;
   readonly appState: AppStateRepo;
   readonly memoryAgentRuns: MemoryAgentRunsRepo;
+  readonly schedules: SchedulesRepo;
+  readonly scheduleRuns: ScheduleRunsRepo;
   readonly queue: DatabaseWriteQueue;
 
   private readonly maintenance: DatabaseMaintenance;
@@ -63,6 +75,8 @@ export class GptLoopDatabase {
     this.snapshots = new SnapshotsRepo(db);
     this.appState = new AppStateRepo(db);
     this.memoryAgentRuns = new MemoryAgentRunsRepo(db);
+    this.schedules = new SchedulesRepo(db);
+    this.scheduleRuns = new ScheduleRunsRepo(db);
     this.queue = new DatabaseWriteQueue(db);
     this.maintenance = new DatabaseMaintenance(db);
   }
@@ -78,6 +92,8 @@ export class GptLoopDatabase {
     // After a restart nothing can still be running.
     instance.sessions.resetRunningFlags();
     instance.memoryAgentRuns.failInterrupted();
+    instance.schedules.resetRunningFlags();
+    instance.scheduleRuns.failInterrupted();
     instance.maintenance.start();
 
     // eslint-disable-next-line no-console

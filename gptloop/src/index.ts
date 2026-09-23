@@ -22,6 +22,10 @@ import { buildSystemPromptRouter } from "./api/systemprompt.js";
 import { buildCustomAgentsRouter } from "./api/customagents.js";
 import { buildUserProfilesRouter } from "./api/profiles.js";
 import { buildMainAgentPromptsRouter } from "./api/mainagentprompts.js";
+import { buildSchedulesRouter } from "./api/schedules.js";
+import { ScheduleStore } from "./cron/store.js";
+import { ScheduleRunner } from "./cron/runner.js";
+import { ScheduleScheduler } from "./cron/scheduler.js";
 import { MemoryAgentService } from "./agents/memoryagent/index.js";
 import { MultiAgentRunner } from "./agents/multiagent/index.js";
 import { CeoAgentRunner } from "./agents/multiagent/ceo/index.js";
@@ -76,6 +80,28 @@ function main(): void {
   // Connectors (Composio-powered app integrations): connection records live in the
   // SQLite app_state repository; the router serves connect/status/tools from them.
   const connectors = new ConnectorManager(db.appState);
+
+  // Schedules (persistent cron): the store persists schedules + history in the
+  // SQLite database; the runner executes due schedules through the EXISTING
+  // agent runtime; the scheduler loads every active schedule at boot and fires
+  // them on time with no browser open.
+  const scheduleStore = new ScheduleStore(db.schedules, db.scheduleRuns);
+  const scheduleRunner = new ScheduleRunner({
+    providers,
+    tools,
+    config,
+    db,
+    store: scheduleStore,
+    agent,
+    customAgentRunner,
+    customAgents,
+    planApprovals,
+    askQuestions,
+    memoryAgent,
+    mcpManager: mcp,
+  });
+  const scheduler = new ScheduleScheduler({ db, store: scheduleStore, runner: scheduleRunner });
+  scheduler.start();
 
   const app = express();
   app.use(
@@ -132,6 +158,7 @@ function main(): void {
   app.use("/api/memory-agent", buildMemoryAgentRouter(memoryAgent));
   app.use("/api/connectors", buildConnectorsRouter(connectors, config));
   app.use("/api/mcp", buildMcpRouter(mcp));
+  app.use("/api/schedules", buildSchedulesRouter(scheduleStore, scheduler, db, customAgents));
 
   const server = app.listen(config.port, () => {
     // eslint-disable-next-line no-console
@@ -141,6 +168,8 @@ function main(): void {
   });
 
   const shutdown = () => {
+    // Stop the scheduler first so no new run starts during teardown.
+    scheduler.stop();
     // Flush the write queue and checkpoint the WAL before exiting.
     void mcp.closeAll().catch(() => undefined);
     db.close();

@@ -38,6 +38,13 @@ export function GlobalSearchPanel() {
       mainAgentPrompts: s.mainAgentPrompts,
       taskModes: s.taskModes,
       planModePrompt: s.planModePrompt,
+      schedules: s.schedules.map((sc) => ({
+        id: sc.id,
+        name: sc.name,
+        prompt: sc.prompt,
+        kind: sc.kind,
+        status: sc.status,
+      })),
       connectors: s.connectors,
       mcpServers: s.mcpServers,
       providers: s.providers,
@@ -114,6 +121,9 @@ export function GlobalSearchPanel() {
         break;
       case "taskmode":
         s.setSection("taskmodes");
+        break;
+      case "schedule":
+        s.setSection("schedules");
         break;
       case "connector":
         s.setSection("connectors");

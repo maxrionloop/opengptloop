@@ -29,6 +29,8 @@ function contextLabel(section: Section, counts: Record<string, number>): string 
       return `${counts.systemprompts} prompt${counts.systemprompts === 1 ? "" : "s"}`;
     case "taskmodes":
       return `${counts.taskmodes} mode${counts.taskmodes === 1 ? "" : "s"}`;
+    case "schedules":
+      return `${counts.schedules} schedule${counts.schedules === 1 ? "" : "s"}`;
     case "connectors":
       return `${counts.connectors} app${counts.connectors === 1 ? "" : "s"}`;
     case "mcp":
@@ -59,6 +61,7 @@ export function TopBar() {
   const activeCustomAgentId = useStore((s) => s.activeCustomAgentId);
   const mainAgentPrompts = useStore((s) => s.mainAgentPrompts);
   const taskModes = useStore((s) => s.taskModes);
+  const schedules = useStore((s) => s.schedules);
   const connectors = useStore((s) => s.connectors);
   const mcpServers = useStore((s) => s.mcpServers);
   const userProfiles = useStore((s) => s.userProfiles);
@@ -75,6 +78,7 @@ export function TopBar() {
     customagents: customAgents.length,
     systemprompts: mainAgentPrompts.length,
     taskmodes: taskModes.length,
+    schedules: schedules.length,
     connectors: connectors.filter((c) => c.status === "active").length,
     mcp: mcpServers.filter((m) => m.status === "connected").length,
     profiles: userProfiles.length,

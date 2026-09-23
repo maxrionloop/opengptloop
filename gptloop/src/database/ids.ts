@@ -27,6 +27,12 @@ export const USER_PROFILE_ID_LENGTH = 16;
 /** Main-agent custom system prompts carry a 16-character alphanumeric ID. */
 export const MAIN_AGENT_PROMPT_ID_LENGTH = 16;
 
+/** Schedules carry a 16-character alphanumeric ID. */
+export const SCHEDULE_ID_LENGTH = 16;
+
+/** Schedule runs carry a 12-character alphanumeric ID. */
+export const SCHEDULE_RUN_ID_LENGTH = 12;
+
 /** Generate a cryptographically random ID of `length` characters from the 62-char alphabet. */
 export function randomId(length: number): string {
   const bytes = crypto.randomBytes(length);
@@ -71,6 +77,22 @@ export function createUserProfileId(): string {
   let id = randomId(USER_PROFILE_ID_LENGTH);
   while (id === "default") id = randomId(USER_PROFILE_ID_LENGTH);
   return id;
+}
+
+/**
+ * Create a new 16-character schedule ID (all numbers + all letters). Each
+ * user-created schedule carries its own id.
+ */
+export function createScheduleId(): string {
+  return randomId(SCHEDULE_ID_LENGTH);
+}
+
+/**
+ * Create a new 12-character schedule-run ID (all numbers + all letters). Each
+ * execution of a schedule (automatic or manual) carries its own id.
+ */
+export function createScheduleRunId(): string {
+  return randomId(SCHEDULE_RUN_ID_LENGTH);
 }
 
 /** True when `value` looks like a usable session id (bounded, printable, path-safe). */

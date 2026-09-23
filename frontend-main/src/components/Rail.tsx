@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { MessageCircle, Brain, Library, Bot, Sparkles, Users, Boxes, FileText, Crown, ListChecks, Plug, Server, Search, ChevronsLeft, ChevronsRight } from "lucide-react";
+import { MessageCircle, Brain, Library, Bot, Sparkles, Users, Boxes, FileText, Crown, ListChecks, CalendarClock, Plug, Server, Search, ChevronsLeft, ChevronsRight } from "lucide-react";
 import type { ReactNode } from "react";
 import { useStore, type Section } from "@/store/useStore";
 import { findActiveProfile, isUsableAvatar, profileInitials } from "@/lib/userProfiles";
@@ -10,6 +10,7 @@ const NAV: Array<{ id: Section; label: string; Icon: typeof MessageCircle }> = [
   { id: "customagents", label: "Custom agents", Icon: Boxes },
   { id: "systemprompts", label: "Custom system prompts", Icon: FileText },
   { id: "taskmodes", label: "Task modes", Icon: ListChecks },
+  { id: "schedules", label: "Schedules", Icon: CalendarClock },
   { id: "memory", label: "Memory", Icon: Brain },
   { id: "knowledge", label: "Knowledge base", Icon: Library },
   { id: "agents", label: "Sub-agents", Icon: Bot },

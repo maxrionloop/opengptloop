@@ -326,6 +326,72 @@ export const API_ROUTES = {
     path: "/api/mcp/:id/tools",
     description: "Live tool catalog of one MCP server.",
   },
+  schedulesList: {
+    name: "schedules.list",
+    method: "GET",
+    path: "/api/schedules",
+    description: "List every schedule with its display status (Active/Paused/Running/Completed/Failed).",
+  },
+  schedulesCreate: {
+    name: "schedules.create",
+    method: "POST",
+    path: "/api/schedules",
+    description: "Create a schedule (validated server-side, next run computed on save).",
+  },
+  schedulesPreview: {
+    name: "schedules.preview",
+    method: "POST",
+    path: "/api/schedules/preview",
+    description: "Preview the next fire times of a draft schedule payload (nothing persisted).",
+  },
+  schedulesTimezones: {
+    name: "schedules.timezones",
+    method: "GET",
+    path: "/api/schedules/timezones",
+    description: "List the IANA timezones supported for schedule wall-clock math.",
+  },
+  schedulesGet: {
+    name: "schedules.get",
+    method: "GET",
+    path: "/api/schedules/:id",
+    description: "Load one schedule with its display status.",
+  },
+  schedulesUpdate: {
+    name: "schedules.update",
+    method: "PUT",
+    path: "/api/schedules/:id",
+    description: "Update a schedule (partial payload, next run recomputed).",
+  },
+  schedulesDelete: {
+    name: "schedules.delete",
+    method: "DELETE",
+    path: "/api/schedules/:id",
+    description: "Delete a schedule and its execution history.",
+  },
+  schedulesDuplicate: {
+    name: "schedules.duplicate",
+    method: "POST",
+    path: "/api/schedules/:id/duplicate",
+    description: "Duplicate a schedule under a new id (starts paused).",
+  },
+  schedulesRun: {
+    name: "schedules.run",
+    method: "POST",
+    path: "/api/schedules/:id/run",
+    description: "Run a scheduled task manually right now.",
+  },
+  schedulesRuns: {
+    name: "schedules.runs",
+    method: "GET",
+    path: "/api/schedules/:id/runs",
+    description: "List a schedule's execution history (most recent first).",
+  },
+  schedulesRunGet: {
+    name: "schedules.run.get",
+    method: "GET",
+    path: "/api/schedules/:id/runs/:runId",
+    description: "Load one execution's logs (output, status, timestamps).",
+  },
 } as const satisfies Record<string, ApiRoute>;
 
 export type ApiRouteName = keyof typeof API_ROUTES;
