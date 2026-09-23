@@ -3,6 +3,7 @@ import { fileReadTool } from "./fileRead.js";
 import { fileWriteTool } from "./fileWrite.js";
 import { fileListTool } from "./fileList.js";
 import { grepTool } from "./grep.js";
+import { astgrepTool } from "./astgrep.js";
 import { strReplaceTool } from "./strReplace.js";
 import { applyMultipleEditsTool } from "./applyMultipleEdits.js";
 import { applyPatchTool } from "./applyPatch.js";
@@ -93,6 +94,15 @@ export { applyPatchTool, parsePatch, summarizePatch, PatchError } from "./applyP
 export { readImageTool, SUPPORTED_IMAGE_EXTENSIONS } from "./readImage.js";
 export { scanQrCodeTool, SUPPORTED_QR_EXTENSIONS, MAX_QR_IMAGE_BYTES } from "./scanQrCode.js";
 export { grepTool, MAX_GREP_MATCHES, MAX_GREP_LINE_CHARS, includeToRegExp } from "./grep.js";
+export {
+  astgrepTool,
+  ASTGREP_LANGUAGES,
+  MAX_ASTGREP_MATCHES,
+  MAX_ASTGREP_LINE_CHARS,
+  compileAstPattern,
+  detectLanguage,
+  normalizeLanguage,
+} from "./astgrep.js";
 export { callSubAgentTool } from "./call_sub_agent.js";
 export { callMultipleSubAgentsTool } from "./call_multiple_sub_agents.js";
 export { listSubAgentsTool } from "./list_sub_agents.js";
@@ -168,6 +178,7 @@ export function createToolRegistry(): ToolRegistry {
     fileWriteTool,
     fileListTool,
     grepTool,
+    astgrepTool,
     strReplaceTool,
     applyMultipleEditsTool,
     applyPatchTool,
@@ -229,6 +240,7 @@ export const tools = {
   fileWriteTool,
   fileListTool,
   grepTool,
+  astgrepTool,
   strReplaceTool,
   applyMultipleEditsTool,
   applyPatchTool,
