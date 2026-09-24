@@ -1,0 +1,113 @@
+name: Frontend deployment
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend-main/**"
+      - ".github/workflows/frontend-deployment.yml"
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "frontend-main/**"
+      - ".github/workflows/frontend-deployment.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: frontend-deployment-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build frontend-main
+    runs-on: ubuntu-latest
+    environment:
+      name: frontend-production
+
+    steps:
+      - name: Create GitHub deployment
+        id: deployment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const ref = context.payload.pull_request?.head?.sha || context.sha;
+            const deployment = await github.rest.repos.createDeployment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref,
+              environment: 'frontend-production',
+              description: context.eventName === 'pull_request'
+                ? `Frontend PR #${context.payload.pull_request.number} validation`
+                : 'Frontend main branch deployment',
+              auto_merge: false,
+              required_contexts: []
+            });
+            core.setOutput('id', deployment.data.id);
+
+      - name: Mark deployment in progress
+        uses: actions/github-script@v7
+        env:
+          DEPLOYMENT_ID: ${{ steps.deployment.outputs.id }}
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: Number(process.env.DEPLOYMENT_ID),
+              state: 'in_progress',
+              description: 'Building frontend-main'
+            });
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend-main/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend-main
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend-main
+        run: npm run build
+
+      - name: Mark deployment successful
+        if: success()
+        uses: actions/github-script@v7
+        env:
+          DEPLOYMENT_ID: ${{ steps.deployment.outputs.id }}
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: Number(process.env.DEPLOYMENT_ID),
+              state: 'success',
+              description: 'frontend-main build completed successfully'
+            });
+
+      - name: Mark deployment failed
+        if: failure()
+        uses: actions/github-script@v7
+        env:
+          DEPLOYMENT_ID: ${{ steps.deployment.outputs.id }}
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: Number(process.env.DEPLOYMENT_ID),
+              state: 'failure',
+              description: 'frontend-main build failed'
+            });
