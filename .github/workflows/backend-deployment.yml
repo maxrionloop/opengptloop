@@ -1,0 +1,114 @@
+name: Backend deployment
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "gptloop/**"
+      - ".github/workflows/backend-deployment.yml"
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "gptloop/**"
+      - ".github/workflows/backend-deployment.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: backend-deployment-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build gptloop
+    runs-on: ubuntu-latest
+    environment:
+      name: backend-production
+
+    steps:
+      - name: Create GitHub deployment
+        id: deployment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const ref = context.payload.pull_request?.head?.sha || context.sha;
+            const deployment = await github.rest.repos.createDeployment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref,
+              environment: 'backend-production',
+              description: context.eventName === 'pull_request'
+                ? `Backend PR #${context.payload.pull_request.number} validation`
+                : 'Backend main branch deployment',
+              auto_merge: false,
+              required_contexts: []
+            });
+            core.setOutput('id', deployment.data.id);
+
+      - name: Mark deployment in progress
+        uses: actions/github-script@v7
+        env:
+          DEPLOYMENT_ID: ${{ steps.deployment.outputs.id }}
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: Number(process.env.DEPLOYMENT_ID),
+              state: 'in_progress',
+              description: 'Building gptloop'
+            });
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: gptloop/package-lock.json
+
+      - name: Install dependencies
+        working-directory: gptloop
+        run: npm ci
+
+      - name: Build backend
+        working-directory: gptloop
+        run: npm run build
+
+      - name: Mark deployment successful
+        if: success()
+        uses: actions/github-script@v7
+        env:
+          DEPLOYMENT_ID: ${{ steps.deployment.outputs.id }}
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: Number(process.env.DEPLOYMENT_ID),
+              state: 'success',
+              description: 'gptloop build completed successfully'
+            });
+
+      - name: Mark deployment failed
+        if: failure()
+        uses: actions/github-script@v7
+        env:
+          DEPLOYMENT_ID: ${{ steps.deployment.outputs.id }}
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: Number(process.env.DEPLOYMENT_ID),
+              state: 'failure',
+              description: 'gptloop build failed'
+            });
+
