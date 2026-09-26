@@ -34,6 +34,7 @@ export const APP_STATE_KEYS = [
   "activeUserProfileId",
   "profileStates",
   "profileSessions",
+  "channels",
 ] as const;
 
 export type AppStateKey = (typeof APP_STATE_KEYS)[number];

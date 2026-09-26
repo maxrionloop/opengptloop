@@ -1063,7 +1063,6 @@ export interface SSEEventData {
 
 /** Lifecycle states of a background memory-agent run. */
 export type MemoryAgentRunStatus = "queued" | "running" | "completed" | "failed";
-
 /**
  * Metadata of one background memory-agent session, stored in the backend SQLite database.
  * A new run is created every time the main agent completes a turn; runs execute strictly
@@ -1105,4 +1104,50 @@ export interface MemoryAgentLiveRun {
   status: "running" | "completed" | "failed";
   error?: string;
   updatedFiles: string[];
+}
+
+/** Live messaging channel kinds (WhatsApp is a coming-soon placeholder). */
+export type ChannelKind = "telegram" | "discord" | "slack";
+
+/** Lifecycle status of a messaging-channel connection. */
+export type ChannelStatus = "connected" | "connecting" | "error" | "disabled";
+
+/**
+ * One messaging-channel connection (browser-safe projection — never carries the
+ * token). Tokens stay server-side in the backend SQLite database.
+ */
+export interface ChannelConnection {
+  id: string;
+  kind: ChannelKind;
+  name: string;
+  enabled: boolean;
+  status: ChannelStatus;
+  lastError?: string;
+  botName: string;
+  botId: string;
+  /** Custom Agent id serving new chats, or null for the Default Agent. */
+  activeAgentId: string | null;
+  chatCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** One per-user chat on a messaging channel. */
+export interface ChannelChat {
+  chat_id: string;
+  user_key: string;
+  user_label: string;
+  agent_id: string | null;
+  agent_name: string;
+  title: string;
+  created_at: number;
+  updated_at: number;
+}
+
+/** One transcript message of a channel chat (user/assistant text). */
+export interface ChannelChatMessage {
+  seq: number;
+  role: string;
+  text: string;
+  has_tools: boolean;
 }

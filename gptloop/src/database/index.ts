@@ -12,6 +12,8 @@ import { AppStateRepo } from "./repositories/appStateRepo.js";
 import { MemoryAgentRunsRepo } from "./repositories/memoryAgentRunsRepo.js";
 import { SchedulesRepo } from "./repositories/schedulesRepo.js";
 import { ScheduleRunsRepo } from "./repositories/scheduleRunsRepo.js";
+import { ChannelChatsRepo } from "./repositories/channelChatsRepo.js";
+import { ChannelMessagesRepo } from "./repositories/channelMessagesRepo.js";
 
 export {
   createChatSessionId,
@@ -41,6 +43,7 @@ export type {
   MemoryAgentRunCounts,
   StoredMemoryAgentEvent,
 } from "./repositories/memoryAgentRunsRepo.js";
+export type { ChannelChatRow } from "./repositories/channelChatsRepo.js";
 
 /**
  * The application's persistence facade. Everything the system produces — main-agent
@@ -59,6 +62,8 @@ export class GptLoopDatabase {
   readonly memoryAgentRuns: MemoryAgentRunsRepo;
   readonly schedules: SchedulesRepo;
   readonly scheduleRuns: ScheduleRunsRepo;
+  readonly channelChats: ChannelChatsRepo;
+  readonly channelMessages: ChannelMessagesRepo;
   readonly queue: DatabaseWriteQueue;
 
   private readonly maintenance: DatabaseMaintenance;
@@ -77,6 +82,8 @@ export class GptLoopDatabase {
     this.memoryAgentRuns = new MemoryAgentRunsRepo(db);
     this.schedules = new SchedulesRepo(db);
     this.scheduleRuns = new ScheduleRunsRepo(db);
+    this.channelChats = new ChannelChatsRepo(db);
+    this.channelMessages = new ChannelMessagesRepo(db);
     this.queue = new DatabaseWriteQueue(db);
     this.maintenance = new DatabaseMaintenance(db);
   }

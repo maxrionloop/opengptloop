@@ -23,6 +23,7 @@ import { buildCustomAgentsRouter } from "./api/customagents.js";
 import { buildUserProfilesRouter } from "./api/profiles.js";
 import { buildMainAgentPromptsRouter } from "./api/mainagentprompts.js";
 import { buildSchedulesRouter } from "./api/schedules.js";
+import { buildChannelsRouter } from "./api/channels.js";
 import { ScheduleStore } from "./cron/store.js";
 import { ScheduleRunner } from "./cron/runner.js";
 import { ScheduleScheduler } from "./cron/scheduler.js";
@@ -34,6 +35,7 @@ import { UserProfileManager } from "./agents/profiles/index.js";
 import { MainAgentPromptManager } from "./agents/mainagentprompt/index.js";
 import { ConnectorManager } from "./agents/connectors/index.js";
 import { McpManager } from "./agents/mcp/index.js";
+import { ChannelManager } from "./channels/index.js";
 import { GptLoopDatabase } from "./database/index.js";
 
 function main(): void {
@@ -85,8 +87,7 @@ function main(): void {
   // SQLite database; the runner executes due schedules through the EXISTING
   // agent runtime; the scheduler loads every active schedule at boot and fires
   // them on time with no browser open.
-  const scheduleStore = new ScheduleStore(db.schedules, db.scheduleRuns);
-  const scheduleRunner = new ScheduleRunner({
+  const scheduleStore = new ScheduleStore(db.schedules, db.scheduleRuns);  const scheduleRunner = new ScheduleRunner({
     providers,
     tools,
     config,
@@ -109,6 +110,25 @@ function main(): void {
   agent.setSchedules(scheduleStore, scheduler);
   multiAgent.setSchedules(scheduleStore, scheduler);
   ceoAgent.setSchedules(scheduleStore, scheduler);
+
+  // Messaging channels (Telegram / Discord / Slack): inbound app messages run as turns
+  // through the SAME agent runtime (Default or Custom Agent) with channel-only tools.
+  // Providers start in the background; the dashboard manages them via /api/channels.
+  const channels = new ChannelManager({
+    providers,
+    tools,
+    config,
+    db,
+    agent,
+    customAgentRunner,
+    customAgents,
+    mainAgentPrompts,
+    planApprovals,
+    memoryAgent,
+    mcpManager: mcp,
+  });
+  channels.setSchedules(scheduleStore, scheduler);
+  void channels.start().catch(() => undefined);
 
   const app = express();
   app.use(
@@ -166,6 +186,7 @@ function main(): void {
   app.use("/api/connectors", buildConnectorsRouter(connectors, config));
   app.use("/api/mcp", buildMcpRouter(mcp));
   app.use("/api/schedules", buildSchedulesRouter(scheduleStore, scheduler, db, customAgents));
+  app.use("/api/channels", buildChannelsRouter(channels, customAgents));
 
   const server = app.listen(config.port, () => {
     // eslint-disable-next-line no-console
@@ -177,6 +198,8 @@ function main(): void {
   const shutdown = () => {
     // Stop the scheduler first so no new run starts during teardown.
     scheduler.stop();
+    // Stop channel providers so no new inbound turn starts during teardown.
+    void channels.shutdown().catch(() => undefined);
     // Flush the write queue and checkpoint the WAL before exiting.
     void mcp.closeAll().catch(() => undefined);
     db.close();

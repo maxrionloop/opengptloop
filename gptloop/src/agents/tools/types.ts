@@ -513,7 +513,31 @@ export interface SkillInitializeResult {
   initialized: InitializedSkill[];
   failed: FailedSkill[];
 }
-/** A skill as surfaced to the agent by list_skills — name, description, and its file tree. */
+
+/**
+ * Messaging-channel context for one tool call. Present ONLY when the turn arrived from a
+ * messaging channel (Telegram / Discord / Slack) — never for web-app, sub-agent, team, CEO,
+ * or chat-mode turns. It lets channel-aware tools (send_responses, attach_files) deliver
+ * results back to the exact channel + user the request came from.
+ */
+export interface ChannelToolContext {
+  /** Which messaging channel the turn came from. */
+  readonly kind: "telegram" | "discord" | "slack";
+  /** Stable id of the channel connection that received the message. */
+  readonly channelId: string;
+  /** Human-readable channel connection name (for prompts and labels). */
+  readonly channelName: string;
+  /** Stable external user key (e.g. "tg:123", "dc:456", "sl:T1:U2"). */
+  readonly userKey: string;
+  /** Human-readable user label (for prompts). */
+  readonly userLabel: string;
+  /** Send a text message back to the user on the channel. */
+  sendMessage(text: string): Promise<void>;
+  /** Deliver files back to the user on the channel. Never throws. */
+  sendFiles(
+    files: Array<{ absolutePath: string; filename: string; contentType: string }>,
+  ): Promise<{ delivered: number; errors: string[] }>;
+}/** A skill as surfaced to the agent by list_skills — name, description, and its file tree. */
 export interface SkillListEntry {
   name: string;
   description: string;
@@ -611,6 +635,12 @@ export interface ToolContext {
    * Lets any tool-execution path route MCP tool calls; absent when no MCP
    * server is connected this turn. */
   mcp?: import("../mcp/runtime.js").McpRuntime;
+  /**
+   * Messaging-channel context — present ONLY when the tool call belongs to a turn that
+   * arrived from a messaging channel (Telegram / Discord / Slack). Absent everywhere
+   * else, which is why channel-only tools (send_responses) refuse to run outside channels.
+   */
+  channel?: ChannelToolContext;
   /** Id of the tool call currently executing; used to correlate nested sub-agent events in the UI. */
   toolCallId?: string;
   /**

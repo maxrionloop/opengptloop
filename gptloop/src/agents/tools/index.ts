@@ -66,6 +66,7 @@ import { scheduleOffTool } from "./schedule_off.js";
 import { scheduleRunNowTool } from "./schedule_run_now.js";
 import { scheduleDeleteTool } from "./schedule_delete.js";
 import { scheduleGetTool } from "./schedule_get.js";
+import { sendResponsesTool } from "./sendResponses.js";
 
 export { ToolRegistry } from "./registry.js";
 export type {
@@ -139,7 +140,7 @@ export { knowledgeCreateTool } from "./knowledge_create.js";
 export { knowledgeEditTool } from "./knowledge_edit.js";
 export { knowledgeDeleteTool } from "./knowledge_delete.js";
 export { submitPlanTool } from "./submit_plan.js";
-export { askUserTool, ASK_ANSWERED, ASK_TIMEOUT } from "./askuser.js";
+export { askUserTool, ASK_ANSWERED, ASK_TIMEOUT, ASK_CHANNEL_UNAVAILABLE } from "./askuser.js";
 export { embedUrlTool } from "./embedUrl.js";
 export { attachFilesTool, formatFileSizeLabel } from "./attachFiles.js";
 export { waitTool, WAIT_MIN_SECONDS, WAIT_MAX_SECONDS } from "./wait.js";
@@ -167,6 +168,11 @@ export { scheduleOffTool } from "./schedule_off.js";
 export { scheduleRunNowTool } from "./schedule_run_now.js";
 export { scheduleDeleteTool } from "./schedule_delete.js";
 export { scheduleGetTool } from "./schedule_get.js";
+export {
+  CHANNEL_ONLY_TOOLS,
+  buildChannelSystemSection,
+  sendResponsesTool,
+} from "./sendResponses.js";
 export { createScheduleRuntime, requireSchedules } from "./scheduleRuntime.js";
 export type { ScheduleRuntimeDeps } from "./scheduleRuntime.js";
 export {
@@ -265,6 +271,7 @@ export function createToolRegistry(): ToolRegistry {
     scheduleRunNowTool,
     scheduleDeleteTool,
     scheduleGetTool,
+    sendResponsesTool,
   ]);
 }
 
@@ -336,4 +343,5 @@ export const tools = {
   scheduleRunNowTool,
   scheduleDeleteTool,
   scheduleGetTool,
+  sendResponsesTool,
 };

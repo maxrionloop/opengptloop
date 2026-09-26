@@ -87,6 +87,8 @@ export const TEAM_AGENT_BASE_EXCLUDED_TOOLS: readonly string[] = [
   "ask_question_to_user",
   "list_sub_agent_sessions",
   "reuse_same_sub_agent_session",
+  // Channel-only tools never apply inside a team: teams never serve channel turns.
+  "send_responses",
 ];
 
 /**

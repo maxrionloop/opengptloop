@@ -1,5 +1,6 @@
 import type { ToolRegistry, OpenAIToolSchema } from "../tools/registry.js";
 import { buildSystemPrompt } from "../systemprompt.js";
+import { CHANNEL_ONLY_TOOLS } from "../tools/sendResponses.js";
 import {
   isCustomAgentExcludedTool,
   type CustomAgentConfig,
@@ -20,8 +21,12 @@ export interface CustomAgentToolInfo {
  * reflects the live registry.
  */
 export function listCustomAgentTools(tools: ToolRegistry): CustomAgentToolInfo[] {
+  const channelOnly = new Set<string>(CHANNEL_ONLY_TOOLS);
   return tools.schemas
     .filter((schema) => !isCustomAgentExcludedTool(schema.function.name))
+    // Channel-only tools (send_responses) are never selectable: channel turns append them
+    // automatically, and they refuse to run outside a channel anyway.
+    .filter((schema) => !channelOnly.has(schema.function.name))
     .map((schema) => ({ name: schema.function.name, description: schema.function.description }));
 }
 

@@ -185,6 +185,33 @@ CREATE TABLE IF NOT EXISTS schedule_runs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_schedule_runs_schedule ON schedule_runs (schedule_id, started_at DESC);
+
+-- Messaging-channel chats. One row per external user per channel connection: the
+-- persistent agent conversation behind a Telegram / Discord / Slack DM or mention
+-- thread. The provider-format transcript lives in channel_messages.
+CREATE TABLE IF NOT EXISTS channel_chats (
+  id          TEXT PRIMARY KEY,                -- 20-char alphanumeric chat id
+  channel_id  TEXT NOT NULL,                   -- channel connection id
+  user_key    TEXT NOT NULL,                   -- stable external user key (tg:<id>, dc:<id>, sl:<team>:<user>)
+  user_label  TEXT NOT NULL DEFAULT '',        -- human-readable user label
+  agent_id    TEXT,                            -- Custom Agent id, or NULL for the built-in Default Agent
+  title       TEXT NOT NULL DEFAULT '',
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_channel_chats_channel ON channel_chats (channel_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_channel_chats_user ON channel_chats (channel_id, user_key);
+
+-- Provider-format transcript (OpenAI wire shape) per channel chat, mirroring messages.
+CREATE TABLE IF NOT EXISTS channel_messages (
+  chat_id    TEXT NOT NULL,
+  seq        INTEGER NOT NULL,
+  role       TEXT NOT NULL,
+  data       TEXT NOT NULL,                  -- full StoredMessage JSON
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (chat_id, seq)
+) WITHOUT ROWID;
 `;
 
 /** Create all tables/indexes (idempotent) and stamp the schema version. */

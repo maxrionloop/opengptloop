@@ -11,6 +11,7 @@ import {
 } from "./tools/readImage.js";
 import { isVisionCapableModel } from "../utils/vision.js";
 import type { SkillDefinition, SubAgentDefinition, WebToolsConfig } from "./tools/types.js";
+import type { ChannelToolContext } from "./tools/types.js";
 import type { ToolCall, ToolCallDelta } from "./providers/types.js";
 import type { ChatSession, StoredMessage } from "../services/sessionStore.js";
 import type { SessionEventBuffer } from "../services/eventBuffer.js";
@@ -27,6 +28,7 @@ import { createKnowledgeRuntime } from "./knowledge.js";
 import type { KnowledgeFile, MemoryFile, MemoryRuntime, TodoItem } from "./tools/types.js";
 import type { MemoryAgentService } from "./memoryagent/index.js";
 import { ALL_MULTI_AGENT_TOOL_NAMES } from "./tools/teamTools.js";
+import { CHANNEL_ONLY_TOOLS, buildChannelSystemSection } from "./tools/sendResponses.js";
 import type { McpManager } from "./mcp/index.js";
 import { createScheduleRuntime } from "./tools/scheduleRuntime.js";
 import {
@@ -99,6 +101,18 @@ export interface RunAgentRequest {
    * Informational — the actual behavior is driven by `systemPromptOverride` and `allowedToolNames`.
    */
   customAgent?: CustomAgentInfo | null;
+  /**
+   * Present only when THIS turn arrived from a messaging channel (Telegram / Discord / Slack).
+   * The channel tools (send_responses) are advertised, the channel system section is appended
+   * to the prompt, and channel-aware tools deliver back to this exact channel + user.
+   * Absent for every web-app turn.
+   */
+  channel?: ChannelToolContext | null;
+  /**
+   * Per-turn override for how long submit_plan waits for a user decision. Channel turns use a
+   * longer window (messaging is slower than the app UI); web-app turns use the server default.
+   */
+  planApprovalTimeoutMs?: number;
   /**
    * Whether the background memory agent may run after this turn. Mirrors the user's Settings
    * choice ("Memory agent" on/off). Defaults to true (on) — when false the memory agent never
@@ -261,9 +275,11 @@ export class AgentRunner {
             });
       // Expose the sub-agent session tools to the model only when the setting is on. Everything else
       // in the registry is always available; the two session tools are filtered out otherwise. The
-      // multi-agent team tools are always hidden from a single agent.
+      // multi-agent team tools are always hidden from a single agent. The channel-only tools
+      // (send_responses) are hidden too — unless this turn arrived from a messaging channel.
       const hiddenTools = new Set<string>(TEAM_TOOLS);
       if (!reuseSessionsEnabled) for (const name of SESSION_REUSE_TOOLS) hiddenTools.add(name);
+      if (!request.channel) for (const name of CHANNEL_ONLY_TOOLS) hiddenTools.add(name);
       let toolSchemas = this.tools.schemas.filter((s) => !hiddenTools.has(s.function.name));
       // Custom Agents run with only their selected tools (team tools remain excluded above).
       // Connector tool names (SCREAMING_SNAKE_CASE, never in the static registry) survive this
@@ -271,6 +287,14 @@ export class AgentRunner {
       if (request.allowedToolNames) {
         const allow = new Set(request.allowedToolNames);
         toolSchemas = toolSchemas.filter((s) => allow.has(s.function.name));
+      }
+      // Channel turns always carry the channel tools, even when a Custom Agent did not select
+      // them (they are never selectable in the UI — the runner appends them explicitly).
+      if (request.channel) {
+        const present = new Set(toolSchemas.map((s) => s.function.name));
+        for (const schema of this.tools.schemasFor(CHANNEL_ONLY_TOOLS)) {
+          if (!present.has(schema.function.name)) toolSchemas.push(schema);
+        }
       }
       const visionCapable = isVisionCapableModel(request.model, this.config);
       // Connected app connectors (Composio): every tool of every connected toolkit is
@@ -318,7 +342,10 @@ export class AgentRunner {
       // Tell the model about its MCP servers (a short hint — the tools themselves
       // carry full descriptions as native schemas).
       const mcpHint = mcpRuntime?.active ? mcpRuntime.hint() : "";
-      const systemPrompt = [basePrompt, connectorHint ? `# Connected apps\n- ${connectorHint}` : "", mcpHint ? `# Connected MCP servers\n- ${mcpHint}` : ""]
+      // Channel turns additionally see the channel rules (send_responses usage, disabled
+      // ask_question_to_user, plan approval via /@ok / /@no). Web-app turns never see this.
+      const channelSection = request.channel ? buildChannelSystemSection(request.channel) : "";
+      const systemPrompt = [basePrompt, connectorHint ? `# Connected apps\n- ${connectorHint}` : "", mcpHint ? `# Connected MCP servers\n- ${mcpHint}` : "", channelSection]
         .filter((part) => part.length > 0)
         .join("\n\n");
       const web: WebToolsConfig = {
@@ -517,11 +544,13 @@ export class AgentRunner {
               chatId: request.chatId,
               emit: send,
               planApprovals: this.planApprovals,
-              planApprovalTimeoutMs: this.config.planApprovalTimeoutMs,
+              planApprovalTimeoutMs:
+                request.planApprovalTimeoutMs ?? this.config.planApprovalTimeoutMs,
               askQuestions: this.askQuestions,
               questionTimeoutMs: this.config.questionTimeoutMs,
               model: request.model,
               visionCapable,
+              channel: request.channel ?? undefined,
               connectors: connectorRuntime.active ? connectorRuntime : undefined,
               mcp: mcpRuntime?.active ? mcpRuntime : undefined,
               // LLM-created sub-agents may also use the turn's connector + MCP tools.

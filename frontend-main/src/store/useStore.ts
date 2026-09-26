@@ -9,6 +9,7 @@ import type {
   ChatMessage,
   Conversation,
   CeoAgent,
+  ChannelConnection,
   ConnectorConnection,
   CustomAgent,
   CustomProvider,
@@ -90,6 +91,7 @@ export type Section =
   | "schedules"
   | "connectors"
   | "mcp"
+  | "channels"
   | "profiles";
 
 /** Connection state surfaced to the user. Slow ≠ offline; only a lost connection is "offline". */
@@ -385,8 +387,7 @@ interface AppState {
 
   // MCP servers (remote Streamable HTTP + local stdio via Composio-style UX)
   /** Replace the whole server list (used after a backend fetch). */
-  setMcpServers: (servers: McpServer[]) => void;
-  /** Insert or replace one server by id (used after create/update/test). */
+  setMcpServers: (servers: McpServer[]) => void;  /** Insert or replace one server by id (used after create/update/test). */
   upsertMcpServer: (server: McpServer) => void;
   /** Drop one server by id. */
   removeMcpServer: (id: string) => void;
@@ -394,6 +395,21 @@ interface AppState {
   setMcpServerEnabled: (id: string, enabled: boolean) => void;
   /** Switch one server tool on/off locally (the panel persists it via the API). */
   setMcpToolEnabled: (id: string, tool: string, enabled: boolean) => void;
+
+  // Messaging channels (Telegram / Discord / Slack — WhatsApp is coming soon)
+  /**
+   * Ephemeral mirror of the backend channel list, refreshed from the channels API
+   * by the Channels page. The backend SQLite database is the source of truth
+   * (tokens never leave it) — this slice is never synced through the app-state
+   * bridge and never touches browser storage.
+   */
+  channelConnections: ChannelConnection[];
+  /** Replace the whole connection list (used after a backend fetch). */
+  setChannelConnections: (connections: ChannelConnection[]) => void;
+  /** Insert or replace one connection by id (used after create/update). */
+  upsertChannelConnection: (connection: ChannelConnection) => void;
+  /** Drop one connection by id. */
+  removeChannelConnection: (id: string) => void;
 
   // Schedules (persistent cron tasks, executed by the backend scheduler)
   /**
@@ -791,6 +807,7 @@ export const useStore = create<AppState>()(
       agentMode: "agent",
       connectors: [],
       mcpServers: [],
+      channelConnections: [],
       schedules: [],
       userProfiles: mergeProfilesWithDefaults([]),
       activeUserProfileId: null,
@@ -1697,6 +1714,18 @@ export const useStore = create<AppState>()(
             return { ...m, disabledTools: [...disabled] };
           }),
         })),
+
+      // ---- Messaging channels (backend-owned, ephemeral mirror) ----------------
+      setChannelConnections: (channelConnections) => set(() => ({ channelConnections })),
+
+      upsertChannelConnection: (connection) =>
+        set((s) => {
+          const rest = s.channelConnections.filter((c) => c.id !== connection.id);
+          return { channelConnections: [...rest, connection] };
+        }),
+
+      removeChannelConnection: (id) =>
+        set((s) => ({ channelConnections: s.channelConnections.filter((c) => c.id !== id) })),
 
       // ---- Schedules (persistent cron tasks, backend-owned) ----------------
       setSchedules: (schedules) => set(() => ({ schedules })),

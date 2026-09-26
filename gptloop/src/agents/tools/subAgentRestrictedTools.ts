@@ -15,6 +15,8 @@
  *  - Multi-agent team collaboration tools (only for team agents — head/members):
  *      delegate_task_or_send_message, get_team_members_status, send_message_to_team,
  *      list_agent_team_members, message_team_leader
+ *  - Channel-only tools (only for Main/Custom Agent turns arriving from a channel):
+ *      send_responses
  *
  * This list is the ONE source of truth. It is reused by:
  *  - subagents.ts (SUB_AGENT_EXCLUDED_TOOLS)         — runtime enforcement for every sub-agent run
@@ -49,6 +51,8 @@ export const SUB_AGENT_RESTRICTED_TOOLS: readonly string[] = [
   "assign_tasks_to_teams",
   "list_teams",
   "report_task_completion_to_ceo",
+  // Messaging-channel tools — only for Main/Custom Agent turns arriving from a channel.
+  "send_responses",
 ];
 
 /** Fast membership test for the restricted set. */

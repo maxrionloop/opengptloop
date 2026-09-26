@@ -35,6 +35,8 @@ function contextLabel(section: Section, counts: Record<string, number>): string 
       return `${counts.connectors} app${counts.connectors === 1 ? "" : "s"}`;
     case "mcp":
       return `${counts.mcp} server${counts.mcp === 1 ? "" : "s"}`;
+    case "channels":
+      return `${counts.channels} channel${counts.channels === 1 ? "" : "s"}`;
     case "profiles":
       return `${counts.profiles} profile${counts.profiles === 1 ? "" : "s"}`;
     default:
@@ -64,6 +66,7 @@ export function TopBar() {
   const schedules = useStore((s) => s.schedules);
   const connectors = useStore((s) => s.connectors);
   const mcpServers = useStore((s) => s.mcpServers);
+  const channelConnections = useStore((s) => s.channelConnections);
   const userProfiles = useStore((s) => s.userProfiles);
   const setSection = useStore((s) => s.setSection);
   const agentMode = useStore((s) => s.agentMode);
@@ -81,6 +84,7 @@ export function TopBar() {
     schedules: schedules.length,
     connectors: connectors.filter((c) => c.status === "active").length,
     mcp: mcpServers.filter((m) => m.status === "connected").length,
+    channels: channelConnections.length,
     profiles: userProfiles.length,
   });
   const isChat = section === "chat";

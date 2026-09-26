@@ -392,6 +392,66 @@ export const API_ROUTES = {
     path: "/api/schedules/:id/runs/:runId",
     description: "Load one execution's logs (output, status, timestamps).",
   },
+  channelsList: {
+    name: "channels.list",
+    method: "GET",
+    path: "/api/channels",
+    description: "List the messaging-channel connections (public, no tokens).",
+  },
+  channelsCreate: {
+    name: "channels.create",
+    method: "POST",
+    path: "/api/channels",
+    description: "Create a channel connection (validates the token, then starts it).",
+  },
+  channelsGet: {
+    name: "channels.get",
+    method: "GET",
+    path: "/api/channels/:id",
+    description: "Load one channel connection.",
+  },
+  channelsUpdate: {
+    name: "channels.update",
+    method: "PUT",
+    path: "/api/channels/:id",
+    description: "Rename, replace the token, or enable/disable a channel.",
+  },
+  channelsDelete: {
+    name: "channels.delete",
+    method: "DELETE",
+    path: "/api/channels/:id",
+    description: "Delete a channel and its chats + transcripts.",
+  },
+  channelsSetAgent: {
+    name: "channels.setAgent",
+    method: "PUT",
+    path: "/api/channels/:id/agent",
+    description: "Set the agent serving new chats on a channel.",
+  },
+  channelsChats: {
+    name: "channels.chats",
+    method: "GET",
+    path: "/api/channels/:id/chats",
+    description: "List the per-user chats of a channel.",
+  },
+  channelsChatMessages: {
+    name: "channels.chat.messages",
+    method: "GET",
+    path: "/api/channels/:id/chats/:chatId/messages",
+    description: "Load one channel chat's transcript.",
+  },
+  channelsChatAgent: {
+    name: "channels.chat.agent",
+    method: "PUT",
+    path: "/api/channels/:id/chats/:chatId/agent",
+    description: "Switch the agent serving one channel chat.",
+  },
+  channelsNewChat: {
+    name: "channels.newChat",
+    method: "POST",
+    path: "/api/channels/:id/chats/:userKey/new-chat",
+    description: "Start a fresh chat for an external user.",
+  },
 } as const satisfies Record<string, ApiRoute>;
 
 export type ApiRouteName = keyof typeof API_ROUTES;

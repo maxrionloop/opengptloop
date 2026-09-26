@@ -41,6 +41,20 @@ export const ASK_ANSWERED =
   "the user answered the questions with the provided answers, continue your task using these answers";
 export const ASK_TIMEOUT = "user is not hare start the task by your own";
 
+/**
+ * Message returned to the model when ask_question_to_user is called on a messaging-channel
+ * turn (Telegram / Discord / Slack). Channels have no interactive question UI, so the tool
+ * can never collect answers there — the agent must ask the user directly with send_responses
+ * and wait for the next message instead of calling this tool again.
+ */
+export const ASK_CHANNEL_UNAVAILABLE =
+  "The ask_question_to_user tool is not available in messaging channels (Telegram, Discord, " +
+  "Slack): channels have no interactive question UI, so no answers can be collected this way. " +
+  "If you need information or a decision from the user, ask your question(s) directly with the " +
+  "send_responses tool — write them clearly in one message — then end your turn without further " +
+  "tool calls and wait for the user's next message before continuing. Do not call " +
+  "ask_question_to_user again on this channel turn.";
+
 /** Default wait for the user's answers when the runtime does not provide one (ms) — 3 minutes. */
 const DEFAULT_QUESTION_TIMEOUT_MS = 180_000;
 
@@ -66,6 +80,21 @@ export const askUserTool = defineTool({
           code: "invalid_questions",
           message:
             "Every question must have a non-empty question, context, and at least one non-empty option.",
+        },
+      };
+    }
+
+    // Messaging channels have no interactive question UI: the tool cannot collect answers
+    // there. Report this as a successful observation (not an error, so the agent does not
+    // retry) telling the agent to ask the user directly with send_responses instead.
+    if (ctx.channel) {
+      return {
+        ok: true,
+        data: {
+          tool: "ask_question_to_user",
+          questions: normalized,
+          decision: "channel_unavailable",
+          message: ASK_CHANNEL_UNAVAILABLE,
         },
       };
     }

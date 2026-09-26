@@ -129,6 +129,30 @@ export const attachFilesTool = defineTool({
       tool_call_id: ctx.toolCallId,
     });
 
+    // On a messaging-channel turn there is no app UI: deliver every attached file straight to
+    // the channel the request came from. Best-effort — the tool result still reports the files
+    // so the agent can mention them in its send_responses summary either way.
+    let channelDelivered = 0;
+    const channelErrors: Array<{ path: string; error: string }> = [];
+    if (ctx.channel && files.length > 0) {
+      try {
+        const outcome = await ctx.channel.sendFiles(
+          files.map((f) => ({
+            absolutePath: f.absolute_path,
+            filename: f.name,
+            contentType: f.content_type,
+          })),
+        );
+        channelDelivered = outcome.delivered;
+        for (const error of outcome.errors) channelErrors.push({ path: "", error });
+      } catch (error) {
+        channelErrors.push({
+          path: "",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
     if (files.length === 0) {
       return {
         ok: false,
@@ -147,8 +171,19 @@ export const attachFilesTool = defineTool({
         files,
         file_count: files.length,
         errors,
+        ...(ctx.channel
+          ? {
+              channel_delivered: channelDelivered,
+              channel_errors: channelErrors,
+            }
+          : {}),
         message:
-          `${files.length} file${files.length === 1 ? "" : "s"} attached and made available to the user for preview or download.`,
+          `${files.length} file${files.length === 1 ? "" : "s"} attached and made available to the user for preview or download.` +
+          (ctx.channel
+            ? channelDelivered === files.length
+              ? " They were delivered to the messaging channel."
+              : " Some files could not be delivered to the messaging channel — see channel_errors."
+            : ""),
       },
     };
   },

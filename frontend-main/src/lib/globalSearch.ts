@@ -106,6 +106,7 @@ const SECTION_INDEX: Array<{ section: Section; label: string; keywords: string; 
   { section: "schedules", label: "Schedules", keywords: "schedules cron recurring automation tasks background", hint: "Go to schedules" },
   { section: "connectors", label: "Connectors", keywords: "connectors github slack notion gmail outlook composio apps integration", hint: "Go to connectors" },
   { section: "mcp", label: "MCP servers", keywords: "mcp model context protocol servers tools oauth remote local", hint: "Go to MCP" },
+  { section: "channels", label: "Channels", keywords: "channels telegram discord slack whatsapp messaging bot chat adapters", hint: "Go to channels" },
   { section: "profiles", label: "Profiles", keywords: "profiles account user identity avatar", hint: "Go to profiles" },
 ];
 

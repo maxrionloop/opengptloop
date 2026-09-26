@@ -6,6 +6,7 @@ import type { RunAgentRequest } from "../agent.js";
 import type { CustomAgentConfig } from "./configuration.js";
 import { isConnectorToolName } from "../connectors/index.js";
 import { isMcpToolName } from "../mcp/index.js";
+import { CHANNEL_ONLY_TOOLS, buildChannelSystemSection } from "../tools/sendResponses.js";
 import { resolveCustomAgentSystemPrompt, resolveCustomAgentTools } from "./loader.js";
 
 /**
@@ -55,7 +56,14 @@ export class CustomAgentRunner {
     signal: AbortSignal,
   ): Promise<void> {
     const resolved = resolveCustomAgentTools(this.tools, agent.selectedTools);
-    const systemPrompt = resolveCustomAgentSystemPrompt(agent, this.config.workspaceRoot);
+    const basePrompt = resolveCustomAgentSystemPrompt(agent, this.config.workspaceRoot);
+    // Channel turns append the channel rules (send_responses usage, disabled
+    // ask_question_to_user, plan approval via /@ok / /@no) to the Custom Agent's own
+    // prompt. Web-app turns never see this section.
+    const systemPrompt =
+      request.channel && request.channel !== null
+        ? `${basePrompt}\n\n${buildChannelSystemSection(request.channel)}`
+        : basePrompt;
 
     // Connector + MCP tool selections (SCREAMING_SNAKE_CASE slugs / `mcp_*`
     // namespaced tools, never in the static registry) are preserved verbatim:
@@ -67,7 +75,11 @@ export class CustomAgentRunner {
     const selectedMcpTools = agent.selectedTools.filter(
       (name) => isMcpToolName(name) && !resolved.allowed.includes(name),
     );
-    const allowedToolNames = [...resolved.allowed, ...selectedConnectorTools, ...selectedMcpTools];
+    // Channel turns always carry the channel tools, even though they are never selectable
+    // in the creation UI (the catalog excludes them — see loader.ts).
+    const selectedChannelTools =
+      request.channel && request.channel !== null ? [...CHANNEL_ONLY_TOOLS] : [];
+    const allowedToolNames = [...resolved.allowed, ...selectedConnectorTools, ...selectedMcpTools, ...selectedChannelTools];
 
     // Announce which top-level agent is handling this turn (a Custom Agent, not a sub-agent) so the
     // UI/persistence can label it. Sent before the run so it is captured in the event log.
