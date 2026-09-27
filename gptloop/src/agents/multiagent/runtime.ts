@@ -105,6 +105,8 @@ export interface TeamOrchestratorDeps {
   connectors: ConnectorRuntime;
   /** The turn's MCP runtime (connected MCP servers), shared by every agent. */
   mcp?: McpRuntime;
+  /** The persisted MCP manager — lets team agents use the MCP management tools. */
+  mcpManager?: import("../mcp/manager.js").McpManager;
   /** Raw SSE emitter onto the turn buffer. */
   send: (event: string, data: Record<string, unknown>) => void;
   signal: AbortSignal;
@@ -470,13 +472,14 @@ export class TeamOrchestrator {
       }),
       team: this.buildTeamRuntime(actor),
       connectors: this.deps.connectors.active ? this.deps.connectors : undefined,
-      mcp: this.deps.mcp?.active ? this.deps.mcp : undefined,
+      mcp: this.deps.mcp ?? undefined,
+      mcpManager: this.deps.mcpManager,
       model: this.deps.model,
       visionCapable: this.visionCapable,
       availableToolNames: [
         ...this.registryNames,
         ...(this.deps.connectors.active ? this.deps.connectors.names() : []),
-        ...(this.deps.mcp?.active ? this.deps.mcp.names() : []),
+        ...(this.deps.mcp ? this.deps.mcp.names() : []),
       ],
       emit: this.deps.send,
     };

@@ -17,6 +17,9 @@
  *      list_agent_team_members, message_team_leader
  *  - Channel-only tools (only for Main/Custom Agent turns arriving from a channel):
  *      send_responses
+ *  - Agent-driven MCP management tools (only for main/custom/team/CEO agents):
+ *      connect_remote_mcp, connect_local_mcp_server, list_available_mcp_servers,
+ *      delete_mcp_server, on_off_mcp_server, get_mcp_server_status
  *
  * This list is the ONE source of truth. It is reused by:
  *  - subagents.ts (SUB_AGENT_EXCLUDED_TOOLS)         — runtime enforcement for every sub-agent run
@@ -53,6 +56,13 @@ export const SUB_AGENT_RESTRICTED_TOOLS: readonly string[] = [
   "report_task_completion_to_ceo",
   // Messaging-channel tools — only for Main/Custom Agent turns arriving from a channel.
   "send_responses",
+  // Agent-driven MCP management tools — only for main/custom/team/CEO agents, never sub-agents.
+  "connect_remote_mcp",
+  "connect_local_mcp_server",
+  "list_available_mcp_servers",
+  "delete_mcp_server",
+  "on_off_mcp_server",
+  "get_mcp_server_status",
 ];
 
 /** Fast membership test for the restricted set. */

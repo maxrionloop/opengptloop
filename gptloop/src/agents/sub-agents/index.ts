@@ -20,7 +20,7 @@ export const DEFAULT_SUB_AGENT_DISALLOWED_TOOLS: readonly string[] = SUB_AGENT_R
 
 /**
  * Every tool name currently registered in the agent's tool registry (the same set the main agent
- * sees). Kept in sync with createToolRegistry in ../tools/index.js — 59 tools total.
+ * sees). Kept in sync with createToolRegistry in ../tools/index.js — 65 tools total.
  */
 const ALL_AGENT_TOOLS: readonly string[] = [
   "file_read",
@@ -82,6 +82,12 @@ const ALL_AGENT_TOOLS: readonly string[] = [
   "schedule_run_now",
   "schedule_delete",
   "schedule_get",
+  "connect_remote_mcp",
+  "connect_local_mcp_server",
+  "list_available_mcp_servers",
+  "delete_mcp_server",
+  "on_off_mcp_server",
+  "get_mcp_server_status",
 ];
 
 /**

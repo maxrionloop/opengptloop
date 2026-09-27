@@ -312,6 +312,71 @@ export class McpRuntime {
       `Call them as real function calls with exact arguments whenever the task touches one of these servers.`
     );
   }
+
+  /**
+   * Dynamically attach one server's FULL tool catalog to this live turn runtime.
+   * Used by the agent-driven MCP management tools (connect_remote_mcp,
+   * connect_local_mcp_server, on_off_mcp_server) so a server the agent just
+   * connected/enabled is immediately usable in the SAME turn — the next model
+   * iteration sees its native tools without waiting for the next chat turn.
+   * Returns how many native tools were attached.
+   */
+  async attachServer(
+    serverId: string,
+    signal?: AbortSignal,
+    cache?: McpToolCache,
+  ): Promise<{ attached: number; tools: string[] }> {
+    const server = this.manager.get(serverId);
+    if (!server || !server.enabled) return { attached: 0, tools: [] };
+    const toolCache = cache ?? sharedMcpToolCache;
+    let descriptions;
+    try {
+      descriptions = await toolCache.get(this.manager, serverId, signal);
+    } catch {
+      return { attached: 0, tools: [] };
+    }
+    // Drop any stale tools previously attached for this server, then re-attach.
+    this.detachServer(serverId);
+    const fresh = this.manager.get(serverId);
+    if (!fresh) return { attached: 0, tools: [] };
+    const disabled = new Set(fresh.disabledTools ?? []);
+    const added: string[] = [];
+    for (const tool of descriptions) {
+      if (disabled.has(tool.name)) continue;
+      const name = nativeToolName(fresh, tool.name, this.byName);
+      if (!name || this.byName.has(name)) continue;
+      this.byName.set(name, {
+        name,
+        toolName: tool.name,
+        serverId: fresh.id,
+        serverName: fresh.name,
+        displayName: tool.name,
+        description: tool.description,
+        parameters: tool.inputSchema,
+      });
+      added.push(name);
+    }
+    if (!this.serverIds.includes(serverId)) this.serverIds.push(serverId);
+    if (!this.enabledServerIds.includes(serverId)) this.enabledServerIds.push(serverId);
+    this.manager.touch(serverId);
+    return { attached: added.length, tools: added };
+  }
+
+  /** Drop every native tool contributed by one server (used on disable/delete). */
+  detachServer(serverId: string): number {
+    let removed = 0;
+    for (const [name, tool] of [...this.byName]) {
+      if (tool.serverId === serverId) {
+        this.byName.delete(name);
+        removed += 1;
+      }
+    }
+    const idx = this.serverIds.indexOf(serverId);
+    if (idx !== -1) this.serverIds.splice(idx, 1);
+    const enabledIdx = this.enabledServerIds.indexOf(serverId);
+    if (enabledIdx !== -1) this.enabledServerIds.splice(enabledIdx, 1);
+    return removed;
+  }
 }
 
 /** True when a tool name looks like an MCP namespaced tool (`mcp_<slug>_...`). */

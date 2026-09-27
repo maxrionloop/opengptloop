@@ -1,6 +1,7 @@
 import { useStore } from "@/store/useStore";
 import { uid } from "@/utils/id";
 import { watchMemoryAgentRun } from "@/lib/memoryAgent";
+import { normalizeMcpServers } from "@/lib/mcp";
 import type { StreamBatcher } from "@/lib/streamBatcher";
 import type {
   AttachedFile,
@@ -292,6 +293,51 @@ export function dispatchStreamEvent(event: string, data: SSEEventData, ctx: Disp
     case "knowledge_updated":
       if (Array.isArray(data.knowledgeFiles)) s.setKnowledge(data.knowledgeFiles as KnowledgeFile[]);
       break;
+
+    case "mcp_servers_updated":
+      // An agent-driven MCP management tool mutated the persisted servers.
+      // Mirror the backend truth into the store so the MCP page + the next
+      // chat turn (which sends enabled server ids) converge immediately.
+      if (Array.isArray((data as Record<string, unknown>).servers)) {
+        try {
+          const raw = (data as Record<string, unknown>).servers;
+          const normalized = normalizeMcpServers(raw);
+          if (normalized.length > 0 || (raw as unknown[]).length === 0) {
+            s.setMcpServers(normalized);
+          }
+        } catch {
+          // best effort — the MCP page refetches on open anyway
+        }
+      }
+      break;
+
+    case "mcp_oauth_required": {
+      // The agent started an OAuth MCP connection and is blocked waiting for
+      // the user (up to 3 minutes). Stash the pending server on the tool block
+      // so the Connect button can resolve its server id even before tool_result.
+      const toolId =
+        typeof (data as Record<string, unknown>).tool_call_id === "string"
+          ? ((data as Record<string, unknown>).tool_call_id as string)
+          : null;
+      const serverId =
+        typeof (data as Record<string, unknown>).server_id === "string"
+          ? ((data as Record<string, unknown>).server_id as string)
+          : null;
+      const serverName =
+        typeof (data as Record<string, unknown>).server_name === "string"
+          ? ((data as Record<string, unknown>).server_name as string)
+          : null;
+      if (toolId && serverId) {
+        s.upsertTool(convId, msgId, {
+          id: toolId,
+          name: "connect_remote_mcp",
+          label: serverName ? `Connect MCP: ${serverName}` : "Connect MCP server",
+          status: "running",
+          result: { oauth_pending: true, server_id: serverId, server_name: serverName } as never,
+        });
+      }
+      break;
+    }
 
     case "embed_url": {
       const url = extractUrl(data);

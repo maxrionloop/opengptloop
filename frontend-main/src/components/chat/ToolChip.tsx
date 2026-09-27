@@ -38,6 +38,10 @@ import {
   Save,
   Search,
   Server,
+  ShieldCheck,
+  PlugZap,
+  Unplug,
+  Activity,
   Terminal,
   Timer,
   Trash2,
@@ -57,6 +61,7 @@ import { cn } from "@/utils/cn";
 import { formatBytes } from "@/utils/format";
 import { useStore } from "@/store/useStore";
 import { API_ROUTES, routeUrl } from "@/app/api/routes";
+import { fetchMcpServers, startMcpOAuth, pollMcpConnected } from "@/lib/mcp";
 
 const MEMORY_TOOLS = new Set([
   "memory_list",
@@ -111,6 +116,12 @@ const ICONS: Record<string, typeof Terminal> = {
   delete_skill: Trash2,
   list_sub_agent_sessions: History,
   reuse_same_sub_agent_session: Repeat2,
+  connect_remote_mcp: Server,
+  connect_local_mcp_server: Server,
+  list_available_mcp_servers: List,
+  delete_mcp_server: Trash2,
+  on_off_mcp_server: Plug,
+  get_mcp_server_status: Activity,
   wait: Timer,
   TodoWrite: ListTodo,
   read_todos: ClipboardList,
@@ -267,6 +278,12 @@ export function ToolChip({ tool }: { tool: ToolActivity }) {
   if (tool.name === "list_sub_agent_sessions") return <ListSubAgentSessionsChip tool={tool} />;
   if (tool.name === "reuse_same_sub_agent_session") return <ReuseSessionChip tool={tool} />;
   if (tool.name === "wait") return <WaitChip tool={tool} />;
+  if (tool.name === "connect_remote_mcp") return <ConnectRemoteMcpChip tool={tool} />;
+  if (tool.name === "connect_local_mcp_server") return <ConnectLocalMcpChip tool={tool} />;
+  if (tool.name === "list_available_mcp_servers") return <ListMcpServersChip tool={tool} />;
+  if (tool.name === "delete_mcp_server") return <DeleteMcpServerChip tool={tool} />;
+  if (tool.name === "on_off_mcp_server") return <ToggleMcpServerChip tool={tool} />;
+  if (tool.name === "get_mcp_server_status") return <McpStatusChip tool={tool} />;
   if (tool.name === "create_checkpoint") return <CreateCheckpointChip tool={tool} />;
   if (tool.name === "list_checkpoints") return <ListCheckpointsChip tool={tool} />;
   if (tool.name === "delete_checkpoint") return <DeleteCheckpointChip tool={tool} />;
@@ -2028,6 +2045,347 @@ function RestoreCheckpointChip({ tool }: { tool: ToolActivity }) {
             </>
           ) : (
             !error && <div className="text-[var(--muted)]">Restoring checkpoint…</div>
+          )}
+        </>
+      )}
+    />
+  );
+}
+
+/* ------------------------------------------------- MCP management tools */
+
+function McpServerPills({ data }: { data: Record<string, unknown> | undefined }) {
+  if (!data) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {typeof data.status === "string" && data.status && (
+        <Pill tone={data.status === "connected" || data.status === "on" ? "accent" : data.status === "error" || data.status === "off" ? "danger" : "default"}>
+          {String(data.status)}
+        </Pill>
+      )}
+      {typeof data.tool_count === "number" && <Pill>{data.tool_count} tool(s)</Pill>}
+      {typeof data.enabled === "boolean" && (
+        <Pill tone={data.enabled ? "accent" : "off"}>{data.enabled ? "enabled" : "disabled"}</Pill>
+      )}
+    </div>
+  );
+}
+
+function McpToolsList({ tools }: { tools: unknown }) {
+  const list = Array.isArray(tools) ? (tools as Array<{ name?: string; description?: string }>) : [];
+  if (list.length === 0) return null;
+  return (
+    <div>
+      <Label>Native tools now available</Label>
+      <div className="mt-1 flex flex-wrap gap-1">
+        {list.slice(0, 12).map((t, i) => (
+          <Pill key={i}>
+            <Wrench className="h-2.5 w-2.5" />
+            {String(t.name ?? "")}
+          </Pill>
+        ))}
+        {list.length > 12 && <Pill>+{list.length - 12} more</Pill>}
+      </div>
+    </div>
+  );
+}
+
+function ConnectRemoteMcpChip({ tool }: { tool: ToolActivity }) {
+  const { data, error, args, hasResult } = parts(tool);
+  const [connecting, setConnecting] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
+  const authType =
+    (args.auth_type as string) ?? (data?.auth_type as string) ?? "";
+  const serverName =
+    (args.mcp_server_name as string) ?? (data?.server_name as string) ?? "";
+  const needsOAuth =
+    authType === "oauth" ||
+    (data as Record<string, unknown> | undefined)?.oauth_pending === true;
+  const pending =
+    (data as Record<string, unknown> | undefined)?.oauth_pending === true ||
+    (tool.status === "running" && authType === "oauth");
+
+  const connect = async () => {
+    setConnecting(true);
+    setConnectError(null);
+    try {
+      const servers = await fetchMcpServers();
+      const match = servers.find(
+        (s) => s.name.trim().toLowerCase() === serverName.trim().toLowerCase(),
+      );
+      if (!match) {
+        setConnectError(
+          `MCP server "${serverName}" was not found. It may still be connecting — wait a moment and try again.`,
+        );
+        return;
+      }
+      const frontendUrl =
+        typeof window !== "undefined" ? window.location.origin : "";
+      const started = await startMcpOAuth(match.id, { frontendUrl });
+      window.open(started.auth_url, "_blank", "noopener,noreferrer");
+      const final = await pollMcpConnected(match.id, 72, 2500);
+      if (final !== "connected") {
+        setConnectError(
+          final === "auth_required"
+            ? "Authorization did not complete — the server still needs OAuth. Press Connect again to retry."
+            : "The server did not connect. Check its status on the MCP page.",
+        );
+        return;
+      }
+      const refreshed = await fetchMcpServers();
+      useStore.getState().setMcpServers(refreshed);
+    } catch (e) {
+      setConnectError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  return (
+    <Shell
+      icon={<Server className="h-3.5 w-3.5" />}
+      label={tool.label}
+      status={tool.status}
+      expandable
+      pills={
+        <>
+          {authType && <Pill tone={authType === "oauth" ? "accent" : "default"}>{authType}</Pill>}
+          {typeof data?.tool_count === "number" && <Pill>{data.tool_count} tool(s)</Pill>}
+          {pending && <Pill tone="warn">awaiting OAuth</Pill>}
+        </>
+      }
+      panel={() => (
+        <>
+          {error?.message && <div className="text-[var(--danger)]">{error.message}</div>}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {serverName && (
+              <Pill>
+                <Server className="h-2.5 w-2.5" />
+                <span className="font-mono">{serverName}</span>
+              </Pill>
+            )}
+            {typeof args.url === "string" && args.url && (
+              <Pill>
+                <span className="max-w-[16rem] truncate font-mono">{String(args.url)}</span>
+              </Pill>
+            )}
+          </div>
+          {needsOAuth && (
+            <div className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--chip)] p-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <ShieldCheck className="h-4 w-4 shrink-0 text-[var(--secondary)]" />
+                <span className="flex-1 text-[var(--fg)]">
+                  This server needs OAuth — press Connect to authorize in your browser. The agent
+                  waits up to 3 minutes, then continues.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void connect()}
+                  disabled={connecting}
+                  className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--secondary)] px-3 py-1.5 text-[var(--secondary-fg)] disabled:opacity-50"
+                >
+                  {connecting ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <PlugZap className="h-3.5 w-3.5" />
+                  )}
+                  {connecting ? "Connecting…" : "Connect"}
+                </button>
+              </div>
+              {connectError && <div className="mt-1.5 text-[var(--danger)]">{connectError}</div>}
+            </div>
+          )}
+          <McpServerPills data={data as Record<string, unknown> | undefined} />
+          <McpToolsList tools={(data as Record<string, unknown> | undefined)?.tools} />
+          {typeof data?.message === "string" && data.message && (
+            <div className="text-[var(--muted)]">{data.message}</div>
+          )}
+          {!hasResult && !error && (
+            <div className="text-[var(--muted)]">
+              {pending ? "Waiting for OAuth — press Connect above." : "Connecting to the MCP server…"}
+            </div>
+          )}
+        </>
+      )}
+    />
+  );
+}
+
+function ConnectLocalMcpChip({ tool }: { tool: ToolActivity }) {
+  const { data, error, args, hasResult } = parts(tool);
+  const serverName =
+    (args.mcp_server_name as string) ?? (data?.server_name as string) ?? "";
+  return (
+    <Shell
+      icon={<Server className="h-3.5 w-3.5" />}
+      label={tool.label}
+      status={tool.status}
+      expandable
+      pills={
+        typeof data?.tool_count === "number" ? <Pill>{data.tool_count} tool(s)</Pill> : undefined
+      }
+      panel={() => (
+        <>
+          {error?.message && <div className="text-[var(--danger)]">{error.message}</div>}
+          {serverName && (
+            <Pill>
+              <Server className="h-2.5 w-2.5" />
+              <span className="font-mono">{String(serverName)}</span>
+            </Pill>
+          )}
+          <McpServerPills data={data as Record<string, unknown> | undefined} />
+          <McpToolsList tools={(data as Record<string, unknown> | undefined)?.tools} />
+          {typeof data?.message === "string" && data.message && (
+            <div className="text-[var(--muted)]">{data.message}</div>
+          )}
+          {!hasResult && !error && <div className="text-[var(--muted)]">Connecting to the local MCP server…</div>}
+        </>
+      )}
+    />
+  );
+}
+
+function ListMcpServersChip({ tool }: { tool: ToolActivity }) {
+  const { data, error, hasResult } = parts(tool);
+  const servers: Array<{ name?: string; description?: string; status?: string; enabled?: boolean; tool_count?: number }> =
+    (data?.servers as Array<{ name?: string; description?: string; status?: string; enabled?: boolean; tool_count?: number }>) ?? [];
+  return (
+    <Shell
+      icon={<List className="h-3.5 w-3.5" />}
+      label={tool.label}
+      status={tool.status}
+      expandable={hasResult}
+      pills={servers.length > 0 ? <Pill>{servers.length} server(s)</Pill> : undefined}
+      panel={() => (
+        <>
+          {error?.message && <div className="text-[var(--danger)]">{error.message}</div>}
+          {servers.length === 0 && !error && (
+            <div className="text-[var(--muted)]">No MCP servers available.</div>
+          )}
+          {servers.map((s, i) => (
+            <div key={i} className="flex flex-wrap items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--border)] p-2">
+              <span className="flex items-center gap-1 font-medium text-[var(--fg)]">
+                <Server className="h-3 w-3" />
+                {String(s.name ?? "")}
+              </span>
+              {s.status && (
+                <Pill tone={s.status === "connected" ? "accent" : s.status === "error" ? "danger" : "default"}>
+                  {String(s.status)}
+                </Pill>
+              )}
+              {typeof s.enabled === "boolean" && (
+                <Pill tone={s.enabled ? "accent" : "off"}>{s.enabled ? "on" : "off"}</Pill>
+              )}
+              {typeof s.tool_count === "number" && <Pill>{s.tool_count} tool(s)</Pill>}
+              {s.description && <span className="w-full text-[var(--muted)]">{String(s.description)}</span>}
+            </div>
+          ))}
+          {typeof data?.message === "string" && data.message && (
+            <div className="text-[var(--muted)]">{data.message}</div>
+          )}
+        </>
+      )}
+    />
+  );
+}
+
+function DeleteMcpServerChip({ tool }: { tool: ToolActivity }) {
+  const { data, error, args, hasResult } = parts(tool);
+  const name: string =
+    (data?.server_name as string) ?? (args.mcp_server_name as string) ?? "";
+  return (
+    <Shell
+      icon={<Trash2 className="h-3.5 w-3.5" />}
+      label={tool.label}
+      status={tool.status}
+      expandable={hasResult}
+      pills={data?.deleted ? <Pill tone="danger">deleted</Pill> : undefined}
+      panel={() => (
+        <>
+          {error?.message && <div className="text-[var(--danger)]">{error.message}</div>}
+          {name && (
+            <span className="flex items-center gap-1 font-medium text-[var(--fg)]">
+              <Server className="h-3 w-3" />
+              {name}
+            </span>
+          )}
+          {typeof data?.message === "string" && data.message && (
+            <div className="text-[var(--muted)]">{data.message}</div>
+          )}
+          {!data && !error && <div className="text-[var(--muted)]">Deleting the MCP server…</div>}
+        </>
+      )}
+    />
+  );
+}
+
+function ToggleMcpServerChip({ tool }: { tool: ToolActivity }) {
+  const { data, error, args, hasResult } = parts(tool);
+  const name: string =
+    (data?.server_name as string) ?? (args.mcp_server_name as string) ?? "";
+  const status = (data?.status as string) ?? (args.status as string) ?? "";
+  return (
+    <Shell
+      icon={<Plug className="h-3.5 w-3.5" />}
+      label={tool.label}
+      status={tool.status}
+      expandable={hasResult}
+      pills={status ? <Pill tone={status === "on" ? "accent" : "off"}>{status}</Pill> : undefined}
+      panel={() => (
+        <>
+          {error?.message && <div className="text-[var(--danger)]">{error.message}</div>}
+          {name && (
+            <span className="flex items-center gap-1 font-medium text-[var(--fg)]">
+              {status === "on" ? <PlugZap className="h-3 w-3" /> : <Unplug className="h-3 w-3" />}
+              {name}
+            </span>
+          )}
+          {typeof data?.message === "string" && data.message && (
+            <div className="text-[var(--muted)]">{data.message}</div>
+          )}
+          {!hasResult && !error && <div className="text-[var(--muted)]">Updating the MCP server…</div>}
+        </>
+      )}
+    />
+  );
+}
+
+function McpStatusChip({ tool }: { tool: ToolActivity }) {
+  const { data, error, args, hasResult } = parts(tool);
+  const name: string =
+    (data?.server_name as string) ?? (args.mcp_server_name as string) ?? "";
+  return (
+    <Shell
+      icon={<Activity className="h-3.5 w-3.5" />}
+      label={tool.label}
+      status={tool.status}
+      expandable={hasResult}
+      pills={
+        typeof data?.status === "string" && data.status ? (
+          <Pill tone={data.status === "connected" ? "accent" : data.status === "error" ? "danger" : "default"}>
+            {String(data.status)}
+          </Pill>
+        ) : undefined
+      }
+      panel={() => (
+        <>
+          {error?.message && <div className="text-[var(--danger)]">{error.message}</div>}
+          {name && (
+            <span className="flex items-center gap-1 font-medium text-[var(--fg)]">
+              <Server className="h-3 w-3" />
+              {name}
+            </span>
+          )}
+          <McpServerPills data={data as Record<string, unknown> | undefined} />
+          <McpToolsList tools={(data as Record<string, unknown> | undefined)?.tools} />
+          {typeof (data as Record<string, unknown> | undefined)?.last_error === "string" &&
+            (data as Record<string, unknown>).last_error && (
+              <div className="text-[var(--danger)]">
+                Last error: {String((data as Record<string, unknown>).last_error)}
+              </div>
+            )}
+          {typeof data?.message === "string" && data.message && (
+            <div className="text-[var(--muted)]">{data.message}</div>
           )}
         </>
       )}

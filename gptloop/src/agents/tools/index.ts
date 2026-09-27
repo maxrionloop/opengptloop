@@ -67,6 +67,12 @@ import { scheduleRunNowTool } from "./schedule_run_now.js";
 import { scheduleDeleteTool } from "./schedule_delete.js";
 import { scheduleGetTool } from "./schedule_get.js";
 import { sendResponsesTool } from "./sendResponses.js";
+import { connectRemoteMcpTool } from "./mcp_connect_remote.js";
+import { connectLocalMcpServerTool } from "./mcp_connect_local.js";
+import { listAvailableMcpServersTool } from "./mcp_list.js";
+import { deleteMcpServerTool } from "./mcp_delete.js";
+import { toggleMcpServerTool } from "./mcp_toggle.js";
+import { getMcpServerStatusTool } from "./mcp_status.js";
 
 export { ToolRegistry } from "./registry.js";
 export type {
@@ -168,6 +174,16 @@ export { scheduleOffTool } from "./schedule_off.js";
 export { scheduleRunNowTool } from "./schedule_run_now.js";
 export { scheduleDeleteTool } from "./schedule_delete.js";
 export { scheduleGetTool } from "./schedule_get.js";
+export { connectRemoteMcpTool } from "./mcp_connect_remote.js";
+export { connectLocalMcpServerTool } from "./mcp_connect_local.js";
+export { listAvailableMcpServersTool } from "./mcp_list.js";
+export { deleteMcpServerTool } from "./mcp_delete.js";
+export { toggleMcpServerTool } from "./mcp_toggle.js";
+export { getMcpServerStatusTool } from "./mcp_status.js";
+export {
+  MCP_MANAGEMENT_TOOL_NAMES,
+  isMcpManagementTool,
+} from "./mcpManagement.js";
 export {
   CHANNEL_ONLY_TOOLS,
   buildChannelSystemSection,
@@ -271,6 +287,12 @@ export function createToolRegistry(): ToolRegistry {
     scheduleRunNowTool,
     scheduleDeleteTool,
     scheduleGetTool,
+    connectRemoteMcpTool,
+    connectLocalMcpServerTool,
+    listAvailableMcpServersTool,
+    deleteMcpServerTool,
+    toggleMcpServerTool,
+    getMcpServerStatusTool,
     sendResponsesTool,
   ]);
 }
@@ -343,5 +365,11 @@ export const tools = {
   scheduleRunNowTool,
   scheduleDeleteTool,
   scheduleGetTool,
+  connectRemoteMcpTool,
+  connectLocalMcpServerTool,
+  listAvailableMcpServersTool,
+  deleteMcpServerTool,
+  toggleMcpServerTool,
+  getMcpServerStatusTool,
   sendResponsesTool,
 };

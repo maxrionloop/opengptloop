@@ -635,6 +635,11 @@ export interface ToolContext {
    * Lets any tool-execution path route MCP tool calls; absent when no MCP
    * server is connected this turn. */
   mcp?: import("../mcp/runtime.js").McpRuntime;
+  /** MCP server manager — present for main/team/CEO agent tool calls so the
+   * agent-driven MCP management tools (connect/list/delete/on-off/status) can
+   * create, inspect, and mutate the persisted MCP servers. Absent for
+   * sub-agents, chat mode, and the memory agent (which never manage servers). */
+  mcpManager?: import("../mcp/manager.js").McpManager;
   /**
    * Messaging-channel context — present ONLY when the tool call belongs to a turn that
    * arrived from a messaging channel (Telegram / Discord / Slack). Absent everywhere

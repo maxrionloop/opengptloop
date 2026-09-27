@@ -37,8 +37,10 @@ import {
 } from "./connectors/index.js";
 import {
   McpRuntime,
+  isMcpToolName,
   type McpServerSelection,
 } from "./mcp/index.js";
+import { isMcpManagementTool } from "./tools/mcpManagement.js";
 
 export interface RunAgentRequest {
   chatId: string;
@@ -552,7 +554,8 @@ export class AgentRunner {
               visionCapable,
               channel: request.channel ?? undefined,
               connectors: connectorRuntime.active ? connectorRuntime : undefined,
-              mcp: mcpRuntime?.active ? mcpRuntime : undefined,
+              mcp: mcpRuntime ?? undefined,
+              mcpManager: this.mcpManager,
               // LLM-created sub-agents may also use the turn's connector + MCP tools.
               availableToolNames: [
                 ...this.tools.names(),
@@ -584,6 +587,25 @@ export class AgentRunner {
               result: resultForModel,
               label: toolLabel,
             });
+
+            // Agent-driven MCP management tools mutate the persisted servers AND the
+            // live turn runtime (attach/detach). Refresh the advertised native mcp_*
+            // schemas so the VERY NEXT model iteration can call the new tools —
+            // without waiting for the next chat turn.
+            if (isMcpManagementTool(toolCall.function.name) && mcpRuntime) {
+              try {
+                const freshSchemas = mcpRuntime.schemas();
+                const base = toolSchemas.filter((s) => !isMcpToolName(s.function.name));
+                if (request.allowedToolNames) {
+                  const allow = new Set(request.allowedToolNames);
+                  toolSchemas = [...base, ...freshSchemas.filter((s) => allow.has(s.function.name))];
+                } else {
+                  toolSchemas = [...base, ...freshSchemas];
+                }
+              } catch {
+                // schema refresh is best-effort — the turn still continues
+              }
+            }
           }
 
           // Append any vision inputs after all tool responses so providers see
