@@ -55,6 +55,16 @@ export class CeoAgentRunner {
 
   private scheduleStore?: import("../../../cron/store.js").ScheduleStore;
   private scheduleScheduler?: import("../../../cron/scheduler.js").ScheduleScheduler;
+  private channelManager?: import("../../../channels/manager.js").ChannelManager;
+
+  /**
+   * Attach the messaging-channel manager (called once at boot). When set, CEO,
+   * leader, and member agents granted the channel_* tools can inspect
+   * connections, wait for the user to connect, and deliver messages.
+   */
+  setChannelManager(manager?: import("../../../channels/manager.js").ChannelManager): void {
+    this.channelManager = manager;
+  }
 
   async run(
     request: RunCeoRequest,
@@ -154,6 +164,7 @@ export class CeoAgentRunner {
         mcpManager: this.mcpManager,
         scheduleStore: this.scheduleStore,
         scheduleScheduler: this.scheduleScheduler,
+        channelManager: this.channelManager,
         send,
         signal,
       });

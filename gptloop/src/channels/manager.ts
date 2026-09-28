@@ -15,6 +15,7 @@ import { ChannelTurnRunner } from "./runner.js";
 import { TelegramProvider, verifyTelegramToken } from "./providers/telegram.js";
 import { DiscordProvider, verifyDiscordToken } from "./providers/discord.js";
 import { SlackProvider, verifySlackToken } from "./providers/slack.js";
+import { chunkText } from "./providers/base.js";
 import type {
   ChannelConnectionPublic,
   ChannelIncoming,
@@ -396,6 +397,109 @@ export class ChannelManager {
     return this.deps.db.channelChats.listByChannel(channelId);
   }
 
+  /**
+   * Send a plain-text agent message to the users of every connected channel of
+   * one kind — the outbound path for the agent-driven
+   * `send_message_to_communication_channel` tool (web-app / team / CEO turns).
+   *
+   * Delivery is stateless REST (no live provider needed) using the stored
+   * server-side tokens, which never leave the backend:
+   *   - Telegram: Bot API sendMessage straight to each known user (DM). Users
+   *     must have started the bot at least once.
+   *   - Discord: open (or reuse) a DM channel per user, then post the message.
+   *   - Slack: open a DM per user via conversations.open, then post it.
+   *
+   * Returns how many external users were reached. Never throws — per-user
+   * failures are collected in `errors` so the tool can report them.
+   */
+  async sendMessageToChannel(
+    kind: ChannelKind,
+    text: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<{
+    delivered: number;
+    targets: string[];
+    errors: string[];
+    message: string;
+    errorCode?: string;
+  }> {
+    const connections = this.store.list().filter((c) => c.kind === kind && c.enabled && c.token);
+    if (connections.length === 0) {
+      return {
+        delivered: 0,
+        targets: [],
+        errors: [],
+        message: `No connected ${kind} channel exists. Ask the user to connect it first.`,
+        errorCode: "channel_not_connected",
+      };
+    }
+
+    const seenUsers = new Map<string, { connectionId: string; userKey: string; userLabel: string }>();
+    for (const connection of connections) {
+      for (const chat of this.deps.db.channelChats.listByChannel(connection.id)) {
+        if (!seenUsers.has(chat.userKey)) {
+          seenUsers.set(chat.userKey, {
+            connectionId: connection.id,
+            userKey: chat.userKey,
+            userLabel: chat.userLabel,
+          });
+        }
+      }
+    }
+    if (seenUsers.size === 0) {
+      return {
+        delivered: 0,
+        targets: [],
+        errors: [],
+        message:
+          `The ${kind} channel is connected, but no user has messaged the bot yet, so there is nobody to send to. ` +
+          "Ask the user to open the bot and send it a message first, then try again.",
+        errorCode: "no_channel_users",
+      };
+    }
+
+    let delivered = 0;
+    const targets: string[] = [];
+    const errors: string[] = [];
+    for (const entry of seenUsers.values()) {
+      if (options?.signal?.aborted) break;
+      const connection = this.store.get(entry.connectionId);
+      if (!connection || !connection.enabled || !connection.token) continue;
+      try {
+        if (kind === "telegram") {
+          await sendTelegramText(connection.token, entry.userKey, text, options?.signal);
+        } else if (kind === "discord") {
+          await sendDiscordText(connection.token, entry.userKey, text, options?.signal);
+        } else {
+          await sendSlackText(connection.token, entry.userKey, text, options?.signal);
+        }
+        delivered += 1;
+        targets.push(entry.userLabel || entry.userKey);
+      } catch (error) {
+        errors.push(`${entry.userLabel || entry.userKey}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    if (delivered === 0) {
+      return {
+        delivered: 0,
+        targets,
+        errors,
+        message: `Could not deliver the message to any ${kind} user${errors.length > 0 ? `: ${errors.slice(0, 3).join("; ")}` : "."}`,
+        errorCode: "channel_send_failed",
+      };
+    }
+    return {
+      delivered,
+      targets,
+      errors,
+      message:
+        `Sent the message to ${delivered} ${kind} user${delivered === 1 ? "" : "s"}` +
+        `${targets.length > 0 ? ` (${targets.slice(0, 5).join(", ")}${targets.length > 5 ? ", …" : ""})` : ""}` +
+        `${errors.length > 0 ? `. ${errors.length} deliver${errors.length === 1 ? "y" : "ies"} failed.` : "."}`,
+    };
+  }
+
   // ---- Internals --------------------------------------------------------------
 
   private stopLive(id: string): void {
@@ -444,6 +548,136 @@ export class ChannelManager {
     // blips never flip the dashboard status.
     if (count >= 3) {
       this.store.markStatus(id, "error", { lastError: message.slice(0, 300) });
+    }
+  }
+}
+
+const OUTBOUND_TIMEOUT_MS = 30_000;
+const TELEGRAM_API = "https://api.telegram.org";
+const DISCORD_REST = "https://discord.com/api/v10";
+const SLACK_API = "https://slack.com/api";
+
+function telegramUserId(userKey: string): string | null {
+  const match = /^tg:(.+)$/.exec(userKey.trim());
+  const id = match?.[1]?.trim() ?? "";
+  return id.length > 0 ? id : null;
+}
+
+function discordUserId(userKey: string): string | null {
+  const match = /^dc:(.+)$/.exec(userKey.trim());
+  const id = match?.[1]?.trim() ?? "";
+  return id.length > 0 ? id : null;
+}
+
+function slackUserId(userKey: string): string | null {
+  const parts = userKey.trim().split(":");
+  const id = parts.length >= 3 ? parts.slice(2).join(":").trim() : "";
+  return id.length > 0 ? id : null;
+}
+
+async function fetchJson(url: string, init: RequestInit, signal?: AbortSignal): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), OUTBOUND_TIMEOUT_MS);
+  const onAbort = () => controller.abort();
+  signal?.addEventListener("abort", onAbort, { once: true });
+  try {
+    const res = await fetch(url, { ...init, signal: controller.signal });
+    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    return { ok: res.ok, status: res.status, body };
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbort);
+  }
+}
+
+/** Telegram outbound: Bot API sendMessage to a user DM (chunked at 4096 chars). */
+async function sendTelegramText(token: string, userKey: string, text: string, signal?: AbortSignal): Promise<void> {
+  const chatId = telegramUserId(userKey);
+  if (!chatId) throw new Error(`Unknown Telegram user "${userKey}".`);
+  for (const chunk of chunkText(text, 4096)) {
+    const { ok, body } = await fetchJson(
+      `${TELEGRAM_API}/bot${token}/sendMessage`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, text: chunk }),
+      },
+      signal,
+    );
+    if (!ok) {
+      const description = typeof body.description === "string" && body.description ? body.description : `HTTP error`;
+      throw new Error(`Telegram send failed: ${description}`);
+    }
+  }
+}
+
+/** Discord outbound: open a DM channel for the user, then post (chunked at 2000 chars). */
+async function sendDiscordText(token: string, userKey: string, text: string, signal?: AbortSignal): Promise<void> {
+  const recipientId = discordUserId(userKey);
+  if (!recipientId) throw new Error(`Unknown Discord user "${userKey}".`);
+  const opened = await fetchJson(
+    `${DISCORD_REST}/users/@me/channels`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bot ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ recipient_id: recipientId }),
+    },
+    signal,
+  );
+  const channelId = typeof opened.body.id === "string" ? opened.body.id : "";
+  if (!opened.ok || !channelId) {
+    const message = typeof opened.body.message === "string" && opened.body.message ? opened.body.message : "could not open a DM channel";
+    throw new Error(`Discord send failed: ${message}`);
+  }
+  for (const chunk of chunkText(text, 2000)) {
+    const posted = await fetchJson(
+      `${DISCORD_REST}/channels/${encodeURIComponent(channelId)}/messages`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bot ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ content: chunk }),
+      },
+      signal,
+    );
+    if (!posted.ok) {
+      const message = typeof posted.body.message === "string" && posted.body.message ? posted.body.message : "could not post the message";
+      throw new Error(`Discord send failed: ${message}`);
+    }
+  }
+}
+
+/** Slack outbound: open a DM with the user, then post (chunked at 3500 chars). */
+async function sendSlackText(token: string, userKey: string, text: string, signal?: AbortSignal): Promise<void> {
+  const userId = slackUserId(userKey);
+  if (!userId) throw new Error(`Unknown Slack user "${userKey}".`);
+  const opened = await fetchJson(
+    `${SLACK_API}/conversations.open`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ users: userId }),
+    },
+    signal,
+  );
+  const channel = (opened.body.channel ?? {}) as { id?: unknown };
+  const channelId = typeof channel.id === "string" ? channel.id : "";
+  if (opened.body.ok !== true || !channelId) {
+    const error = typeof opened.body.error === "string" && opened.body.error ? opened.body.error : "could not open a DM";
+    throw new Error(`Slack send failed: ${error}`);
+  }
+  for (const chunk of chunkText(text, 3500)) {
+    const posted = await fetchJson(
+      `${SLACK_API}/chat.postMessage`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({ channel: channelId, text: chunk }),
+      },
+      signal,
+    );
+    if (posted.body.ok !== true) {
+      const error = typeof posted.body.error === "string" && posted.body.error ? posted.body.error : "could not post the message";
+      throw new Error(`Slack send failed: ${error}`);
     }
   }
 }

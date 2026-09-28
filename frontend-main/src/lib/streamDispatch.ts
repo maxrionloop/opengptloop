@@ -2,6 +2,7 @@ import { useStore } from "@/store/useStore";
 import { uid } from "@/utils/id";
 import { watchMemoryAgentRun } from "@/lib/memoryAgent";
 import { normalizeMcpServers } from "@/lib/mcp";
+import { normalizeChannel } from "@/lib/channels";
 import type { StreamBatcher } from "@/lib/streamBatcher";
 import type {
   AttachedFile,
@@ -334,6 +335,53 @@ export function dispatchStreamEvent(event: string, data: SSEEventData, ctx: Disp
           label: serverName ? `Connect MCP: ${serverName}` : "Connect MCP server",
           status: "running",
           result: { oauth_pending: true, server_id: serverId, server_name: serverName } as never,
+        });
+      }
+      break;
+    }
+
+    case "channels_updated": {
+      // An agent-driven channel management tool mutated the persisted connections.
+      // Mirror the backend truth into the store so the Channels page + the next
+      // chat turn converge immediately.
+      const raw = (data as Record<string, unknown>).channels;
+      if (Array.isArray(raw)) {
+        try {
+          const normalized = raw
+            .map((item) => normalizeChannel(item))
+            .filter((c): c is NonNullable<typeof c> => c !== null);
+          s.setChannelConnections(normalized);
+        } catch {
+          // best effort — the Channels page refetches on open anyway
+        }
+      }
+      break;
+    }
+
+    case "channel_connection_request": {
+      // The agent asked the user to configure + connect a channel and is blocked
+      // waiting for up to 3 minutes. Stash the pending channel on the tool block
+      // so the inline configuration form (name + token + setup guide + Connect
+      // button) renders inside this tool's block even before tool_result arrives.
+      const raw = data as Record<string, unknown>;
+      const toolId = typeof raw.tool_call_id === "string" ? (raw.tool_call_id as string) : null;
+      const channelName = typeof raw.channel_name === "string" ? (raw.channel_name as string) : "";
+      const channelLabel = typeof raw.channel_label === "string" ? (raw.channel_label as string) : channelName;
+      if (toolId && channelName) {
+        s.upsertTool(convId, msgId, {
+          id: toolId,
+          name: "request_channel_connection_to_user",
+          label: channelLabel ? `Connect channel: ${channelLabel}` : "Request channel connection",
+          status: "running",
+          args: { channel_name: channelName },
+          result: {
+            channel_connection_pending: true,
+            channel_name: channelName,
+            channel_label: channelLabel,
+            description: typeof raw.description === "string" ? raw.description : "",
+            setup_guide: typeof raw.setup_guide === "string" ? raw.setup_guide : "",
+            addressing: typeof raw.addressing === "string" ? raw.addressing : "",
+          } as never,
         });
       }
       break;

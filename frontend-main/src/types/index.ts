@@ -1038,8 +1038,7 @@ export interface SSEEventData {
 
   // ---- Multi-agent team fields ----
   /** team_start: the team name. */
-  team_name?: string;
-  /** team_start: the head/leader agent id. */
+  team_name?: string;  /** team_start: the head/leader agent id. */
   leader_id?: string;
   /** team_start: whether send_message_to_team is enabled for this team. */
   send_message_enabled?: boolean;
@@ -1059,6 +1058,18 @@ export interface SSEEventData {
   from?: string;
   to?: string;
   kind?: TeamMessageKind;
+
+  // ---- Communication-channel fields ----
+  /** channel_connection_request / channel tool results: the channel kind (telegram/discord/slack). */
+  channel_name?: string;
+  /** Human label of the channel (Telegram/Discord/Slack). */
+  channel_label?: string;
+  /** Channel catalog description + setup guide + addressing hint for the inline connect form. */
+  description?: string;
+  setup_guide?: string;
+  addressing?: string;
+  /** Full channel list mirrored by channels_updated. */
+  channels?: unknown[];
 }
 
 /** Lifecycle states of a background memory-agent run. */

@@ -73,6 +73,11 @@ import { listAvailableMcpServersTool } from "./mcp_list.js";
 import { deleteMcpServerTool } from "./mcp_delete.js";
 import { toggleMcpServerTool } from "./mcp_toggle.js";
 import { getMcpServerStatusTool } from "./mcp_status.js";
+import { listAvailableChannelsTool } from "./list_available_channels.js";
+import { requestChannelConnectionToUserTool } from "./request_channel_connection_to_user.js";
+import { disconnectChannelsTool } from "./disconnect_channels.js";
+import { getChannelStatusTool } from "./get_channel_status.js";
+import { sendMessageToCommunicationChannelTool } from "./send_message_to_communication_channel.js";
 
 export { ToolRegistry } from "./registry.js";
 export type {
@@ -180,6 +185,16 @@ export { listAvailableMcpServersTool } from "./mcp_list.js";
 export { deleteMcpServerTool } from "./mcp_delete.js";
 export { toggleMcpServerTool } from "./mcp_toggle.js";
 export { getMcpServerStatusTool } from "./mcp_status.js";
+export { listAvailableChannelsTool } from "./list_available_channels.js";
+export { requestChannelConnectionToUserTool } from "./request_channel_connection_to_user.js";
+export { disconnectChannelsTool } from "./disconnect_channels.js";
+export { getChannelStatusTool } from "./get_channel_status.js";
+export { sendMessageToCommunicationChannelTool } from "./send_message_to_communication_channel.js";
+export {
+  CHANNEL_MANAGEMENT_TOOL_NAMES,
+  isChannelManagementTool,
+  CHANNEL_CONNECTION_TIMEOUT_MS,
+} from "./channelManagement.js";
 export {
   MCP_MANAGEMENT_TOOL_NAMES,
   isMcpManagementTool,
@@ -293,6 +308,11 @@ export function createToolRegistry(): ToolRegistry {
     deleteMcpServerTool,
     toggleMcpServerTool,
     getMcpServerStatusTool,
+    listAvailableChannelsTool,
+    requestChannelConnectionToUserTool,
+    disconnectChannelsTool,
+    getChannelStatusTool,
+    sendMessageToCommunicationChannelTool,
     sendResponsesTool,
   ]);
 }
@@ -371,5 +391,10 @@ export const tools = {
   deleteMcpServerTool,
   toggleMcpServerTool,
   getMcpServerStatusTool,
+  listAvailableChannelsTool,
+  requestChannelConnectionToUserTool,
+  disconnectChannelsTool,
+  getChannelStatusTool,
+  sendMessageToCommunicationChannelTool,
   sendResponsesTool,
 };

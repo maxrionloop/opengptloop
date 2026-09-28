@@ -110,6 +110,8 @@ export interface CeoOrchestratorDeps {
   mcp?: McpRuntime;
   /** The persisted MCP manager — lets CEO/team agents use the MCP management tools. */
   mcpManager?: import("../../mcp/manager.js").McpManager;
+  /** The messaging-channel manager — lets CEO/team agents use the channel_* tools. */
+  channelManager?: import("../../../channels/manager.js").ChannelManager;
   /** Raw SSE emitter onto the turn buffer. */
   send: (event: string, data: Record<string, unknown>) => void;
   signal: AbortSignal;
@@ -517,6 +519,7 @@ export class CeoOrchestrator {
       connectors: this.deps.connectors.active ? this.deps.connectors : undefined,
       mcp: this.deps.mcp ?? undefined,
       mcpManager: this.deps.mcpManager,
+      channelManager: this.deps.channelManager,
       model: this.deps.model,
       visionCapable: this.visionCapable,
       availableToolNames: [

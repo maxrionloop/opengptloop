@@ -28,6 +28,7 @@ import {
   ListTodo,
   ListTree,
   Loader2,
+  MessagesSquare,
   PackagePlus,
   Paperclip,
   Pencil,
@@ -37,6 +38,7 @@ import {
   Repeat2,
   Save,
   Search,
+  Send,
   Server,
   ShieldCheck,
   PlugZap,
@@ -62,6 +64,7 @@ import { formatBytes } from "@/utils/format";
 import { useStore } from "@/store/useStore";
 import { API_ROUTES, routeUrl } from "@/app/api/routes";
 import { fetchMcpServers, startMcpOAuth, pollMcpConnected } from "@/lib/mcp";
+import { AVAILABLE_CHANNELS, createChannel, fetchChannels } from "@/lib/channels";
 
 const MEMORY_TOOLS = new Set([
   "memory_list",
@@ -288,6 +291,11 @@ export function ToolChip({ tool }: { tool: ToolActivity }) {
   if (tool.name === "list_checkpoints") return <ListCheckpointsChip tool={tool} />;
   if (tool.name === "delete_checkpoint") return <DeleteCheckpointChip tool={tool} />;
   if (tool.name === "restore_checkpoint") return <RestoreCheckpointChip tool={tool} />;
+  if (tool.name === "list_available_channels") return <ListChannelsChip tool={tool} />;
+  if (tool.name === "request_channel_connection_to_user") return <RequestChannelChip tool={tool} />;
+  if (tool.name === "disconnect_channels") return <DisconnectChannelChip tool={tool} />;
+  if (tool.name === "get_channel_status") return <ChannelStatusChip tool={tool} />;
+  if (tool.name === "send_message_to_communication_channel") return <SendChannelMessageChip tool={tool} />;
   if (isConnectorTool(tool.name)) return <ConnectorChip tool={tool} />;
   if (isMcpTool(tool.name)) return <McpChip tool={tool} />;
   return <GenericChip tool={tool} />;
@@ -2387,6 +2395,344 @@ function McpStatusChip({ tool }: { tool: ToolActivity }) {
           {typeof data?.message === "string" && data.message && (
             <div className="text-[var(--muted)]">{data.message}</div>
           )}
+        </>
+      )}
+    />
+  );
+}
+
+/* ------------------------------------------ communication channels */
+
+function ChannelPills({ data }: { data: Record<string, unknown> | undefined }) {
+  if (!data) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {typeof data.channel_label === "string" && data.channel_label && (
+        <Pill tone="accent">{String(data.channel_label)}</Pill>
+      )}
+      {typeof data.status === "string" && data.status && (
+        <Pill tone={data.status === "connected" ? "accent" : data.status === "error" ? "danger" : "default"}>
+          {String(data.status)}
+        </Pill>
+      )}
+      {typeof data.connected === "boolean" && (
+        <Pill tone={data.connected ? "accent" : "off"}>{data.connected ? "connected" : "not connected"}</Pill>
+      )}
+    </div>
+  );
+}
+
+/** list_available_channels — every connectable channel with its description. */
+function ListChannelsChip({ tool }: { tool: ToolActivity }) {
+  const { data, error, hasResult } = parts(tool);
+  const channels: Array<{ channel_name?: string; label?: string; description?: string; connected?: number; connection_count?: number }> =
+    (data?.channels as Array<{ channel_name?: string; label?: string; description?: string; connected?: number; connection_count?: number }>) ?? [];
+  return (
+    <Shell
+      icon={<MessagesSquare className="h-3.5 w-3.5" />}
+      label={tool.label}
+      status={tool.status}
+      expandable={hasResult}
+      pills={channels.length > 0 ? <Pill>{channels.length} channel(s)</Pill> : undefined}
+      panel={() => (
+        <>
+          {error?.message && <div className="text-[var(--danger)]">{error.message}</div>}
+          {channels.length === 0 && !error && (
+            <div className="text-[var(--muted)]">No communication channels available.</div>
+          )}
+          {channels.map((c, i) => (
+            <div key={i} className="flex flex-wrap items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--border)] p-2">
+              <span className="flex items-center gap-1 font-medium text-[var(--fg)]">
+                <MessagesSquare className="h-3 w-3" />
+                {String(c.label ?? c.channel_name ?? "")}
+              </span>
+              {typeof c.connected === "number" && <Pill tone={c.connected > 0 ? "accent" : "off"}>{c.connected} connected</Pill>}
+              {c.description && <span className="w-full text-[var(--muted)]">{String(c.description)}</span>}
+            </div>
+          ))}
+          {typeof data?.message === "string" && data.message && (
+            <div className="text-[var(--muted)]">{data.message}</div>
+          )}
+        </>
+      )}
+    />
+  );
+}
+
+/**
+ * request_channel_connection_to_user — the inline channel configuration form.
+ *
+ * Shows ALL of the channel's configuration (connection name + bot token fields),
+ * the step-by-step setup guide, and a Connect button. The agent blocks up to
+ * 3 minutes waiting for the user; creating the connection here resolves it.
+ */
+function RequestChannelChip({ tool }: { tool: ToolActivity }) {
+  const { data, error, args, hasResult } = parts(tool);
+  const [name, setName] = useState("");
+  const [token, setToken] = useState("");
+  const [connecting, setConnecting] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
+  const [connected, setConnected] = useState(false);
+
+  const channelName: string =
+    (data?.channel_name as string) ?? (args.channel_name as string) ?? "";
+  const channelLabel: string =
+    (data?.channel_label as string) ?? channelName;
+  const description: string = (data?.description as string) ?? "";
+  const setupGuide: string = (data?.setup_guide as string) ?? "";
+  const addressing: string = (data?.addressing as string) ?? "";
+  const pending =
+    (data as Record<string, unknown> | undefined)?.channel_connection_pending === true ||
+    (tool.status === "running" && !hasResult);
+  const timedOut = (data as Record<string, unknown> | undefined)?.timed_out === true;
+  const alreadyConnected = (data as Record<string, unknown> | undefined)?.already_connected === true;
+
+  const meta = AVAILABLE_CHANNELS.find((c) => c.id === channelName.trim().toLowerCase());
+  const guide = setupGuide || meta?.setup || "";
+  const howToAddress = addressing || meta?.addressing || "";
+  const about = description || meta?.description || "";
+
+  const connect = async () => {
+    if (!channelName.trim()) {
+      setConnectError("Unknown channel — pick one from list_available_channels first.");
+      return;
+    }
+    if (!token.trim()) {
+      setConnectError("Paste the bot token first (see the setup guide below).");
+      return;
+    }
+    setConnecting(true);
+    setConnectError(null);
+    try {
+      await createChannel({
+        kind: channelName.trim().toLowerCase() as "telegram" | "discord" | "slack",
+        name: name.trim() || undefined,
+        token: token.trim(),
+      });
+      const refreshed = await fetchChannels();
+      useStore.getState().setChannelConnections(refreshed);
+      setConnected(true);
+    } catch (e) {
+      setConnectError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  return (
+    <Shell
+      icon={<MessagesSquare className="h-3.5 w-3.5" />}
+      label={tool.label}
+      status={tool.status}
+      expandable
+      pills={
+        <>
+          {channelLabel && <Pill tone="accent">{channelLabel}</Pill>}
+          {pending && !timedOut && !alreadyConnected && <Pill tone="warn">awaiting setup</Pill>}
+          {timedOut && <Pill tone="warn">timed out</Pill>}
+          {alreadyConnected && <Pill>already connected</Pill>}
+          {connected && <Pill tone="accent">connected</Pill>}
+        </>
+      }
+      panel={() => (
+        <>
+          {error?.message && <div className="text-[var(--danger)]">{error.message}</div>}
+          {about && <div className="text-[var(--muted)]">{about}</div>}
+          {guide && (
+            <div className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--chip)] p-2.5">
+              <Label>Setup guide</Label>
+              <div className="mt-1 whitespace-pre-wrap text-[var(--fg)]">{guide}</div>
+              {howToAddress && (
+                <div className="mt-1.5 text-[var(--muted)]">Commands: {howToAddress}</div>
+              )}
+            </div>
+          )}
+          {!alreadyConnected && !timedOut && (
+            <div className="space-y-2 rounded-[var(--radius-sm)] border border-[var(--border)] p-2.5">
+              <Label>Connect {channelLabel || channelName || "channel"}</Label>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={`Connection name (optional, e.g. My ${channelLabel || "bot"})`}
+                aria-label="Connection name"
+                className="w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-xs text-[var(--fg)] outline-none placeholder:text-[var(--subtle)] focus:border-[var(--secondary)]"
+              />
+              <input
+                type="password"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder={channelName.toLowerCase() === "slack" ? "Bot User OAuth Token (xoxb-…)" : "Bot token"}
+                aria-label="Bot token"
+                className="w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 font-mono text-xs text-[var(--fg)] outline-none placeholder:text-[var(--subtle)] focus:border-[var(--secondary)]"
+              />
+              <button
+                type="button"
+                onClick={() => void connect()}
+                disabled={connecting || connected}
+                className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--secondary)] px-3 py-1.5 text-xs text-[var(--secondary-fg)] disabled:opacity-50"
+              >
+                {connecting ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <PlugZap className="h-3.5 w-3.5" />
+                )}
+                {connected ? "Connected" : connecting ? "Connecting…" : "Connect"}
+              </button>
+              {connectError && <div className="text-[var(--danger)]">{connectError}</div>}
+              {connected && (
+                <div className="text-[var(--success)]">Connected — the waiting agent continues automatically.</div>
+              )}
+              <div className="text-[var(--subtle)]">The token is stored server-side only. The agent waits up to 3 minutes, then continues.</div>
+            </div>
+          )}
+          {typeof data?.message === "string" && data.message && (
+            <div className="text-[var(--muted)]">{data.message}</div>
+          )}
+          {!hasResult && !error && !pending && (
+            <div className="text-[var(--muted)]">Requesting the channel connection…</div>
+          )}
+        </>
+      )}
+    />
+  );
+}
+
+/** disconnect_channels — which connections were removed. */
+function DisconnectChannelChip({ tool }: { tool: ToolActivity }) {
+  const { data, error, args, hasResult } = parts(tool);
+  const name: string = (data?.channel_name as string) ?? (args.channel_name as string) ?? "";
+  const disconnected: Array<{ id?: string; name?: string }> =
+    (data?.disconnected as Array<{ id?: string; name?: string }>) ?? [];
+  return (
+    <Shell
+      icon={<Unplug className="h-3.5 w-3.5" />}
+      label={tool.label}
+      status={tool.status}
+      expandable={hasResult}
+      pills={typeof data?.disconnected_count === "number" ? <Pill tone="danger">{data.disconnected_count} removed</Pill> : undefined}
+      panel={() => (
+        <>
+          {error?.message && <div className="text-[var(--danger)]">{error.message}</div>}
+          {name && (
+            <span className="flex items-center gap-1 font-medium text-[var(--fg)]">
+              <MessagesSquare className="h-3 w-3" />
+              {name}
+            </span>
+          )}
+          {disconnected.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {disconnected.map((d, i) => (
+                <Pill key={i}>{String(d.name ?? d.id ?? "")}</Pill>
+              ))}
+            </div>
+          )}
+          {typeof data?.message === "string" && data.message && (
+            <div className="text-[var(--muted)]">{data.message}</div>
+          )}
+          {!data && !error && <div className="text-[var(--muted)]">Disconnecting the channel…</div>}
+        </>
+      )}
+    />
+  );
+}
+
+/** get_channel_status — configured/connected state plus per-connection rows. */
+function ChannelStatusChip({ tool }: { tool: ToolActivity }) {
+  const { data, error, args, hasResult } = parts(tool);
+  const name: string = (data?.channel_name as string) ?? (args.channel_name as string) ?? "";
+  const connections: Array<{ id?: string; name?: string; status?: string; enabled?: boolean; bot_name?: string; chat_count?: number }> =
+    (data?.connections as Array<{ id?: string; name?: string; status?: string; enabled?: boolean; bot_name?: string; chat_count?: number }>) ?? [];
+  return (
+    <Shell
+      icon={<Activity className="h-3.5 w-3.5" />}
+      label={tool.label}
+      status={tool.status}
+      expandable={hasResult}
+      pills={
+        typeof data?.connected === "boolean" ? (
+          <Pill tone={data.connected ? "accent" : "off"}>{data.connected ? "connected" : "not connected"}</Pill>
+        ) : undefined
+      }
+      panel={() => (
+        <>
+          {error?.message && <div className="text-[var(--danger)]">{error.message}</div>}
+          {name && (
+            <span className="flex items-center gap-1 font-medium text-[var(--fg)]">
+              <MessagesSquare className="h-3 w-3" />
+              {String((data?.channel_label as string) ?? name)}
+            </span>
+          )}
+          <ChannelPills data={data as Record<string, unknown> | undefined} />
+          {connections.length > 0 && (
+            <div className="space-y-1">
+              {connections.map((c, i) => (
+                <div key={i} className="flex flex-wrap items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--border)] p-2">
+                  <span className="font-medium text-[var(--fg)]">{String(c.name ?? c.id ?? "")}</span>
+                  {c.status && (
+                    <Pill tone={c.status === "connected" ? "accent" : c.status === "error" ? "danger" : "default"}>
+                      {String(c.status)}
+                    </Pill>
+                  )}
+                  {typeof c.enabled === "boolean" && (
+                    <Pill tone={c.enabled ? "accent" : "off"}>{c.enabled ? "on" : "off"}</Pill>
+                  )}
+                  {c.bot_name && <span className="font-mono text-[var(--muted)]">@{String(c.bot_name)}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+          {typeof data?.message === "string" && data.message && (
+            <div className="text-[var(--muted)]">{data.message}</div>
+          )}
+        </>
+      )}
+    />
+  );
+}
+
+/** send_message_to_communication_channel — delivery receipt. */
+function SendChannelMessageChip({ tool }: { tool: ToolActivity }) {
+  const { data, error, args, hasResult } = parts(tool);
+  const channelName: string = (data?.channel_name as string) ?? (args.channel_name as string) ?? "";
+  const targets: string[] = Array.isArray(data?.targets) ? (data.targets as string[]) : [];
+  return (
+    <Shell
+      icon={<Send className="h-3.5 w-3.5" />}
+      label={tool.label}
+      status={tool.status}
+      expandable={hasResult}
+      pills={
+        typeof data?.delivered === "number" ? (
+          <Pill tone={data.delivered > 0 ? "accent" : "danger"}>{data.delivered} sent</Pill>
+        ) : undefined
+      }
+      panel={() => (
+        <>
+          {error?.message && <div className="text-[var(--danger)]">{error.message}</div>}
+          {channelName && (
+            <span className="flex items-center gap-1 font-medium text-[var(--fg)]">
+              <MessagesSquare className="h-3 w-3" />
+              {String((data?.channel_label as string) ?? channelName)}
+            </span>
+          )}
+          {typeof args.message === "string" && args.message && (
+            <div>
+              <Label>Message</Label>
+              <Pre className="mt-1">{String(args.message)}</Pre>
+            </div>
+          )}
+          {targets.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {targets.slice(0, 8).map((t, i) => (
+                <Pill key={i}>{t}</Pill>
+              ))}
+              {targets.length > 8 && <Pill>+{targets.length - 8} more</Pill>}
+            </div>
+          )}
+          {typeof data?.message === "string" && data.message && (
+            <div className="text-[var(--muted)]">{data.message}</div>
+          )}
+          {!data && !error && <div className="text-[var(--muted)]">Sending the message…</div>}
         </>
       )}
     />

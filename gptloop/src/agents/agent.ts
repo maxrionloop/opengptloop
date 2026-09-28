@@ -189,7 +189,25 @@ export class AgentRunner {
      * server's FULL tool catalog is advertised as native function tools.
      */
     private readonly mcpManager?: McpManager,
+    /**
+     * Optional messaging-channel manager. When present, the agent-driven
+     * communication-channel tools (request/list/disconnect/status/send) can
+     * inspect connections, wait for the user to connect, and deliver messages.
+     */
+    private channelManager?: import("../channels/manager.js").ChannelManager,
   ) {}
+
+  /**
+   * Attach the messaging-channel manager (called once at boot, after the
+   * ChannelManager is created — it depends on this runner, so it cannot be a
+   * constructor argument). When set, the channel_* tools work on this runner;
+   * Custom Agents inherit it automatically through the shared core runtime.
+   */
+  setChannelManager(
+    manager?: import("../channels/manager.js").ChannelManager,
+  ): void {
+    this.channelManager = manager;
+  }
 
   /**
    * Attach the persistent schedule store + background scheduler (called once at boot).
@@ -556,6 +574,7 @@ export class AgentRunner {
               connectors: connectorRuntime.active ? connectorRuntime : undefined,
               mcp: mcpRuntime ?? undefined,
               mcpManager: this.mcpManager,
+              channelManager: this.channelManager,
               // LLM-created sub-agents may also use the turn's connector + MCP tools.
               availableToolNames: [
                 ...this.tools.names(),

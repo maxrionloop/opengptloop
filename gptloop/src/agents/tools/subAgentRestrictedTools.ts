@@ -20,6 +20,9 @@
  *  - Agent-driven MCP management tools (only for main/custom/team/CEO agents):
  *      connect_remote_mcp, connect_local_mcp_server, list_available_mcp_servers,
  *      delete_mcp_server, on_off_mcp_server, get_mcp_server_status
+ *  - Agent-driven communication-channel management tools (only for main/custom/team/CEO agents):
+ *      request_channel_connection_to_user, list_available_channels, disconnect_channels,
+ *      get_channel_status, send_message_to_communication_channel
  *
  * This list is the ONE source of truth. It is reused by:
  *  - subagents.ts (SUB_AGENT_EXCLUDED_TOOLS)         — runtime enforcement for every sub-agent run
@@ -63,6 +66,12 @@ export const SUB_AGENT_RESTRICTED_TOOLS: readonly string[] = [
   "delete_mcp_server",
   "on_off_mcp_server",
   "get_mcp_server_status",
+  // Agent-driven communication-channel management tools — only for main/custom/team/CEO agents.
+  "request_channel_connection_to_user",
+  "list_available_channels",
+  "disconnect_channels",
+  "get_channel_status",
+  "send_message_to_communication_channel",
 ];
 
 /** Fast membership test for the restricted set. */

@@ -128,6 +128,13 @@ function main(): void {
     mcpManager: mcp,
   });
   channels.setSchedules(scheduleStore, scheduler);
+  // Attach the messaging-channel manager to every agent surface so the channel_*
+  // tools can inspect connections, wait for the user to connect, and deliver
+  // messages. Setters (not constructor args) avoid the circular dependency —
+  // ChannelManager itself runs turns through the AgentRunner.
+  agent.setChannelManager(channels);
+  multiAgent.setChannelManager(channels);
+  ceoAgent.setChannelManager(channels);
   void channels.start().catch(() => undefined);
 
   const app = express();

@@ -640,6 +640,11 @@ export interface ToolContext {
    * create, inspect, and mutate the persisted MCP servers. Absent for
    * sub-agents, chat mode, and the memory agent (which never manage servers). */
   mcpManager?: import("../mcp/manager.js").McpManager;
+  /** Messaging-channel manager — present for main/custom/team/CEO agent tool calls so the
+   * agent-driven communication-channel tools (request/list/disconnect/status/send) can
+   * inspect connections, wait for the user to connect, and deliver messages. Absent for
+   * sub-agents, chat mode, and the memory agent (which never manage channels). */
+  channelManager?: import("../../channels/manager.js").ChannelManager;
   /**
    * Messaging-channel context — present ONLY when the tool call belongs to a turn that
    * arrived from a messaging channel (Telegram / Discord / Slack). Absent everywhere
