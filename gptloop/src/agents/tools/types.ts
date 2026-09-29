@@ -631,6 +631,11 @@ export interface ToolContext {
    * Lets any tool-execution path route connector tool calls; absent when no connector is
    * connected this turn. */
   connectors?: import("../connectors/runtime.js").ConnectorRuntime;
+  /** Connector manager — present for main/custom/team/CEO agent tool calls so the
+   * agent-driven connector management tools (connect/list/disconnect/status) can
+   * inspect connections, wait for the user to authorize, and mutate the stored state.
+   * Absent for sub-agents, chat mode, and the memory agent (which never manage connectors). */
+  connectorManager?: import("../connectors/manager.js").ConnectorManager;
   /** MCP runtime — present when the turn has connected MCP servers.
    * Lets any tool-execution path route MCP tool calls; absent when no MCP
    * server is connected this turn. */

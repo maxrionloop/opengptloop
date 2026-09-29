@@ -53,16 +53,30 @@ function main(): void {
   // completed main-agent turn, persisting everything into the local SQLite database.
   const memoryAgent = new MemoryAgentService(providers, tools, config, db);
   const mcp = new McpManager(db.appState, config);
-  const agent = new AgentRunner(providers, tools, config, planApprovals, askQuestions, memoryAgent, mcp);
+  // Connectors (Composio-powered app integrations): connection records live in the
+  // SQLite app_state repository; the router serves connect/status/tools from them, and
+  // the agent-driven connector tools manage them on the user's behalf.
+  const connectors = new ConnectorManager(db.appState);
+  const agent = new AgentRunner(
+    providers,
+    tools,
+    config,
+    planApprovals,
+    askQuestions,
+    memoryAgent,
+    mcp,
+    undefined,
+    connectors,
+  );
   // Chat mode: lightweight conversational assistant with only memory + knowledge + web tools.
   // Streams onto the same event buffer, so resume/replay/persistence work identically.
   const chatRunner = new ChatRunner(providers, tools, config, memoryAgent);
   // The multi-agent team runner: drives a whole agent team (head + members) for one chat turn,
   // streaming onto the same event buffer the single agent uses.
-  const multiAgent = new MultiAgentRunner(providers, tools, config, mcp);
+  const multiAgent = new MultiAgentRunner(providers, tools, config, mcp, connectors);
   // The CEO multi-agent runner: drives a CEO agent that controls the head/leaders of several agent
   // teams, streaming onto the same event buffer. Built on the same multi-agent runtime as the team runner.
-  const ceoAgent = new CeoAgentRunner(providers, tools, config, mcp);
+  const ceoAgent = new CeoAgentRunner(providers, tools, config, mcp, connectors);
   // Custom Agents: user-created, independently-configured TOP-LEVEL Main Agents. The manager persists
   // their configs in the SQLite app_state repository; the runner executes them through the SAME core
   // runtime as the Main Agent (parameterized with each agent's system prompt + selected tools).
@@ -79,9 +93,6 @@ function main(): void {
   // the Main Agent runs with. It never creates a new agent — it only changes the Main Agent's system
   // prompt (see chat.ts, which applies the active prompt as a systemPromptOverride).
   const mainAgentPrompts = new MainAgentPromptManager(db.appState);
-  // Connectors (Composio-powered app integrations): connection records live in the
-  // SQLite app_state repository; the router serves connect/status/tools from them.
-  const connectors = new ConnectorManager(db.appState);
 
   // Schedules (persistent cron): the store persists schedules + history in the
   // SQLite database; the runner executes due schedules through the EXISTING

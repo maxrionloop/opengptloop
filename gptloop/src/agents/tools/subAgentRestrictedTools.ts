@@ -20,6 +20,9 @@
  *  - Agent-driven MCP management tools (only for main/custom/team/CEO agents):
  *      connect_remote_mcp, connect_local_mcp_server, list_available_mcp_servers,
  *      delete_mcp_server, on_off_mcp_server, get_mcp_server_status
+ *  - Agent-driven application-connector management tools (only for main/custom/team/CEO agents):
+ *      connect_applications_connectors, list_available_application_connectors,
+ *      disconnect_application_connector, get_application_connector_status
  *  - Agent-driven communication-channel management tools (only for main/custom/team/CEO agents):
  *      request_channel_connection_to_user, list_available_channels, disconnect_channels,
  *      get_channel_status, send_message_to_communication_channel
@@ -66,6 +69,11 @@ export const SUB_AGENT_RESTRICTED_TOOLS: readonly string[] = [
   "delete_mcp_server",
   "on_off_mcp_server",
   "get_mcp_server_status",
+  // Agent-driven application-connector management tools — only for main/custom/team/CEO agents.
+  "connect_applications_connectors",
+  "list_available_application_connectors",
+  "disconnect_application_connector",
+  "get_application_connector_status",
   // Agent-driven communication-channel management tools — only for main/custom/team/CEO agents.
   "request_channel_connection_to_user",
   "list_available_channels",

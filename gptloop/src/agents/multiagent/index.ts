@@ -35,6 +35,11 @@ export class MultiAgentRunner {
     private readonly tools: ToolRegistry,
     private readonly config: AppConfig,
     private readonly mcpManager?: McpManager,
+    /**
+     * Optional application-connector manager. When set, team agents (head + members)
+     * can list/connect/disconnect/status the app connectors.
+     */
+    private readonly connectorManager?: import("../connectors/manager.js").ConnectorManager,
   ) {}
 
   /**
@@ -158,6 +163,7 @@ export class MultiAgentRunner {
         subAgentDefinitions,
         userSubAgents: request.subAgents ?? [],
         connectors,
+        connectorManager: this.connectorManager,
         mcp: mcp ?? undefined,
         mcpManager: this.mcpManager,
         scheduleStore: this.scheduleStore,

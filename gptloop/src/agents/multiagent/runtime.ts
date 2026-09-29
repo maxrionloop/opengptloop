@@ -107,6 +107,8 @@ export interface TeamOrchestratorDeps {
   mcp?: McpRuntime;
   /** The persisted MCP manager — lets team agents use the MCP management tools. */
   mcpManager?: import("../mcp/manager.js").McpManager;
+  /** The persisted connector manager — lets team agents use the connector management tools. */
+  connectorManager?: import("../connectors/manager.js").ConnectorManager;
   /** The messaging-channel manager — lets team agents use the channel_* tools. */
   channelManager?: import("../../channels/manager.js").ChannelManager;
   /** Raw SSE emitter onto the turn buffer. */
@@ -473,7 +475,8 @@ export class TeamOrchestrator {
         agent: { type: "default", provider: this.deps.providerId ?? "", model: this.deps.model },
       }),
       team: this.buildTeamRuntime(actor),
-      connectors: this.deps.connectors.active ? this.deps.connectors : undefined,
+      connectors: this.deps.connectors,
+      connectorManager: this.deps.connectorManager,
       mcp: this.deps.mcp ?? undefined,
       mcpManager: this.deps.mcpManager,
       channelManager: this.deps.channelManager,

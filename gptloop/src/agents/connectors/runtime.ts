@@ -105,28 +105,42 @@ export interface ConnectorRuntimeOptions {
 export class ConnectorRuntime {
   private readonly byName = new Map<string, ConnectorToolSchema>();
   private readonly accountByToolkit = new Map<string, string>();
+  /**
+   * Lazily-created client. It stays null until there is an API key to use, so an
+   * inert runtime makes zero network calls — but it is still CAPABLE of attaching a
+   * connector mid-turn once one is connected (the agent-driven connect tool).
+   */
+  private client: ComposioClient | null;
 
   private constructor(
-    private readonly client: ComposioClient | null,
+    private readonly apiKey: string,
     private readonly userId: string,
     readonly connectorIds: string[],
-  ) {}
+    clientFactory: (apiKey: string) => ComposioClient,
+    private readonly cache: ConnectorToolCache,
+  ) {
+    this.client = apiKey ? clientFactory(apiKey) : null;
+  }
 
   /** Inert runtime with no tools and zero network (used when connectors are off / in tests). */
   static empty(): ConnectorRuntime {
-    return new ConnectorRuntime(null, COMPOSIO_DEFAULT_USER_ID, []);
+    return new ConnectorRuntime(
+      "",
+      COMPOSIO_DEFAULT_USER_ID,
+      [],
+      (key: string) => new ComposioClient(key),
+      sharedConnectorToolCache,
+    );
   }
 
   /** Build a runtime, downloading each connected toolkit's FULL catalog (cached). */
-  static async create(options: ConnectorRuntimeOptions): Promise<ConnectorRuntime> {    const apiKey = (options.apiKey ?? "").trim();
+  static async create(options: ConnectorRuntimeOptions): Promise<ConnectorRuntime> {
+    const apiKey = (options.apiKey ?? "").trim();
     const userId = (options.userId ?? "").trim() || COMPOSIO_DEFAULT_USER_ID;
-    const runtime = new ConnectorRuntime(null, userId, []);
-    if (!apiKey || options.connections.length === 0) return runtime;
-
     const factory = options.clientFactory ?? ((key: string) => new ComposioClient(key));
     const cache = options.cache ?? sharedConnectorToolCache;
-    const client = factory(apiKey);
-    const withClient = new ConnectorRuntime(client, userId, []);
+    const runtime = new ConnectorRuntime(apiKey, userId, [], factory, cache);
+    if (!apiKey || options.connections.length === 0) return runtime;
 
     // De-duplicate by toolkit so two connections to the same app share one catalog read.
     const byToolkit = new Map<string, string>();
@@ -136,46 +150,65 @@ export class ConnectorRuntime {
       const accountId = connection.connectedAccountId.trim();
       if (!accountId) continue;
       byToolkit.set(connector.toolkitSlug.toLowerCase(), accountId);
-      if (!withClient.connectorIds.includes(connector.id)) {
-        withClient.connectorIds.push(connector.id);
-      }
+      if (!runtime.connectorIds.includes(connector.id)) runtime.connectorIds.push(connector.id);
     }
     if (byToolkit.size === 0) return runtime;
 
+    const client = runtime.client!;
     const settled = await Promise.all(
       [...byToolkit.entries()].map(async ([toolkitSlug, accountId]) => {
         try {
           const tools = await cache.get(client, apiKey, toolkitSlug);
-          return { toolkitSlug, accountId, tools, error: null as unknown };
-        } catch (error) {
-          return { toolkitSlug, accountId, tools: [] as ComposioToolDefinition[], error };
+          return { toolkitSlug, accountId, tools };
+        } catch {
+          // One toolkit failing must not hide the others — it simply contributes no tools.
+          return { toolkitSlug, accountId, tools: [] as ComposioToolDefinition[] };
         }
       }),
     );
 
     for (const entry of settled) {
-      if (entry.tools.length === 0) continue;
-      withClient.accountByToolkit.set(entry.toolkitSlug, entry.accountId);
-      for (const tool of entry.tools) {
-        const name = tool.slug.trim();
-        if (!name || withClient.byName.has(name)) continue;
-        const connector = getConnector(tool.toolkitSlug) ?? getConnector(entry.toolkitSlug);
-        withClient.byName.set(name, {
-          name,
-          displayName: tool.name.trim() || name,
-          description: tool.description,
-          parameters: toOpenAIParameters(tool.inputParameters),
-          connectorId: connector?.id ?? entry.toolkitSlug,
-          toolkitName: tool.toolkitName || connector?.name || entry.toolkitSlug,
-        });
-      }
+      runtime.addToolkit(entry.toolkitSlug, entry.accountId, entry.tools);
     }
-    return withClient;
+    return runtime;
+  }
+
+  /** Register every tool of one toolkit under the account it executes with. */
+  private addToolkit(
+    toolkitSlug: string,
+    connectedAccountId: string,
+    tools: ComposioToolDefinition[],
+  ): void {
+    if (tools.length === 0) return;
+    this.accountByToolkit.set(toolkitSlug.toLowerCase(), connectedAccountId);
+    for (const tool of tools) {
+      const name = tool.slug.trim();
+      if (!name || this.byName.has(name)) continue;
+      const connector = getConnector(tool.toolkitSlug) ?? getConnector(toolkitSlug);
+      this.byName.set(name, {
+        name,
+        displayName: tool.name.trim() || name,
+        description: tool.description,
+        parameters: toOpenAIParameters(tool.inputParameters),
+        connectorId: connector?.id ?? toolkitSlug,
+        toolkitName: tool.toolkitName || connector?.name || toolkitSlug,
+      });
+    }
   }
 
   /** True when at least one connected toolkit contributed tools. */
   get active(): boolean {
     return this.byName.size > 0;
+  }
+
+  /**
+   * The Composio client backing this turn (null when no API key is configured).
+   * The agent-driven connector management tools reuse it for auth-config discovery,
+   * connected-account polling, and deletion — so they share this turn's credentials,
+   * transport, and test seams. Never performs I/O by itself.
+   */
+  composioClient(): ComposioClient | null {
+    return this.client;
   }
 
   /** Number of native connector tools available this turn (uncapped by design). */
@@ -289,6 +322,59 @@ export class ConnectorRuntime {
       `(e.g. ${[...this.byName.keys()].slice(0, 6).join(", ")}${this.size > 6 ? ", ..." : ""}). ` +
       `Call them as real function calls with exact arguments whenever the task touches a connected app.`
     );
+  }
+
+  /**
+   * Dynamically attach one connector's FULL tool catalog to this live turn runtime.
+   *
+   * Used by the agent-driven connector management tool (connect_applications_connectors)
+   * so an app the agent just connected is usable in the SAME turn — the next model
+   * iteration sees its native tools without waiting for the next chat turn. Any tools
+   * previously attached for that connector are replaced (reconnect-safe).
+   *
+   * Returns how many native tools were attached. Never throws: a catalog failure leaves
+   * the persisted connection usable from the next chat turn on.
+   */
+  async attachConnector(
+    connectorId: string,
+    connectedAccountId: string,
+  ): Promise<{ attached: number; tools: string[] }> {
+    const connector = getConnector(connectorId);
+    const accountId = connectedAccountId.trim();
+    if (!connector || !accountId || !this.apiKey) return { attached: 0, tools: [] };
+    // Reconnects replace the previous account binding rather than stacking.
+    this.detachConnector(connector.id);
+    let definitions: ComposioToolDefinition[];
+    try {
+      definitions = await this.cache.get(this.client!, this.apiKey, connector.toolkitSlug);
+    } catch {
+      return { attached: 0, tools: [] };
+    }
+    const before = this.byName.size;
+    this.addToolkit(connector.toolkitSlug, accountId, definitions);
+    if (!this.connectorIds.includes(connector.id)) this.connectorIds.push(connector.id);
+    const tools = [...this.byName.keys()].slice(before);
+    return { attached: this.byName.size - before, tools };
+  }
+
+  /** Drop every native tool contributed by one connector (used on disconnect). */
+  detachConnector(connectorId: string): number {
+    const key = (connectorId ?? "").trim().toLowerCase();
+    if (!key) return 0;
+    let removed = 0;
+    for (const [name, tool] of [...this.byName]) {
+      if (tool.connectorId.toLowerCase() === key) {
+        this.byName.delete(name);
+        removed += 1;
+      }
+    }
+    // The execution account lives under the toolkit slug, so drop that binding too —
+    // otherwise a detached tool name could still resolve a stale connected account.
+    const toolkitSlug = getConnector(key)?.toolkitSlug;
+    if (toolkitSlug) this.accountByToolkit.delete(toolkitSlug.toLowerCase());
+    const index = this.connectorIds.indexOf(key);
+    if (index !== -1) this.connectorIds.splice(index, 1);
+    return removed;
   }
 }
 

@@ -32,7 +32,9 @@ import { CHANNEL_ONLY_TOOLS, buildChannelSystemSection } from "./tools/sendRespo
 import type { McpManager } from "./mcp/index.js";
 import { createScheduleRuntime } from "./tools/scheduleRuntime.js";
 import {
+  ConnectorManager,
   ConnectorRuntime,
+  isConnectorToolName,
   type ConnectorWire,
 } from "./connectors/index.js";
 import {
@@ -41,6 +43,7 @@ import {
   type McpServerSelection,
 } from "./mcp/index.js";
 import { isMcpManagementTool } from "./tools/mcpManagement.js";
+import { isConnectorManagementTool } from "./tools/connectorManagement.js";
 
 export interface RunAgentRequest {
   chatId: string;
@@ -195,6 +198,12 @@ export class AgentRunner {
      * inspect connections, wait for the user to connect, and deliver messages.
      */
     private channelManager?: import("../channels/manager.js").ChannelManager,
+    /**
+     * Optional application-connector manager. When present, the agent-driven connector
+     * tools (list/connect/disconnect/status) can inspect connections, ask the user to
+     * authorize an app, and attach its native tools to the live turn.
+     */
+    private readonly connectorManager?: ConnectorManager,
   ) {}
 
   /**
@@ -318,8 +327,10 @@ export class AgentRunner {
       }
       const visionCapable = isVisionCapableModel(request.model, this.config);
       // Connected app connectors (Composio): every tool of every connected toolkit is
-      // advertised as NATIVE function tools — no allowlist, no subset, no cap. Inert
-      // (zero network) when no API key or no connections are present this turn.
+      // advertised as NATIVE function tools — no allowlist, no subset, no cap. The
+      // runtime is always handed to the tool context (not only when it is already
+      // active) so an app the agent connects mid-turn can be attached and used within
+      // the SAME turn; it stays inert (zero network) while nothing is connected.
       const connectorRuntime = await ConnectorRuntime.create({
         apiKey: request.composioApiKey ?? "",
         connections: request.connectors ?? [],
@@ -571,7 +582,8 @@ export class AgentRunner {
               model: request.model,
               visionCapable,
               channel: request.channel ?? undefined,
-              connectors: connectorRuntime.active ? connectorRuntime : undefined,
+              connectors: connectorRuntime,
+              connectorManager: this.connectorManager,
               mcp: mcpRuntime ?? undefined,
               mcpManager: this.mcpManager,
               channelManager: this.channelManager,
@@ -615,6 +627,28 @@ export class AgentRunner {
               try {
                 const freshSchemas = mcpRuntime.schemas();
                 const base = toolSchemas.filter((s) => !isMcpToolName(s.function.name));
+                if (request.allowedToolNames) {
+                  const allow = new Set(request.allowedToolNames);
+                  toolSchemas = [...base, ...freshSchemas.filter((s) => allow.has(s.function.name))];
+                } else {
+                  toolSchemas = [...base, ...freshSchemas];
+                }
+              } catch {
+                // schema refresh is best-effort — the turn still continues
+              }
+            }
+
+            // Same for the application connectors: connect_applications_connectors
+            // attaches the freshly authorized app's FULL tool catalog to the live
+            // runtime, and disconnect_application_connector detaches it. Refresh the
+            // advertised native schemas so an app the user just connected is usable on
+            // the VERY NEXT model iteration instead of the next chat turn.
+            if (isConnectorManagementTool(toolCall.function.name)) {
+              try {
+                const freshSchemas = connectorRuntime.schemas();
+                // Drop every previously advertised connector tool by NAME SHAPE, not by
+                // runtime membership: a tool that was just detached must disappear too.
+                const base = toolSchemas.filter((s) => !isConnectorToolName(s.function.name));
                 if (request.allowedToolNames) {
                   const allow = new Set(request.allowedToolNames);
                   toolSchemas = [...base, ...freshSchemas.filter((s) => allow.has(s.function.name))];

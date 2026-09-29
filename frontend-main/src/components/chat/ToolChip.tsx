@@ -65,6 +65,11 @@ import { useStore } from "@/store/useStore";
 import { API_ROUTES, routeUrl } from "@/app/api/routes";
 import { fetchMcpServers, startMcpOAuth, pollMcpConnected } from "@/lib/mcp";
 import { AVAILABLE_CHANNELS, createChannel, fetchChannels } from "@/lib/channels";
+import {
+  fetchConnectorsOverview,
+  pollConnectorActive,
+  startConnectorConnect,
+} from "@/lib/connectors";
 
 const MEMORY_TOOLS = new Set([
   "memory_list",
@@ -125,6 +130,10 @@ const ICONS: Record<string, typeof Terminal> = {
   delete_mcp_server: Trash2,
   on_off_mcp_server: Plug,
   get_mcp_server_status: Activity,
+  list_available_application_connectors: List,
+  connect_applications_connectors: PlugZap,
+  disconnect_application_connector: Unplug,
+  get_application_connector_status: Activity,
   wait: Timer,
   TodoWrite: ListTodo,
   read_todos: ClipboardList,
@@ -287,6 +296,10 @@ export function ToolChip({ tool }: { tool: ToolActivity }) {
   if (tool.name === "delete_mcp_server") return <DeleteMcpServerChip tool={tool} />;
   if (tool.name === "on_off_mcp_server") return <ToggleMcpServerChip tool={tool} />;
   if (tool.name === "get_mcp_server_status") return <McpStatusChip tool={tool} />;
+  if (tool.name === "list_available_application_connectors") return <ListAppConnectorsChip tool={tool} />;
+  if (tool.name === "connect_applications_connectors") return <ConnectAppConnectorChip tool={tool} />;
+  if (tool.name === "disconnect_application_connector") return <DisconnectAppConnectorChip tool={tool} />;
+  if (tool.name === "get_application_connector_status") return <AppConnectorStatusChip tool={tool} />;
   if (tool.name === "create_checkpoint") return <CreateCheckpointChip tool={tool} />;
   if (tool.name === "list_checkpoints") return <ListCheckpointsChip tool={tool} />;
   if (tool.name === "delete_checkpoint") return <DeleteCheckpointChip tool={tool} />;
@@ -2392,6 +2405,299 @@ function McpStatusChip({ tool }: { tool: ToolActivity }) {
                 Last error: {String((data as Record<string, unknown>).last_error)}
               </div>
             )}
+          {typeof data?.message === "string" && data.message && (
+            <div className="text-[var(--muted)]">{data.message}</div>
+          )}
+        </>
+      )}
+    />
+  );
+}
+
+/* ------------------------------------------ application connectors */
+
+/** One catalog row as list_available_application_connectors returns it. */
+type AppConnectorRow = {
+  connector_name?: string;
+  label?: string;
+  description?: string;
+  homepage?: string;
+  status?: string;
+  connected?: boolean;
+  requires_user_action?: boolean;
+  account_label?: string;
+};
+
+/** Badge coloring for the connector lifecycle status. */
+function connectorStatusPill(status: string) {
+  if (status === "connected") return <Pill tone="accent">{status}</Pill>;
+  if (status === "failed") return <Pill tone="danger">{status}</Pill>;
+  if (status === "requires_user_action") return <Pill tone="warn">needs action</Pill>;
+  return <Pill tone="off">{status || "disconnected"}</Pill>;
+}
+
+/** The connector's display name, preferring the catalog label over the id. */
+function appConnectorLabel(
+  data: Record<string, any> | undefined,
+  args: Record<string, any>,
+): string {
+  return String(data?.label ?? data?.connector_label ?? args.connector_name ?? "");
+}
+
+/**
+ * connect_applications_connectors — the inline Connect button.
+ *
+ * The backend already opened the Composio OAuth session and sent us its redirect URL,
+ * so pressing Connect only has to open it and then poll until the provider activates
+ * the account. When no URL made it through (e.g. the user reopened an old run), we fall
+ * back to starting a fresh session from this connector id.
+ */
+function ConnectAppConnectorChip({ tool }: { tool: ToolActivity }) {
+  const { data, error, args, hasResult } = parts(tool);
+  const [connecting, setConnecting] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
+  const connectorName = String(data?.connector_name ?? args.connector_name ?? "");
+  const label = appConnectorLabel(data, args) || connectorName;
+  const redirectUrl = String(data?.redirect_url ?? "");
+  const connectedAccountId = String(data?.connected_account_id ?? "");
+  const pending =
+    data?.connector_connect_pending === true ||
+    (tool.status === "running" && !data?.connected);
+  const connected = data?.connected === true;
+
+  const connect = async () => {
+    setConnecting(true);
+    setConnectError(null);
+    try {
+      let url = redirectUrl;
+      let accountId = connectedAccountId;
+      if (!url) {
+        // No in-flight session on this block — open a fresh one for the same connector.
+        const started = await startConnectorConnect(connectorName);
+        url = started.redirect_url;
+        accountId = started.connected_account_id;
+      }
+      if (!url) {
+        setConnectError("Could not start the connection. Open the Connectors page and try again.");
+        return;
+      }
+      window.open(url, "_blank", "noopener,noreferrer");
+      if (!accountId) {
+        setConnectError(
+          "Authorization started. Finish it in the browser tab, then check the Connectors page.",
+        );
+        return;
+      }
+      const final = await pollConnectorActive(accountId, 72, 2500);
+      if (final !== "active") {
+        setConnectError(
+          final === "failed"
+            ? "The app refused the authorization. Press Connect to try again."
+            : "Authorization has not finished yet. Finish it in the browser tab, then press Connect again.",
+        );
+        return;
+      }
+      // Mirror the backend truth so the connectors page and the next turn agree.
+      const overview = await fetchConnectorsOverview();
+      const match = overview.connectors.find((c) => c.id === connectorName);
+      if (match) {
+        useStore.getState().setConnector({
+          connectorId: match.id,
+          connectedAccountId: match.connected_account_id ?? accountId,
+          status: match.status,
+          accountLabel: match.account_label ?? "",
+          updatedAt: match.updated_at ?? Date.now(),
+        });
+      }
+    } catch (e) {
+      setConnectError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  return (
+    <Shell
+      icon={<PlugZap className="h-3.5 w-3.5" />}
+      label={tool.label}
+      status={tool.status}
+      expandable
+      defaultOpen={pending}
+      pills={
+        <>
+          {connected && <Pill tone="accent">connected</Pill>}
+          {data?.already_connected === true && <Pill tone="default">already</Pill>}
+          {typeof data?.tool_count === "number" && <Pill>{data.tool_count} app tool(s)</Pill>}
+          {pending && <Pill tone="warn">awaiting authorization</Pill>}
+        </>
+      }
+      panel={() => (
+        <>
+          {error?.message && <div className="text-[var(--danger)]">{error.message}</div>}
+          {label && (
+            <span className="flex items-center gap-1.5 font-medium text-[var(--fg)]">
+              <PlugZap className="h-3.5 w-3.5 text-[var(--secondary)]" />
+              {label}
+            </span>
+          )}
+          {typeof data?.description === "string" && data.description && (
+            <div className="text-[var(--muted)]">{data.description}</div>
+          )}
+          {!connected && (
+            <div className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--chip)] p-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <ShieldCheck className="h-4 w-4 shrink-0 text-[var(--secondary)]" />
+                <span className="flex-1 text-[var(--fg)]">
+                  Authorize {label || "this app"} in your browser — the agent waits up to 3 minutes,
+                  then continues. Once authorized, this app&apos;s tools are usable immediately.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void connect()}
+                  disabled={connecting}
+                  className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--secondary)] px-3 py-1.5 text-[var(--secondary-fg)] disabled:opacity-50"
+                >
+                  {connecting ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <PlugZap className="h-3.5 w-3.5" />
+                  )}
+                  {connecting ? "Connecting…" : "Connect"}
+                </button>
+              </div>
+              {connectError && <div className="mt-1.5 text-[var(--danger)]">{connectError}</div>}
+            </div>
+          )}
+          {typeof data?.message === "string" && data.message && (
+            <div className="text-[var(--muted)]">{data.message}</div>
+          )}
+          {!hasResult && !error && !data && (
+            <div className="text-[var(--muted)]">Preparing the connection…</div>
+          )}
+        </>
+      )}
+    />
+  );
+}
+
+function ListAppConnectorsChip({ tool }: { tool: ToolActivity }) {
+  const { data, error, hasResult } = parts(tool);
+  const connectors: AppConnectorRow[] = Array.isArray(data?.connectors)
+    ? (data.connectors as AppConnectorRow[])
+    : [];
+  const connectedCount =
+    typeof data?.connected_count === "number" ? data.connected_count : 0;
+  return (
+    <Shell
+      icon={<List className="h-3.5 w-3.5" />}
+      label={tool.label}
+      status={tool.status}
+      expandable={hasResult}
+      pills={
+        connectors.length > 0 ? (
+          <Pill>
+            {connectedCount}/{connectors.length} connected
+          </Pill>
+        ) : undefined
+      }
+      panel={() => (
+        <>
+          {error?.message && <div className="text-[var(--danger)]">{error.message}</div>}
+          {connectors.length === 0 && !error && (
+            <div className="text-[var(--muted)]">No application connectors available.</div>
+          )}
+          {connectors.map((c, i) => (
+            <div
+              key={String(c.connector_name ?? i)}
+              className="flex flex-wrap items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--border)] p-2"
+            >
+              <span className="flex items-center gap-1 font-medium text-[var(--fg)]">
+                <Plug className="h-3 w-3" />
+                {String(c.label ?? c.connector_name ?? "")}
+              </span>
+              <Pill>
+                <span className="font-mono">{String(c.connector_name ?? "")}</span>
+              </Pill>
+              {c.status && connectorStatusPill(String(c.status))}
+              {c.account_label && <Pill>{String(c.account_label)}</Pill>}
+              {c.description && <span className="w-full text-[var(--muted)]">{String(c.description)}</span>}
+            </div>
+          ))}
+          {typeof data?.message === "string" && data.message && (
+            <div className="text-[var(--muted)]">{data.message}</div>
+          )}
+        </>
+      )}
+    />
+  );
+}
+
+function DisconnectAppConnectorChip({ tool }: { tool: ToolActivity }) {
+  const { data, error, args, hasResult } = parts(tool);
+  const connectorName = String(data?.connector_name ?? args.connector_name ?? "");
+  const label = appConnectorLabel(data, args) || connectorName;
+  return (
+    <Shell
+      icon={<Unplug className="h-3.5 w-3.5" />}
+      label={tool.label}
+      status={tool.status}
+      expandable={hasResult}
+      pills={data?.disconnected === true ? <Pill tone="danger">disconnected</Pill> : undefined}
+      panel={() => (
+        <>
+          {error?.message && <div className="text-[var(--danger)]">{error.message}</div>}
+          {connectorName && (
+            <span className="flex items-center gap-1.5 font-medium text-[var(--fg)]">
+              <Unplug className="h-3.5 w-3.5" />
+              {label}
+            </span>
+          )}
+          {typeof data?.removed_tools === "number" && data.removed_tools > 0 && (
+            <div className="text-[var(--muted)]">
+              {data.removed_tools} app tool(s) removed from this conversation.
+            </div>
+          )}
+          {data?.remote_cleanup_failed === true && (
+            <div className="text-[var(--warning)]">
+              The provider-side authorization could not be revoked automatically.
+            </div>
+          )}
+          {typeof data?.message === "string" && data.message && (
+            <div className="text-[var(--muted)]">{data.message}</div>
+          )}
+          {!hasResult && !error && <div className="text-[var(--muted)]">Disconnecting the app…</div>}
+        </>
+      )}
+    />
+  );
+}
+
+function AppConnectorStatusChip({ tool }: { tool: ToolActivity }) {
+  const { data, error, args, hasResult } = parts(tool);
+  const connectorName = String(data?.connector_name ?? args.connector_name ?? "");
+  const label = appConnectorLabel(data, args) || connectorName;
+  const status = String(data?.status ?? "");
+  return (
+    <Shell
+      icon={<Activity className="h-3.5 w-3.5" />}
+      label={tool.label}
+      status={tool.status}
+      expandable={hasResult}
+      pills={status ? connectorStatusPill(status) : undefined}
+      panel={() => (
+        <>
+          {error?.message && <div className="text-[var(--danger)]">{error.message}</div>}
+          {label && (
+            <span className="flex items-center gap-1.5 font-medium text-[var(--fg)]">
+              <Activity className="h-3.5 w-3.5" />
+              {label}
+            </span>
+          )}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {data?.connected === true && <Pill tone="accent">tools usable</Pill>}
+            {data?.requires_user_action === true && <Pill tone="warn">needs authorization</Pill>}
+            {data?.disabled === true && <Pill tone="danger">disabled</Pill>}
+          </div>
           {typeof data?.message === "string" && data.message && (
             <div className="text-[var(--muted)]">{data.message}</div>
           )}

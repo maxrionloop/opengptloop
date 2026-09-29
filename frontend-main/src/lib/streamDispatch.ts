@@ -3,6 +3,7 @@ import { uid } from "@/utils/id";
 import { watchMemoryAgentRun } from "@/lib/memoryAgent";
 import { normalizeMcpServers } from "@/lib/mcp";
 import { normalizeChannel } from "@/lib/channels";
+import { normalizeConnectors } from "@/lib/connectors";
 import type { StreamBatcher } from "@/lib/streamBatcher";
 import type {
   AttachedFile,
@@ -335,6 +336,52 @@ export function dispatchStreamEvent(event: string, data: SSEEventData, ctx: Disp
           label: serverName ? `Connect MCP: ${serverName}` : "Connect MCP server",
           status: "running",
           result: { oauth_pending: true, server_id: serverId, server_name: serverName } as never,
+        });
+      }
+      break;
+    }
+
+    case "connectors_updated": {
+      // An agent-driven connector management tool mutated the persisted connections.
+      // Mirror the backend truth into the store so the Connectors page AND the next
+      // chat turn (which sends the active connected-account refs) converge at once.
+      const raw = (data as Record<string, unknown>).connectors;
+      if (Array.isArray(raw)) {
+        try {
+          s.setConnectors(normalizeConnectors(raw));
+        } catch {
+          // best effort — the Connectors page refetches on open anyway
+        }
+      }
+      break;
+    }
+
+    case "connector_connect_required": {
+      // The backend opened the Composio OAuth session and is blocked waiting for the
+      // user (up to 3 minutes). Stash the link on the tool block so the Connect button
+      // renders inside this tool's block even before tool_result arrives.
+      const raw = data as Record<string, unknown>;
+      const toolId = typeof raw.tool_call_id === "string" ? (raw.tool_call_id as string) : null;
+      const connectorName =
+        typeof raw.connector_name === "string" ? (raw.connector_name as string) : "";
+      const connectorLabel =
+        typeof raw.connector_label === "string" ? (raw.connector_label as string) : connectorName;
+      if (toolId && connectorName) {
+        s.upsertTool(convId, msgId, {
+          id: toolId,
+          name: "connect_applications_connectors",
+          label: connectorLabel ? `Connect app: ${connectorLabel}` : "Connect application connector",
+          status: "running",
+          args: { connector_name: connectorName },
+          result: {
+            connector_connect_pending: true,
+            connector_name: connectorName,
+            connector_label: connectorLabel,
+            description: typeof raw.description === "string" ? raw.description : "",
+            redirect_url: typeof raw.redirect_url === "string" ? raw.redirect_url : "",
+            connected_account_id:
+              typeof raw.connected_account_id === "string" ? raw.connected_account_id : "",
+          } as never,
         });
       }
       break;

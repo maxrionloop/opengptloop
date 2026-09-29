@@ -73,6 +73,10 @@ import { listAvailableMcpServersTool } from "./mcp_list.js";
 import { deleteMcpServerTool } from "./mcp_delete.js";
 import { toggleMcpServerTool } from "./mcp_toggle.js";
 import { getMcpServerStatusTool } from "./mcp_status.js";
+import { listAvailableApplicationConnectorsTool } from "./list_available_application_connectors.js";
+import { connectApplicationsConnectorsTool } from "./connect_applications_connectors.js";
+import { disconnectApplicationConnectorTool } from "./disconnect_application_connector.js";
+import { getApplicationConnectorStatusTool } from "./get_application_connector_status.js";
 import { listAvailableChannelsTool } from "./list_available_channels.js";
 import { requestChannelConnectionToUserTool } from "./request_channel_connection_to_user.js";
 import { disconnectChannelsTool } from "./disconnect_channels.js";
@@ -185,6 +189,17 @@ export { listAvailableMcpServersTool } from "./mcp_list.js";
 export { deleteMcpServerTool } from "./mcp_delete.js";
 export { toggleMcpServerTool } from "./mcp_toggle.js";
 export { getMcpServerStatusTool } from "./mcp_status.js";
+export { listAvailableApplicationConnectorsTool } from "./list_available_application_connectors.js";
+export { connectApplicationsConnectorsTool } from "./connect_applications_connectors.js";
+export { disconnectApplicationConnectorTool } from "./disconnect_application_connector.js";
+export { getApplicationConnectorStatusTool } from "./get_application_connector_status.js";
+export {
+  CONNECTOR_MANAGEMENT_TOOL_NAMES,
+  isConnectorManagementTool,
+  CONNECTOR_CONNECTION_TIMEOUT_MS,
+  connectorCatalog,
+  normalizeConnectorName,
+} from "./connectorManagement.js";
 export { listAvailableChannelsTool } from "./list_available_channels.js";
 export { requestChannelConnectionToUserTool } from "./request_channel_connection_to_user.js";
 export { disconnectChannelsTool } from "./disconnect_channels.js";
@@ -308,6 +323,10 @@ export function createToolRegistry(): ToolRegistry {
     deleteMcpServerTool,
     toggleMcpServerTool,
     getMcpServerStatusTool,
+    listAvailableApplicationConnectorsTool,
+    connectApplicationsConnectorsTool,
+    disconnectApplicationConnectorTool,
+    getApplicationConnectorStatusTool,
     listAvailableChannelsTool,
     requestChannelConnectionToUserTool,
     disconnectChannelsTool,
@@ -391,6 +410,10 @@ export const tools = {
   deleteMcpServerTool,
   toggleMcpServerTool,
   getMcpServerStatusTool,
+  listAvailableApplicationConnectorsTool,
+  connectApplicationsConnectorsTool,
+  disconnectApplicationConnectorTool,
+  getApplicationConnectorStatusTool,
   listAvailableChannelsTool,
   requestChannelConnectionToUserTool,
   disconnectChannelsTool,
