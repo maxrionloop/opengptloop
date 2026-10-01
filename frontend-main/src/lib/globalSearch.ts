@@ -17,6 +17,7 @@ export type SearchTarget =
   | { kind: "customagent"; agentId: string }
   | { kind: "systemprompt"; promptId: string }
   | { kind: "taskmode"; modeId: string }
+  | { kind: "prompt"; promptId: string }
   | { kind: "schedule"; scheduleId: string }
   | { kind: "connector"; connectorId: string }
   | { kind: "mcp"; serverId: string; tool?: string }
@@ -72,6 +73,7 @@ export interface SearchState {
   mainAgentPrompts: Array<{ id: string; name: string; description: string; content: string }>;
   taskModes: Array<{ id: string; name: string; prompt: string }>;
   planModePrompt: string;
+  promptLibrary: Array<{ id: string; title: string; description: string; content: string }>;
   schedules: Array<{ id: string; name: string; prompt: string; kind: string; status: string }>;
   connectors: Array<{ connectorId: string; status: string; accountLabel: string }>;
   mcpServers: Array<{
@@ -103,6 +105,7 @@ const SECTION_INDEX: Array<{ section: Section; label: string; keywords: string; 
   { section: "customagents", label: "Custom agents", keywords: "custom agents main agent persona tools", hint: "Go to custom agents" },
   { section: "systemprompts", label: "Custom system prompts", keywords: "system prompt instructions main agent template", hint: "Go to system prompts" },
   { section: "taskmodes", label: "Task modes", keywords: "task modes plan default custom prompt mode", hint: "Go to task modes" },
+  { section: "prompts", label: "Prompt library", keywords: "prompt library saved prompts reusable templates snippets", hint: "Go to prompt library" },
   { section: "schedules", label: "Schedules", keywords: "schedules cron recurring automation tasks background", hint: "Go to schedules" },
   { section: "connectors", label: "Connectors", keywords: "connectors github slack notion gmail outlook composio apps integration", hint: "Go to connectors" },
   { section: "mcp", label: "MCP servers", keywords: "mcp model context protocol servers tools oauth remote local", hint: "Go to MCP" },
@@ -477,6 +480,23 @@ export function searchEverything(rawQuery: string, state: SearchState): SearchRe
         target: { kind: "taskmode", modeId: "plan" },
       },
       1,
+    );
+  }
+
+  // Saved prompts (prompt library)
+  for (const p of state.promptLibrary ?? []) {
+    const hay = `${p.title} ${p.description} ${p.content}`.toLowerCase();
+    if (!includes(hay, q)) continue;
+    push(
+      {
+        id: `prompt-${p.id}`,
+        group: "Prompts",
+        title: p.title,
+        snippet: (p.description || p.content).slice(0, 120),
+        hint: "Open prompt library",
+        target: { kind: "prompt", promptId: p.id },
+      },
+      2,
     );
   }
 

@@ -22,6 +22,7 @@ import { buildSystemPromptRouter } from "./api/systemprompt.js";
 import { buildCustomAgentsRouter } from "./api/customagents.js";
 import { buildUserProfilesRouter } from "./api/profiles.js";
 import { buildMainAgentPromptsRouter } from "./api/mainagentprompts.js";
+import { buildPromptLibraryRouter } from "./api/promptlibrary.js";
 import { buildSchedulesRouter } from "./api/schedules.js";
 import { buildChannelsRouter } from "./api/channels.js";
 import { ScheduleStore } from "./cron/store.js";
@@ -33,6 +34,7 @@ import { CeoAgentRunner } from "./agents/multiagent/ceo/index.js";
 import { CustomAgentManager, CustomAgentRunner } from "./agents/customagent/index.js";
 import { UserProfileManager } from "./agents/profiles/index.js";
 import { MainAgentPromptManager } from "./agents/mainagentprompt/index.js";
+import { PromptLibraryManager } from "./prompt-library.js";
 import { ConnectorManager } from "./agents/connectors/index.js";
 import { McpManager } from "./agents/mcp/index.js";
 import { ChannelManager } from "./channels/index.js";
@@ -93,6 +95,10 @@ function main(): void {
   // the Main Agent runs with. It never creates a new agent — it only changes the Main Agent's system
   // prompt (see chat.ts, which applies the active prompt as a systemPromptOverride).
   const mainAgentPrompts = new MainAgentPromptManager(db.appState);
+  // Prompt Library: user-saved reusable prompts (title + optional short
+  // description + prompt text), persisted in the SQLite app_state repository.
+  // The frontend syncs the same document, so prompts survive restarts.
+  const promptLibrary = new PromptLibraryManager(db.appState);
 
   // Schedules (persistent cron): the store persists schedules + history in the
   // SQLite database; the runner executes due schedules through the EXISTING
@@ -176,6 +182,7 @@ function main(): void {
   app.use("/api/custom-agents", buildCustomAgentsRouter(customAgents));
   app.use("/api/profiles", buildUserProfilesRouter(userProfiles));
   app.use("/api/main-agent-prompts", buildMainAgentPromptsRouter(mainAgentPrompts, config));
+  app.use("/api/prompt-library", buildPromptLibraryRouter(promptLibrary));
   app.use(
     "/api/chat",
     buildChatRouter(

@@ -74,6 +74,36 @@ export const API_ROUTES = {
     path: "/api/profiles/active",
     description: "Get or set the active user profile.",
   },
+  promptLibraryList: {
+    name: "promptLibrary.list",
+    method: "GET",
+    path: "/api/prompt-library",
+    description: "List the user-saved reusable prompts (prompt library).",
+  },
+  promptLibraryCreate: {
+    name: "promptLibrary.create",
+    method: "POST",
+    path: "/api/prompt-library",
+    description: "Save a new reusable prompt into the prompt library.",
+  },
+  promptLibraryGet: {
+    name: "promptLibrary.get",
+    method: "GET",
+    path: "/api/prompt-library/:id",
+    description: "Load one saved prompt from the prompt library.",
+  },
+  promptLibraryUpdate: {
+    name: "promptLibrary.update",
+    method: "PUT",
+    path: "/api/prompt-library/:id",
+    description: "Update a saved prompt in the prompt library.",
+  },
+  promptLibraryDelete: {
+    name: "promptLibrary.delete",
+    method: "DELETE",
+    path: "/api/prompt-library/:id",
+    description: "Delete a saved prompt from the prompt library.",
+  },
   chatStream: {
     name: "chat.stream",
     method: "POST",

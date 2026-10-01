@@ -434,6 +434,29 @@ export interface BackendCustomAgent {
 }
 
 /**
+ * A user-saved reusable prompt in the prompt library, stored in the backend
+ * SQLite database (app_state `promptLibrary`).
+ *
+ * The library is a quick-access collection: each entry has a title, an
+ * optional short description (both unlimited in length), and the prompt text
+ * itself. Every entry carries its own stable 20-character alphanumeric id.
+ * Users copy entries to the clipboard or insert them into the composer with
+ * the "/" shortcut, and can save any chat prompt into the library.
+ */
+export interface PromptLibraryItem {
+  /** Stable unique id (20-character alphanumeric). */
+  id: string;
+  /** User-visible title (required, no length limit). */
+  title: string;
+  /** Optional short description (no length limit). */
+  description: string;
+  /** The reusable prompt text. */
+  content: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
  * A user profile (account identity), stored in the backend SQLite database
  * (app_state `userProfiles`).
  *

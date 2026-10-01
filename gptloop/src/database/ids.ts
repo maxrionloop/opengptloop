@@ -30,6 +30,9 @@ export const MAIN_AGENT_PROMPT_ID_LENGTH = 16;
 /** Schedules carry a 16-character alphanumeric ID. */
 export const SCHEDULE_ID_LENGTH = 16;
 
+/** Prompt-library entries carry a 20-character alphanumeric ID. */
+export const PROMPT_LIBRARY_ID_LENGTH = 20;
+
 /** Schedule runs carry a 12-character alphanumeric ID. */
 export const SCHEDULE_RUN_ID_LENGTH = 12;
 
@@ -93,6 +96,14 @@ export function createScheduleId(): string {
  */
 export function createScheduleRunId(): string {
   return randomId(SCHEDULE_RUN_ID_LENGTH);
+}
+
+/**
+ * Create a new 20-character prompt-library ID (all numbers + all letters). Each
+ * user-saved prompt in the prompt library carries its own id.
+ */
+export function createPromptLibraryId(): string {
+  return randomId(PROMPT_LIBRARY_ID_LENGTH);
 }
 
 /** True when `value` looks like a usable session id (bounded, printable, path-safe). */

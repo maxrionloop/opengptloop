@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Paperclip, ArrowUp, Square, FolderOpen, X, Loader2, ChevronDown, ListChecks, Plus } from "lucide-react";
+import { Paperclip, ArrowUp, Square, FolderOpen, X, Loader2, ChevronDown, ListChecks, Plus, Bookmark } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { isCustomProviderId, isLocalProviderId } from "@/lib/providers";
 import { fetchWorkspace, mkdirWorkspace, setWorkspace } from "@/lib/workspace";
@@ -19,12 +19,55 @@ export function Composer({ onSend, onStop }: { onSend: (text: string) => void; o
   const agentMode = useStore((s) => s.agentMode);
   const workspacePath = useStore((s) => s.workspacePath);
   const setWorkspacePath = useStore((s) => s.setWorkspacePath);
+  const promptLibrary = useStore((s) => s.promptLibrary);
+  const composerPrefill = useStore((s) => s.composerPrefill);
+  const setComposerPrefill = useStore((s) => s.setComposerPrefill);
+  // "/" shortcut stages: "menu" shows the single "Prompt library" option,
+  // "list" shows the saved prompts (title + optional short description).
+  const [slashStage, setSlashStage] = useState<"menu" | "list">("menu");
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [attachments, setAttachments] = useState<UploadedFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Insert prompt-library "Use" content into the composer (set by the panel or
+  // the "/" picker). Consumed during render (same pattern as WorkspaceModal
+  // below) so no sync effect is needed. Appends below existing text.
+  const [prevPrefill, setPrevPrefill] = useState<string | null>(null);
+  if (composerPrefill !== prevPrefill) {
+    setPrevPrefill(composerPrefill);
+    if (composerPrefill) {
+      setValue((prev) =>
+        prev.trim().length > 0 ? `${prev}\n\n${composerPrefill}` : composerPrefill,
+      );
+      setComposerPrefill(null);
+      // Focus after paint so the user can edit before sending.
+      requestAnimationFrame(() => document.getElementById("composer")?.focus());
+    }
+  }
+
+  // The "/" shortcut is active while the composer starts with "/".
+  const slashActive = !streaming && value.startsWith("/");
+  const slashFilter = slashActive ? value.slice(1).trim().toLowerCase() : "";
+  const slashMatches =
+    slashFilter.length === 0
+      ? promptLibrary
+      : promptLibrary.filter((item) =>
+          `${item.title} ${item.description}`.toLowerCase().includes(slashFilter),
+        );
+
+  const autoGrow = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const next = e.target.value;
+    setValue(next);
+    // Leaving the "/" shortcut resets its stages (handled here in the change
+    // handler so no sync effect is needed).
+    if (!next.startsWith("/")) setSlashStage("menu");
+    const el = e.target;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 200) + "px";
+  };
 
   useEffect(() => {
     if (workspacePath) return;
@@ -52,6 +95,7 @@ export function Composer({ onSend, onStop }: { onSend: (text: string) => void; o
     const notice = buildAttachmentPrompt(attachments);
     onSend(notice ? `${text}\n\n${notice}` : text);
     setValue("");
+    setSlashStage("menu");
     setAttachments([]);
     setUploadError(null);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
@@ -78,17 +122,31 @@ export function Composer({ onSend, onStop }: { onSend: (text: string) => void; o
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Escape" && slashActive) {
+      e.preventDefault();
+      if (slashStage === "list") setSlashStage("menu");
+      else {
+        setValue("");
+        if (textareaRef.current) textareaRef.current.style.height = "auto";
+      }
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       submit();
     }
   };
 
-  const autoGrow = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setValue(e.target.value);
-    const el = e.target;
-    el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 200) + "px";
+  const insertLibraryPrompt = (content: string) => {
+    setValue(content);
+    setSlashStage("menu");
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.style.height = "auto";
+      el.style.height = Math.min(el.scrollHeight, 200) + "px";
+      el.focus();
+    });
   };
 
   return (
@@ -114,9 +172,91 @@ export function Composer({ onSend, onStop }: { onSend: (text: string) => void; o
         )}
 
         <div
-          className="rounded-[var(--radius-2xl)] bg-[var(--bg)] p-4 transition-shadow focus-within:[box-shadow:var(--shadow-card-focus)] max-[640px]:p-3"
+          className="relative rounded-[var(--radius-2xl)] bg-[var(--bg)] p-4 transition-shadow focus-within:[box-shadow:var(--shadow-card-focus)] max-[640px]:p-3"
           style={{ boxShadow: "var(--shadow-card)" }}
         >
+          {slashActive && (
+            <div
+              className="absolute bottom-full left-0 z-50 mb-2 w-72 max-w-[calc(100vw-3rem)] overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg)] py-1 pop-in"
+              style={{ boxShadow: "var(--shadow-pop)" }}
+              role="listbox"
+              aria-label="Prompt library shortcuts"
+            >
+              {slashStage === "menu" ? (
+                <button
+                  type="button"
+                  onClick={() => setSlashStage("list")}
+                  className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left hover:bg-[var(--chip)]"
+                  role="option"
+                  aria-selected="false"
+                >
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[var(--radius-md)] bg-[var(--chip)] text-[var(--muted)]">
+                    <Bookmark className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-xs font-medium text-[var(--fg)]">
+                      Prompt library
+                    </span>
+                    <span className="block truncate text-[10px] text-[var(--subtle)]">
+                      {promptLibrary.length === 0
+                        ? "No saved prompts yet"
+                        : `${promptLibrary.length} saved prompt${promptLibrary.length === 1 ? "" : "s"}`}
+                    </span>
+                  </span>
+                </button>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between px-3 pb-1 pt-2">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--subtle)]">
+                      Saved prompts
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSlashStage("menu")}
+                      className="text-[10px] font-medium text-[var(--muted)] hover:text-[var(--fg)]"
+                    >
+                      Back
+                    </button>
+                  </div>
+                  {promptLibrary.length === 0 ? (
+                    <p className="m-0 px-3 py-2 text-xs text-[var(--muted)]">
+                      No saved prompts yet. Save one from the Prompt library page or the
+                      bookmark button on any chat prompt.
+                    </p>
+                  ) : slashMatches.length === 0 ? (
+                    <p className="m-0 px-3 py-2 text-xs text-[var(--muted)]">
+                      No saved prompts match “{value.slice(1).trim()}”.
+                    </p>
+                  ) : (
+                    <ul className="m-0 max-h-56 list-none overflow-y-auto p-0">
+                      {slashMatches.slice(0, 20).map((item) => (
+                        <li key={item.id}>
+                          <button
+                            type="button"
+                            onClick={() => insertLibraryPrompt(item.content)}
+                            className="flex w-full items-start gap-2.5 px-3 py-2 text-left hover:bg-[var(--chip)]"
+                            role="option"
+                            aria-selected="false"
+                            title={item.content.slice(0, 200)}
+                          >
+                            <Bookmark className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--subtle)]" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-xs font-medium text-[var(--fg)]">
+                                {item.title}
+                              </span>
+                              <span className="block truncate text-[10px] text-[var(--subtle)]">
+                                {item.description || "No description."}
+                              </span>
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+            </div>
+          )}
           <label htmlFor="composer" className="sr-only">
             Message
           </label>

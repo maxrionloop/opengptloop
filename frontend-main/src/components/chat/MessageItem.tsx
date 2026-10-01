@@ -1,5 +1,5 @@
 import { memo, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { BookmarkPlus, ChevronRight } from "lucide-react";
 import type { ChatMessage } from "@/types";
 import { cn } from "@/utils/cn";
 import { ToolChip } from "./ToolChip";
@@ -7,15 +7,36 @@ import { ThinkingIndicator } from "./ThinkingIndicator";
 import { SubmitPlanBlock } from "./SubmitPlanBlock";
 import { AskQuestionBlock } from "./AskQuestionBlock";
 import { TeamRunView } from "./TeamRunView";
+import { SavePromptModal } from "@/components/panels/PromptLibraryPanel";
 
 function MessageItemImpl({ message }: { message: ChatMessage }) {
   const [showReasoning, setShowReasoning] = useState(false);
+  const [saveOpen, setSaveOpen] = useState(false);
 
   if (message.role === "user") {
     return (
-      <div className="flex justify-end fade-in">
-        <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-[var(--radius-lg)] rounded-br-md bg-[var(--secondary)] px-4 py-2.5 text-sm leading-relaxed text-[var(--secondary-fg)]">
-          {message.content}
+      <div className="group flex justify-end fade-in">
+        <div className="flex max-w-[85%] flex-col items-end gap-1">
+          <div className="whitespace-pre-wrap break-words rounded-[var(--radius-lg)] rounded-br-md bg-[var(--secondary)] px-4 py-2.5 text-sm leading-relaxed text-[var(--secondary-fg)]">
+            {message.content}
+          </div>
+          {message.content.trim().length > 0 && (
+            <button
+              type="button"
+              onClick={() => setSaveOpen(true)}
+              title="Save prompt to library"
+              aria-label="Save prompt to library"
+              className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-[var(--subtle)] opacity-0 transition-opacity hover:bg-[var(--chip)] hover:text-[var(--fg)] group-hover:opacity-100 focus-visible:opacity-100"
+            >
+              <BookmarkPlus className="h-3.5 w-3.5" />
+              Save to library
+            </button>
+          )}
+          <SavePromptModal
+            open={saveOpen}
+            initialContent={message.content}
+            onClose={() => setSaveOpen(false)}
+          />
         </div>
       </div>
     );

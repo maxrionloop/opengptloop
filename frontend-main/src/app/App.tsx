@@ -13,6 +13,7 @@ import { CeoPanel } from "@/components/panels/CeoPanel";
 import { CustomAgentsPanel } from "@/components/panels/CustomAgentsPanel";
 import { MainAgentPromptsPanel } from "@/components/panels/MainAgentPromptsPanel";
 import { TaskModesPanel } from "@/components/panels/TaskModesPanel";
+import { PromptLibraryPanel } from "@/components/panels/PromptLibraryPanel";
 import { SchedulesPanel } from "@/components/panels/SchedulesPanel";
 import { ConnectorsPanel } from "@/components/panels/ConnectorsPanel";
 import { McpPanel } from "@/components/panels/McpPanel";
@@ -167,6 +168,7 @@ export function App() {
               {section === "customagents" && <CustomAgentsPanel />}
               {section === "systemprompts" && <MainAgentPromptsPanel />}
               {section === "taskmodes" && <TaskModesPanel />}
+              {section === "prompts" && <PromptLibraryPanel />}
               {section === "schedules" && <SchedulesPanel />}
               {section === "connectors" && <ConnectorsPanel />}
               {section === "mcp" && <McpPanel />}

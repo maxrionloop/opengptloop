@@ -13,6 +13,7 @@ import type {
   MainAgentPrompt,
   McpServer,
   MemoryFile,
+  PromptLibraryItem,
   Settings,
   Skill,
   SubAgent,
@@ -197,6 +198,8 @@ export interface ProfileSnapshot {
   taskModes: CustomTaskMode[];
   activeTaskModeId: string | null;
   planModePrompt: string;
+  /** User-saved reusable prompts (prompt library). */
+  promptLibrary: PromptLibraryItem[];
   /** Top-level conversation mode: "agent" (default, full tools) or "chat" (memory + knowledge + web only). */
   agentMode: AgentMode;
   connectors: ConnectorConnection[];

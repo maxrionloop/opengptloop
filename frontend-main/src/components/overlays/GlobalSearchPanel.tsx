@@ -38,6 +38,7 @@ export function GlobalSearchPanel() {
       mainAgentPrompts: s.mainAgentPrompts,
       taskModes: s.taskModes,
       planModePrompt: s.planModePrompt,
+      promptLibrary: s.promptLibrary,
       schedules: s.schedules.map((sc) => ({
         id: sc.id,
         name: sc.name,
@@ -121,6 +122,9 @@ export function GlobalSearchPanel() {
         break;
       case "taskmode":
         s.setSection("taskmodes");
+        break;
+      case "prompt":
+        s.setSection("prompts");
         break;
       case "schedule":
         s.setSection("schedules");

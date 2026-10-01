@@ -25,6 +25,7 @@ import type {
   MemoryFile,
   ModelInfo,
   PlanApprovalStatus,
+  PromptLibraryItem,
   ProviderMeta,
   SearchProvider,
   Settings,
@@ -66,6 +67,7 @@ import {
   normalizePlanModePrompt,
   normalizeTaskModes,
 } from "@/lib/taskModes";
+import { normalizePromptLibrary, newPromptLibraryId } from "@/lib/promptLibrary";
 import {
   DEFAULT_PROFILE_ID,
   findActiveProfile,
@@ -88,6 +90,7 @@ export type Section =
   | "customagents"
   | "systemprompts"
   | "taskmodes"
+  | "prompts"
   | "schedules"
   | "connectors"
   | "mcp"
@@ -141,6 +144,12 @@ interface AppState {
   activeMainAgentPromptId: string | null;
   /** User-created custom task modes for the prompt box (name + appended prompt). */
   taskModes: CustomTaskMode[];
+  /**
+   * User-saved reusable prompts (prompt library). Each entry has a title, an
+   * optional short description (both unlimited), and the prompt text itself.
+   * Synced with the backend SQLite database like every other slice.
+   */
+  promptLibrary: PromptLibraryItem[];
   /**
    * Third-party app connector connections (GitHub, Slack, …), synced with the backend
    * SQLite database like every other slice. Only the connected-account id + status are
@@ -376,6 +385,22 @@ interface AppState {
   setPlanModePrompt: (prompt: string) => void;
   /** Switch the top-level conversation mode ("agent" = full tools, "chat" = chat-only). */
   setAgentMode: (mode: AgentMode) => void;
+
+  // Prompt library (user-saved reusable prompts for quick copy/use)
+  addPromptLibraryItem: (
+    input: Omit<PromptLibraryItem, "id" | "createdAt" | "updatedAt">,
+  ) => PromptLibraryItem;
+  updatePromptLibraryItem: (
+    id: string,
+    patch: Partial<Omit<PromptLibraryItem, "id" | "createdAt">>,
+  ) => void;
+  deletePromptLibraryItem: (id: string) => void;
+  /**
+   * Text the composer should insert next (set by prompt-library "Use" actions
+   * and the "/" shortcut). The Composer consumes and clears it.
+   */
+  composerPrefill: string | null;
+  setComposerPrefill: (text: string | null) => void;
 
   // Connector connections (third-party apps via Composio)
   /** Replace the whole connection list (used after a backend refresh). */
@@ -735,6 +760,7 @@ function freshProfileSnapshot(): ProfileSnapshot {
     activeTaskModeId: null,
     planModePrompt: DEFAULT_PLAN_MODE_PROMPT,
     agentMode: "agent",
+    promptLibrary: [],
     connectors: [],
     mcpServers: [],
     currentId: null,
@@ -762,6 +788,7 @@ function captureProfileSnapshot(s: AppState): ProfileSnapshot {
     activeTaskModeId: s.activeTaskModeId,
     planModePrompt: s.planModePrompt,
     agentMode: s.agentMode === "chat" ? "chat" : "agent",
+    promptLibrary: cloneJson(s.promptLibrary),
     connectors: cloneJson(s.connectors),
     mcpServers: cloneJson(s.mcpServers),
     currentId: s.currentId,
@@ -805,6 +832,8 @@ export const useStore = create<AppState>()(
       activeTaskModeId: null,
       planModePrompt: DEFAULT_PLAN_MODE_PROMPT,
       agentMode: "agent",
+      promptLibrary: [],
+      composerPrefill: null,
       connectors: [],
       mcpServers: [],
       channelConnections: [],
@@ -955,6 +984,9 @@ export const useStore = create<AppState>()(
           taskModes: normalizeTaskModes(
             (p as { taskModes?: unknown }).taskModes ?? defaults.taskModes,
           ),
+          promptLibrary: normalizePromptLibrary(
+            (p as { promptLibrary?: unknown }).promptLibrary ?? defaults.promptLibrary,
+          ),
           activeTaskModeId:
             typeof (state as { activeTaskModeId?: unknown }).activeTaskModeId === "string"
               ? ((state as { activeTaskModeId?: string }).activeTaskModeId ?? null)
@@ -1007,6 +1039,9 @@ export const useStore = create<AppState>()(
           activeMainAgentPromptId:
             typeof snap.activeMainAgentPromptId === "string" ? snap.activeMainAgentPromptId : null,
           taskModes: normalizeTaskModes(snap.taskModes ?? base.taskModes),
+          promptLibrary: normalizePromptLibrary(
+            (snap as { promptLibrary?: unknown }).promptLibrary ?? base.promptLibrary,
+          ),
           activeTaskModeId:
             typeof snap.activeTaskModeId === "string" ? snap.activeTaskModeId : null,
           planModePrompt: normalizePlanModePrompt(snap.planModePrompt ?? base.planModePrompt),
@@ -1667,6 +1702,31 @@ export const useStore = create<AppState>()(
 
       setAgentMode: (mode) => set(() => ({ agentMode: mode === "chat" ? "chat" : "agent" })),
 
+      // ---- Prompt library (user-saved reusable prompts) ----------------------
+      addPromptLibraryItem: (input) => {
+        const now = Date.now();
+        const item: PromptLibraryItem = {
+          id: newPromptLibraryId(),
+          createdAt: now,
+          updatedAt: now,
+          ...input,
+        };
+        set((s) => ({ promptLibrary: [item, ...s.promptLibrary] }));
+        return item;
+      },
+
+      updatePromptLibraryItem: (id, patch) =>
+        set((s) => ({
+          promptLibrary: s.promptLibrary.map((p) =>
+            p.id === id ? { ...p, ...patch, updatedAt: Date.now() } : p,
+          ),
+        })),
+
+      deletePromptLibraryItem: (id) =>
+        set((s) => ({ promptLibrary: s.promptLibrary.filter((p) => p.id !== id) })),
+
+      setComposerPrefill: (composerPrefill) => set(() => ({ composerPrefill })),
+
       // ---- Connector connections (third-party apps via Composio) ----------------
       setConnectors: (connectors) => set(() => ({ connectors: normalizeConnectors(connectors) })),
 
@@ -1811,6 +1871,9 @@ export const useStore = create<AppState>()(
           customAgents: normalizeCustomAgents(next.customAgents),
           mainAgentPrompts: normalizeMainAgentPrompts(next.mainAgentPrompts),
           taskModes: normalizeTaskModes(next.taskModes),
+          promptLibrary: normalizePromptLibrary(
+            (next as { promptLibrary?: unknown }).promptLibrary ?? [],
+          ),
           planModePrompt: normalizePlanModePrompt(next.planModePrompt),
           agentMode: normalizeAgentMode((next as { agentMode?: unknown }).agentMode),
           connectors: normalizeConnectors(next.connectors),
@@ -1866,6 +1929,9 @@ export const useStore = create<AppState>()(
           customAgents: normalizeCustomAgents(next.customAgents),
           mainAgentPrompts: normalizeMainAgentPrompts(next.mainAgentPrompts),
           taskModes: normalizeTaskModes(next.taskModes),
+          promptLibrary: normalizePromptLibrary(
+            (next as { promptLibrary?: unknown }).promptLibrary ?? [],
+          ),
           planModePrompt: normalizePlanModePrompt(next.planModePrompt),
           agentMode: normalizeAgentMode((next as { agentMode?: unknown }).agentMode),
           connectors: normalizeConnectors(next.connectors),
@@ -1950,6 +2016,9 @@ export const useStore = create<AppState>()(
           customAgents: normalizeCustomAgents(snap.customAgents),
           mainAgentPrompts: normalizeMainAgentPrompts(snap.mainAgentPrompts),
           taskModes: normalizeTaskModes(snap.taskModes),
+          promptLibrary: normalizePromptLibrary(
+            (snap as { promptLibrary?: unknown }).promptLibrary ?? [],
+          ),
           planModePrompt: normalizePlanModePrompt(snap.planModePrompt),
           agentMode: normalizeAgentMode((snap as { agentMode?: unknown }).agentMode),
           connectors: normalizeConnectors(snap.connectors),
@@ -2001,6 +2070,9 @@ export const useStore = create<AppState>()(
           customAgents: normalizeCustomAgents(fresh.customAgents),
           mainAgentPrompts: normalizeMainAgentPrompts(fresh.mainAgentPrompts),
           taskModes: normalizeTaskModes(fresh.taskModes),
+          promptLibrary: normalizePromptLibrary(
+            (fresh as { promptLibrary?: unknown }).promptLibrary ?? [],
+          ),
           planModePrompt: normalizePlanModePrompt(fresh.planModePrompt),
           agentMode: normalizeAgentMode((fresh as { agentMode?: unknown }).agentMode),
           connectors: normalizeConnectors(fresh.connectors),
