@@ -118,6 +118,9 @@ const ICONS: Record<string, typeof Terminal> = {
   list_sub_agents: ListTree,
   list_skills: Blocks,
   skill_initialize: PackagePlus,
+  list_available_prompts_in_prompt_library: List,
+  save_prompt_in_prompt_library: Save,
+  delete_prompt_from_prompt_library: Trash2,
   create_sub_agent: UserPlus,
   create_skill: Wand2,
   delete_sub_agent: UserMinus,
@@ -278,6 +281,7 @@ export function ToolChip({ tool }: { tool: ToolActivity }) {
   if (tool.name === "memory_search" || tool.name === "knowledge_search") return <SearchLocatorChip tool={tool} />;
   if (MEMORY_TOOLS.has(tool.name)) return <MemoryChip tool={tool} kind="memory" />;
   if (KNOWLEDGE_TOOLS.has(tool.name)) return <MemoryChip tool={tool} kind="knowledge" />;
+  if (PROMPT_LIBRARY_TOOLS.has(tool.name)) return <PromptLibraryChip tool={tool} />;
   if (tool.name === "embed_url") return <EmbedUrlChip tool={tool} />;
   if (tool.name === "attach_files") return <AttachFilesChip tool={tool} />;
   if (tool.name === "list_sub_agents") return <ListSubAgentsChip tool={tool} />;
@@ -1272,6 +1276,103 @@ function SearchLocatorChip({ tool }: { tool: ToolActivity }) {
               </div>
             );
           })}
+        </>
+      )}
+    />
+  );
+}
+
+/* ------------------------------------------------------------------ prompt library */
+
+const PROMPT_LIBRARY_TOOLS = new Set([
+  "save_prompt_in_prompt_library",
+  "delete_prompt_from_prompt_library",
+  "list_available_prompts_in_prompt_library",
+]);
+
+const PROMPT_LIBRARY_META: Record<string, { label: string; Icon: typeof List }> = {
+  save_prompt_in_prompt_library: { label: "Save prompt", Icon: Save },
+  delete_prompt_from_prompt_library: { label: "Delete prompt", Icon: Trash2 },
+  list_available_prompts_in_prompt_library: { label: "List prompts", Icon: List },
+};
+
+/** Chip for the agent-driven prompt-library tools (save / delete / list). */
+function PromptLibraryChip({ tool }: { tool: ToolActivity }) {
+  const { data, error, args, hasResult } = parts(tool);
+  const meta = PROMPT_LIBRARY_META[tool.name] ?? { label: tool.label, Icon: Library };
+  const prompts: any[] = Array.isArray(data?.prompts) ? (data!.prompts as any[]) : [];
+  const saved: { id?: string; title?: string; description?: string } | undefined = data?.prompt;
+  const promptText = typeof args.prompt === "string" ? args.prompt : "";
+  const isList = tool.name === "list_available_prompts_in_prompt_library";
+  const deletedId = typeof data?.prompt_id === "string" ? data.prompt_id : "";
+  return (
+    <Shell
+      icon={<meta.Icon className="h-3.5 w-3.5" />}
+      label={tool.label}
+      status={tool.status}
+      expandable={hasResult}
+      pills={isList && data?.count != null ? <Pill>{data.count} prompt(s)</Pill> : undefined}
+      panel={() => (
+        <>
+          {error?.message && (
+            <div className="text-[var(--danger)]">
+              {error.message}
+              {Array.isArray(error.available_prompts) && (
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {error.available_prompts.map((p: { id?: string }, i: number) => (
+                    <Pill key={i}>{p?.id ?? "unknown"}</Pill>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {data && (
+            <>
+              <div className="flex items-center gap-1 font-medium text-[var(--fg)]">
+                <meta.Icon className="h-3 w-3" />
+                {meta.label}
+              </div>
+              {isList ? (
+                prompts.length === 0 ? (
+                  <div className="text-[var(--muted)]">The prompt library is empty.</div>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {prompts.map((p, i) => (
+                      <li
+                        key={p?.id ?? i}
+                        className="rounded-[var(--radius-sm)] border border-[var(--border)] p-2"
+                      >
+                        <div className="font-medium text-[var(--fg)]">{p?.title || "(untitled)"}</div>
+                        {p?.description && <div className="text-[var(--muted)]">{p.description}</div>}
+                        {p?.id && (
+                          <div className="mt-1 flex">
+                            <Pill>#{p.id}</Pill>
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )
+              ) : (
+                <>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {saved?.title && <Pill>{saved.title}</Pill>}
+                    {(saved?.id || deletedId) && <Pill>#{saved?.id ?? deletedId}</Pill>}
+                    {typeof data.count === "number" && <Pill>{data.count} prompt(s)</Pill>}
+                  </div>
+                  {promptText && (
+                    <div>
+                      <Label>Prompt</Label>
+                      <Pre>{promptText}</Pre>
+                    </div>
+                  )}
+                  {typeof data.message === "string" && (
+                    <div className="text-[var(--muted)]">{data.message}</div>
+                  )}
+                </>
+              )}
+            </>
+          )}
         </>
       )}
     />

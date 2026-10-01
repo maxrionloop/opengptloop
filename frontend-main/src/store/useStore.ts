@@ -519,6 +519,7 @@ interface AppState {
   saveKnowledgeFile: (path: string, content: string, originalPath?: string) => string | null;
   deleteKnowledgeFile: (path: string) => void;
   setKnowledgeSource: (path: string, source: KnowledgeSource | null) => void;
+  setPromptLibrary: (prompts: PromptLibraryItem[]) => void;
 
   // Preview + attached files
   setPreview: (url: string) => void;
@@ -2336,6 +2337,13 @@ export const useStore = create<AppState>()(
           );
           return { knowledge, knowledgeSources };
         }),
+
+      // Mirror the backend prompt library into the store. Used when the agent's
+      // prompt-library tools (save/delete) mutate the shared library mid-turn: the
+      // `prompt_library_updated` event carries the complete list, so the Prompt
+      // Library page and the "/" composer shortcut stay in sync immediately.
+      setPromptLibrary: (prompts) =>
+        set(() => ({ promptLibrary: normalizePromptLibrary(prompts) })),
 
       saveKnowledgeFile: (path, content, originalPath) => {
         const cleanPath = normalizeKnowledgePath(path);

@@ -99,6 +99,13 @@ function main(): void {
   // description + prompt text), persisted in the SQLite app_state repository.
   // The frontend syncs the same document, so prompts survive restarts.
   const promptLibrary = new PromptLibraryManager(db.appState);
+  // Attach the persistent prompt library to every agent surface that may manage it: the built-in
+  // Main Agent (and, through the same core runtime, every Custom Agent), the multi-agent team
+  // agents (head + members), and the CEO-system agents (CEO + leaders + members). Sub-agents,
+  // chat mode, and the background memory agent never receive the runtime.
+  agent.setPromptLibrary(promptLibrary);
+  multiAgent.setPromptLibrary(promptLibrary);
+  ceoAgent.setPromptLibrary(promptLibrary);
 
   // Schedules (persistent cron): the store persists schedules + history in the
   // SQLite database; the runner executes due schedules through the EXISTING

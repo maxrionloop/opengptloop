@@ -4,6 +4,7 @@ import type { ToolRegistry } from "../tools/registry.js";
 import type {
   KnowledgeRuntime,
   MemoryRuntime,
+  PromptLibraryRuntime,
   SkillRuntime,
   TeamMemberInfo,
   TeamMemberStatus,
@@ -95,8 +96,11 @@ export interface TeamOrchestratorDeps {
   web: WebToolsConfig;
   /** Optional persistent schedule store + background scheduler for the schedule_* tools. */
   scheduleStore?: ScheduleStore;
-  scheduleScheduler?: ScheduleScheduler;  memory: MemoryRuntime;
+  scheduleScheduler?: ScheduleScheduler;
+  memory: MemoryRuntime;
   knowledge: KnowledgeRuntime;
+  /** The persistent prompt library — lets every team agent (head + members) manage saved prompts. */
+  promptLibrary?: PromptLibraryRuntime;
   skills: SkillRuntime;
   todos: TodoRuntime;
   subAgentDefinitions: Awaited<ReturnType<typeof resolveDefaultSubAgents>>;
@@ -469,6 +473,7 @@ export class TeamOrchestrator {
       todos: this.deps.todos,
       memory: this.deps.memory,
       knowledge: this.deps.knowledge,
+      promptLibrary: this.deps.promptLibrary,
       schedules: createScheduleRuntime({
         store: this.deps.scheduleStore,
         scheduler: this.deps.scheduleScheduler,

@@ -25,7 +25,8 @@ function environmentBlock(workspaceRoot: string): string {
 - All file paths are relative to this workspace (file_read requires an absolute path). Shell commands run from it. Files you create persist on disk and are visible to your teammates.
 - To edit files, prefer apply_patch: pass one "input" string wrapped in "*** Begin Patch" … "*** End Patch" with "*** Add File: <path>", "*** Update File: <path>" (optional "*** Move to: <path>", then "@@" hunks whose lines start with " " for context, "-" to delete a line, or "+" to add a line), or "*** Delete File: <path>". Paths must be ABSOLUTE. The whole patch is validated and dry-run before any file is written. str_replace / apply_multiple_edits / file_write remain available too.
 - Use real native tool calls only. Never describe a tool call in prose or invent tools you were not given.
-- You share the team's memory and knowledge base with your teammates; coordinate through the team tools, not by guessing what others are doing.`;
+- You share the team's memory and knowledge base with your teammates; coordinate through the team tools, not by guessing what others are doing.
+- You also share the user's prompt library with the whole organization: save a reusable prompt with save_prompt_in_prompt_library (title + short description + the complete prompt), permanently remove one with delete_prompt_from_prompt_library (call list_available_prompts_in_prompt_library first to get the exact prompt_id), and inspect what exists with list_available_prompts_in_prompt_library. A prompt you save appears in the user's Prompt Library immediately, so store reusable prompts there instead of copying them into files.`;
 }
 
 /** Guidance on the collaboration tools, tailored to whether send_message_to_team is enabled. When a

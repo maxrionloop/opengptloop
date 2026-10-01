@@ -25,6 +25,7 @@ import { resolveDefaultSubAgents, mergeDefaultSubAgents } from "./sub-agents/ind
 import { createTodoRuntime } from "./todos.js";
 import { createMemoryRuntime } from "./memory.js";
 import { createKnowledgeRuntime } from "./knowledge.js";
+import { createPromptLibraryRuntime } from "./promptLibrary.js";
 import type { KnowledgeFile, MemoryFile, MemoryRuntime, TodoItem } from "./tools/types.js";
 import type { MemoryAgentService } from "./memoryagent/index.js";
 import { ALL_MULTI_AGENT_TOOL_NAMES } from "./tools/teamTools.js";
@@ -235,6 +236,20 @@ export class AgentRunner {
   private scheduleScheduler?: import("../cron/scheduler.js").ScheduleScheduler;
 
   /**
+   * Attach the persistent prompt library (called once at boot). When set, the prompt-library tools
+   * (save_prompt_in_prompt_library / delete_prompt_from_prompt_library /
+   * list_available_prompts_in_prompt_library) can read and mutate the user's saved prompts for the
+   * Main Agent and every Custom Agent (both run through this core runtime). Every mutation emits a
+   * `prompt_library_updated` event so the frontend mirrors it immediately. When unset, the tools
+   * return a structured "unavailable" error and never touch storage.
+   */
+  setPromptLibrary(manager?: import("../prompt-library.js").PromptLibraryManager): void {
+    this.promptLibraryManager = manager;
+  }
+
+  private promptLibraryManager?: import("../prompt-library.js").PromptLibraryManager;
+
+  /**
    * Execute a full autonomous turn: stream reasoning + tokens, run tools natively, and
    * loop (Thought -> Action -> Observation) until the model produces a final answer with
    * no further tool calls. The loop is UNBOUNDED — there is no iteration limit; the agent
@@ -276,6 +291,15 @@ export class AgentRunner {
       // notice is appended to the user's FIRST message ONLY when the user actually has knowledge
       // files, telling the agent to discover/read them with the knowledge tools.
       const knowledgeRuntime = createKnowledgeRuntime(request.knowledge ?? []);
+
+      // Prompt-library runtime for this turn — a bridge over the persistent prompt library (the
+      // SQLite app_state document the frontend syncs) so the prompt-library tools can list, save,
+      // and delete the user's reusable prompts. Present for the Main Agent, every Custom Agent
+      // (which runs through this same core runtime), and team/CEO agents — never for sub-agents,
+      // chat mode, or the memory agent.
+      const promptLibraryRuntime = this.promptLibraryManager
+        ? createPromptLibraryRuntime(this.promptLibraryManager)
+        : undefined;
 
       // "First user input" = no prior user turn exists in this session's history. On that first
       // message (and only then) we prepend the pre-added memory files so the model has its
@@ -570,6 +594,7 @@ export class AgentRunner {
               todos: todoRuntime,
               memory: memoryRuntime,
               knowledge: knowledgeRuntime,
+              promptLibrary: promptLibraryRuntime,
               schedules: scheduleRuntime,
               toolCallId: toolCall.id ?? undefined,
               chatId: request.chatId,

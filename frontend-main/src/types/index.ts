@@ -1044,6 +1044,9 @@ export interface SSEEventData {
   memoryFiles?: MemoryFile[];
   // knowledge_updated (knowledge tools) fields
   knowledgeFiles?: KnowledgeFile[];
+  // prompt_library_updated (prompt-library tools) fields
+  /** The complete prompt library after an agent-driven save/delete. */
+  prompts?: PromptLibraryItem[];
   // embed_url fields
   url?: string;
   // attach_files fields

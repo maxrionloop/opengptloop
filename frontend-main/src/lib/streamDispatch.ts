@@ -4,6 +4,7 @@ import { watchMemoryAgentRun } from "@/lib/memoryAgent";
 import { normalizeMcpServers } from "@/lib/mcp";
 import { normalizeChannel } from "@/lib/channels";
 import { normalizeConnectors } from "@/lib/connectors";
+import { normalizePromptLibrary } from "@/lib/promptLibrary";
 import type { StreamBatcher } from "@/lib/streamBatcher";
 import type {
   AttachedFile,
@@ -294,6 +295,13 @@ export function dispatchStreamEvent(event: string, data: SSEEventData, ctx: Disp
 
     case "knowledge_updated":
       if (Array.isArray(data.knowledgeFiles)) s.setKnowledge(data.knowledgeFiles as KnowledgeFile[]);
+      break;
+
+    case "prompt_library_updated":
+      // An agent-driven prompt-library tool (save/delete) mutated the persisted
+      // library. Mirror the backend truth into the store so the Prompt Library page
+      // and the "/" composer shortcut converge immediately instead of on next boot.
+      if (Array.isArray(data.prompts)) s.setPromptLibrary(normalizePromptLibrary(data.prompts));
       break;
 
     case "mcp_servers_updated":

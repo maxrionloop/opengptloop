@@ -24,6 +24,7 @@ function environmentBlock(workspaceRoot: string): string {
   return `# Environment
 - You run on the user's machine and share ONE workspace with every team you control: ${workspaceRoot}
 - The teams' agents work with real files here; files they create persist on disk and are visible to you and to every teammate.
+- You and the teams share the user's prompt library: save a reusable prompt with save_prompt_in_prompt_library, remove one with delete_prompt_from_prompt_library (list_available_prompts_in_prompt_library first for exact ids), and list what exists with list_available_prompts_in_prompt_library.
 - Use real native tool calls only. Never describe a tool call in prose or invent tools you were not given.`;
 }
 

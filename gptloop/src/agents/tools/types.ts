@@ -275,6 +275,48 @@ export interface KnowledgeRuntime {
 }
 
 /**
+ * A prompt-library entry as surfaced by the prompt-library tools. `content` is intentionally NOT
+ * part of the list shape: the tools expose the id/title/description needed to find and delete an
+ * entry, while the full prompt text stays in the library (and in the frontend's synced state).
+ */
+export interface PromptLibraryEntryInfo {
+  /** Stable unique id (20-character alphanumeric) used to delete the prompt. */
+  id: string;
+  /** Short, clear title of the prompt. */
+  title: string;
+  /** Brief description of what the prompt is used for (may be empty). */
+  description: string;
+}
+
+/** Fields accepted by the prompt-library save operation (mirrors the tool's zod schema). */
+export interface PromptLibrarySaveInput {
+  /** Short, clear title for the prompt. */
+  title: string;
+  /** Brief description explaining what the prompt is used for. */
+  description?: string;
+  /** The complete prompt content to store, preserved exactly as provided. */
+  prompt: string;
+}
+
+/**
+ * Runtime bridge injected into the ToolContext for the top-level agent surfaces that may manage the
+ * user's prompt library (the built-in Main Agent, Custom Agents, and every agent inside a
+ * multi-agent team or CEO system). It is backed by the SAME persistent PromptLibraryManager the
+ * backend API and the frontend's app-state sync use, so a prompt saved by an agent shows up in the
+ * Prompt Library page immediately (every mutation also emits a `prompt_library_updated` SSE event).
+ * Absent from the sub-agent, chat-mode, and memory-agent tool contexts, so those surfaces can never
+ * read or mutate the library.
+ */
+export interface PromptLibraryRuntime {
+  /** List every saved prompt as id + title + description (newest first). */
+  list(): ToolResult;
+  /** Save a new prompt to the library; emits `prompt_library_updated` on success. */
+  save(input: PromptLibrarySaveInput, ctx: ToolContext): ToolResult;
+  /** Delete a prompt by its exact id; emits `prompt_library_updated` on success. */
+  remove(promptId: string, ctx: ToolContext): ToolResult;
+}
+
+/**
  * Role of an agent inside a multi-agent collaboration team. The single "leader" (head) delegates
  * tasks and reviews work; every other agent is a "member" specialist.
  */
@@ -614,6 +656,11 @@ export interface ToolContext {
   /** Knowledge runtime — present for main-agent tool calls and forwarded to sub-agent tool calls so
    * a sub-agent granted the knowledge_* tools can read/maintain the shared knowledge base. */
   knowledge?: KnowledgeRuntime;
+  /** Prompt-library runtime — present ONLY for the top-level surfaces that may manage the user's
+   * saved prompts (Main Agent, Custom Agents, team agents, and the CEO system agents). Absent for
+   * sub-agents, chat mode, and the memory agent, which is why the prompt-library tools are
+   * unavailable there. */
+  promptLibrary?: PromptLibraryRuntime;
   /** Schedule runtime — present for main-agent tool calls and forwarded to sub-agent tool calls so
    * an agent granted the schedule_* tools can manage the persistent cron system. Absent when the
    * backend schedule system is unavailable. */

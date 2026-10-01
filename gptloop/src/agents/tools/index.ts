@@ -39,6 +39,9 @@ import { knowledgeReadTool } from "./knowledge_read.js";
 import { knowledgeCreateTool } from "./knowledge_create.js";
 import { knowledgeEditTool } from "./knowledge_edit.js";
 import { knowledgeDeleteTool } from "./knowledge_delete.js";
+import { savePromptInPromptLibraryTool } from "./save_prompt_in_prompt_library.js";
+import { deletePromptFromPromptLibraryTool } from "./delete_prompt_from_prompt_library.js";
+import { listAvailablePromptsInPromptLibraryTool } from "./list_available_prompts_in_prompt_library.js";
 import { embedUrlTool } from "./embedUrl.js";
 import { attachFilesTool } from "./attachFiles.js";
 import { waitTool } from "./wait.js";
@@ -154,6 +157,12 @@ export { knowledgeReadTool } from "./knowledge_read.js";
 export { knowledgeCreateTool } from "./knowledge_create.js";
 export { knowledgeEditTool } from "./knowledge_edit.js";
 export { knowledgeDeleteTool } from "./knowledge_delete.js";
+export { savePromptInPromptLibraryTool } from "./save_prompt_in_prompt_library.js";
+export { deletePromptFromPromptLibraryTool } from "./delete_prompt_from_prompt_library.js";
+export {
+  listAvailablePromptsInPromptLibraryTool,
+  requirePromptLibrary,
+} from "./list_available_prompts_in_prompt_library.js";
 export { submitPlanTool } from "./submit_plan.js";
 export { askUserTool, ASK_ANSWERED, ASK_TIMEOUT, ASK_CHANNEL_UNAVAILABLE } from "./askuser.js";
 export { embedUrlTool } from "./embedUrl.js";
@@ -290,6 +299,9 @@ export function createToolRegistry(): ToolRegistry {
     knowledgeCreateTool,
     knowledgeEditTool,
     knowledgeDeleteTool,
+    savePromptInPromptLibraryTool,
+    deletePromptFromPromptLibraryTool,
+    listAvailablePromptsInPromptLibraryTool,
     embedUrlTool,
     attachFilesTool,
     waitTool,
@@ -377,6 +389,9 @@ export const tools = {
   knowledgeCreateTool,
   knowledgeEditTool,
   knowledgeDeleteTool,
+  savePromptInPromptLibraryTool,
+  deletePromptFromPromptLibraryTool,
+  listAvailablePromptsInPromptLibraryTool,
   embedUrlTool,
   attachFilesTool,
   waitTool,

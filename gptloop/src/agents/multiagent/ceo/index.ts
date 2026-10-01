@@ -11,6 +11,7 @@ import { createKnowledgeRuntime } from "../../knowledge.js";
 import { createSkillRuntime } from "../../skills.js";
 import { mergeDefaultSkills, resolveDefaultSkills } from "../../skills/index.js";
 import { createTodoRuntime } from "../../todos.js";
+import { createPromptLibraryRuntime } from "../../promptLibrary.js";
 import { resolveDefaultSubAgents } from "../../sub-agents/index.js";
 import { ConnectorRuntime } from "../../connectors/index.js";
 import { McpRuntime, type McpManager } from "../../mcp/index.js";
@@ -61,6 +62,16 @@ export class CeoAgentRunner {
   private scheduleStore?: import("../../../cron/store.js").ScheduleStore;
   private scheduleScheduler?: import("../../../cron/scheduler.js").ScheduleScheduler;
   private channelManager?: import("../../../channels/manager.js").ChannelManager;
+  private promptLibrary?: import("../../tools/types.js").PromptLibraryRuntime;
+
+  /**
+   * Attach the persistent prompt library (called once at boot). When set, the CEO, every team
+   * leader, and every team member granted the prompt-library tools can list, save, and delete the
+   * user's saved prompts; every mutation emits a `prompt_library_updated` event the frontend mirrors.
+   */
+  setPromptLibrary(manager?: import("../../../prompt-library.js").PromptLibraryManager): void {
+    this.promptLibrary = manager ? createPromptLibraryRuntime(manager) : undefined;
+  }
 
   /**
    * Attach the messaging-channel manager (called once at boot). When set, CEO,
@@ -160,6 +171,7 @@ export class CeoAgentRunner {
         web,
         memory,
         knowledge,
+        promptLibrary: this.promptLibrary,
         skills,
         todos,
         subAgentDefinitions,

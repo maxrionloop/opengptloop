@@ -6,6 +6,7 @@ import type {
   CeoTeamInfo,
   KnowledgeRuntime,
   MemoryRuntime,
+  PromptLibraryRuntime,
   SkillRuntime,
   TeamMemberInfo,
   TeamMemberStatus,
@@ -100,6 +101,8 @@ export interface CeoOrchestratorDeps {
   scheduleScheduler?: ScheduleScheduler;
   memory: MemoryRuntime;
   knowledge: KnowledgeRuntime;
+  /** The persistent prompt library — lets the CEO/leader/member agents manage saved prompts. */
+  promptLibrary?: PromptLibraryRuntime;
   skills: SkillRuntime;
   todos: TodoRuntime;
   subAgentDefinitions: Awaited<ReturnType<typeof resolveDefaultSubAgents>>;
@@ -513,6 +516,7 @@ export class CeoOrchestrator {
       todos: this.deps.todos,
       memory: this.deps.memory,
       knowledge: this.deps.knowledge,
+      promptLibrary: this.deps.promptLibrary,
       schedules: createScheduleRuntime({
         store: this.deps.scheduleStore,
         scheduler: this.deps.scheduleScheduler,

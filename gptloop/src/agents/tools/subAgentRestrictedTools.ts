@@ -26,6 +26,9 @@
  *  - Agent-driven communication-channel management tools (only for main/custom/team/CEO agents):
  *      request_channel_connection_to_user, list_available_channels, disconnect_channels,
  *      get_channel_status, send_message_to_communication_channel
+ *  - Prompt-library tools (only for main/custom/team/CEO agents):
+ *      save_prompt_in_prompt_library, delete_prompt_from_prompt_library,
+ *      list_available_prompts_in_prompt_library
  *
  * This list is the ONE source of truth. It is reused by:
  *  - subagents.ts (SUB_AGENT_EXCLUDED_TOOLS)         — runtime enforcement for every sub-agent run
@@ -80,6 +83,10 @@ export const SUB_AGENT_RESTRICTED_TOOLS: readonly string[] = [
   "disconnect_channels",
   "get_channel_status",
   "send_message_to_communication_channel",
+  // Prompt-library management tools — only for main/custom/team/CEO agents, never sub-agents.
+  "save_prompt_in_prompt_library",
+  "delete_prompt_from_prompt_library",
+  "list_available_prompts_in_prompt_library",
 ];
 
 /** Fast membership test for the restricted set. */
