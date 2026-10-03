@@ -51,6 +51,13 @@ export interface AppConfig {
   memoryAgentEnabled: boolean;
   /** Server default for after how many completed user tasks the memory agent builds memory. */
   memoryAgentInterval: number;
+  /**
+   * Server default LLM context-management strategy (frontend Settings overrides per turn; default
+   * selection in Settings is also "summarize" per spec). See src/context.
+   */
+  contextManagementMode: "summarize" | "sliding_window";
+  /** Server default sliding-window truncation amount (tokens), when the frontend omits one. */
+  contextManagementSlidingWindowTruncateTokens: number;
 }
 
 function parseCorsOrigins(raw: string | undefined): string[] | "*" {
@@ -95,6 +102,16 @@ function parseMemoryAgentInterval(raw: string | undefined): number {
   return Math.min(50, Math.max(1, Math.floor(n)));
 }
 
+function parseContextManagementMode(raw: string | undefined): "summarize" | "sliding_window" {
+  return (raw ?? "").trim().toLowerCase() === "sliding_window" ? "sliding_window" : "summarize";
+}
+
+function parseContextManagementTruncateTokens(raw: string | undefined): number {
+  const n = Number(raw ?? 5000);
+  if (!Number.isFinite(n)) return 5000;
+  return Math.min(200_000, Math.max(500, Math.floor(n)));
+}
+
 export const config: AppConfig = {
   port: Number(process.env.PORT ?? 8787),
   workspaceRoot: resolveWorkspaceRoot(),
@@ -114,6 +131,10 @@ export const config: AppConfig = {
   textOnlyModelPatterns: parsePatterns(process.env.TEXT_ONLY_MODEL_PATTERNS),
   memoryAgentEnabled: parseMemoryAgentEnabled(process.env.MEMORY_AGENT_ENABLED),
   memoryAgentInterval: parseMemoryAgentInterval(process.env.MEMORY_AGENT_INTERVAL),
+  contextManagementMode: parseContextManagementMode(process.env.CONTEXT_MANAGEMENT_MODE),
+  contextManagementSlidingWindowTruncateTokens: parseContextManagementTruncateTokens(
+    process.env.CONTEXT_MANAGEMENT_SLIDING_WINDOW_TRUNCATE_TOKENS,
+  ),
 };
 
 /** Ensure the workspace directory exists so file tools never hit permission/ENOENT errors. */

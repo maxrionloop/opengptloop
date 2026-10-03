@@ -1,6 +1,7 @@
 import type { StoredMessage } from "../../../services/sessionStore.js";
 import type { ConnectorWire } from "../../connectors/index.js";
 import type { McpServerSelection } from "../../mcp/index.js";
+import type { ContextManagementMode } from "../../../context/types.js";
 import type {
   KnowledgeFile,
   MemoryFile,
@@ -74,6 +75,15 @@ export interface RunCeoRequest {
    * Undefined/empty = every enabled server. Secrets stay server-side.
    */
   mcpServers?: McpServerSelection[];
+  /**
+   * LLM context-window management for every agent in this CEO system (CEO + every team's leader and
+   * members), see src/context. Each agent gets its own ContextGuard over its own conversation.
+   */
+  contextManagement?: {
+    mode?: ContextManagementMode;
+    contextWindow?: number;
+    slidingWindowTruncateTokens?: number;
+  };
 }
 
 /** Role of an agent inside a CEO multi-agent system. */

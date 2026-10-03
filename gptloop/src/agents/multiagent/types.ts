@@ -1,6 +1,7 @@
 import type { StoredMessage } from "../../services/sessionStore.js";
 import type { ConnectorWire } from "../connectors/index.js";
 import type { McpServerSelection } from "../mcp/index.js";
+import type { ContextManagementMode } from "../../context/types.js";
 import type {
   KnowledgeFile,
   MemoryFile,
@@ -85,6 +86,16 @@ export interface RunTeamRequest {
    * Undefined/empty = every enabled server. Secrets stay server-side.
    */
   mcpServers?: McpServerSelection[];
+  /**
+   * LLM context-window management for every agent in this team (see src/context). Each agent
+   * (leader + every member) gets its own ContextGuard instance over its own conversation, all using
+   * this same resolved strategy/limit.
+   */
+  contextManagement?: {
+    mode?: ContextManagementMode;
+    contextWindow?: number;
+    slidingWindowTruncateTokens?: number;
+  };
 }
 
 /**

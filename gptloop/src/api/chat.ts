@@ -38,6 +38,7 @@ import {
   type McpManager,
   type McpServerSelection,
 } from "../agents/mcp/index.js";
+import type { ContextManagementMode } from "../context/types.js";
 
 /** Extract a string field from an untrusted object (used on the custom_provider payload). */
 function str(value: unknown): string {
@@ -84,6 +85,39 @@ function parseMemoryAgentInterval(value: unknown, fallback: number): number {
   const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
   if (!Number.isFinite(n)) return fallback;
   return Math.min(50, Math.max(1, Math.floor(n)));
+}
+
+/**
+ * Resolve the LLM context-management settings for this turn (see src/context). The frontend sends
+ * the user's chosen strategy and the EFFECTIVE context window it resolved for the active model
+ * (from provider-reported metadata, or a user-confirmed manual override — see Settings). The backend
+ * never guesses a context window on its own: when the frontend sends none, the guard stays a no-op
+ * for this turn rather than risking an inaccurate cut against the wrong limit.
+ */
+function resolveContextManagement(
+  body: StreamBody,
+  config: AppConfig,
+): { mode?: ContextManagementMode; contextWindow?: number; slidingWindowTruncateTokens?: number } {
+  const rawMode = body.context_management_mode;
+  const mode: ContextManagementMode =
+    typeof rawMode === "string" && rawMode.trim().toLowerCase() === "sliding_window"
+      ? "sliding_window"
+      : config.contextManagementMode;
+  const windowRaw = body.context_window;
+  const contextWindow =
+    typeof windowRaw === "number"
+      ? windowRaw
+      : typeof windowRaw === "string"
+        ? Number(windowRaw)
+        : undefined;
+  const truncateRaw = body.context_sliding_window_truncate_tokens;
+  const slidingWindowTruncateTokens =
+    typeof truncateRaw === "number"
+      ? truncateRaw
+      : typeof truncateRaw === "string"
+        ? Number(truncateRaw)
+        : config.contextManagementSlidingWindowTruncateTokens;
+  return { mode, contextWindow, slidingWindowTruncateTokens };
 }
 
 /**
@@ -190,6 +224,16 @@ interface StreamBody {
    */
   chat_mode?: unknown;
   agent_mode?: unknown;
+  /**
+   * LLM context-window management for this turn (see src/context). `context_management_mode` is the
+   * user's Settings choice ("summarize" | "sliding_window", default "summarize"). `context_window` is
+   * the EFFECTIVE context window (in tokens) the frontend resolved for the active model — from
+   * provider-reported metadata, or a user-confirmed manual override when the provider publishes none.
+   * `context_sliding_window_truncate_tokens` is the user-configurable truncation amount (default 5000).
+   */
+  context_management_mode?: unknown;
+  context_window?: unknown;
+  context_sliding_window_truncate_tokens?: unknown;
 }
 
 /**
@@ -587,6 +631,7 @@ export function buildChatRouter(
           knowledge: normalizeKnowledgeFiles(body.knowledge),
           memoryAgentEnabled: parseMemoryAgentEnabled(body.memory_agent_enabled, config.memoryAgentEnabled),
           memoryAgentInterval: parseMemoryAgentInterval(body.memory_agent_interval, config.memoryAgentInterval),
+          contextManagement: resolveContextManagement(body, config),
         };
 
         void chatRunner
@@ -640,6 +685,7 @@ export function buildChatRouter(
           composioApiKey,
           connectors: connectorRefs,
           mcpServers: resolveMcpServers(body),
+          contextManagement: resolveContextManagement(body, config),
         };
 
         void ceoAgent
@@ -692,6 +738,7 @@ export function buildChatRouter(
           composioApiKey,
           connectors: connectorRefs,
           mcpServers: resolveMcpServers(body),
+          contextManagement: resolveContextManagement(body, config),
         };
 
         void multiAgent
@@ -746,6 +793,7 @@ export function buildChatRouter(
         composioApiKey,
         connectors: connectorRefs,
         mcpServers: resolveMcpServers(body),
+        contextManagement: resolveContextManagement(body, config),
       };
 
       // Custom Agent mode: when the active agent is a user-created top-level Custom Agent, run this

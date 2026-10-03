@@ -45,6 +45,7 @@ import {
   type TeamMessageKind,
 } from "../types.js";
 import type { CeoActorRole, CeoAgentContext, CeoAgentDefinition } from "./types.js";
+import type { ContextManagementSettings } from "../../../context/types.js";
 
 /**
  * Safety valves against runaway multi-agent loops (identical philosophy to the team orchestrator, but
@@ -120,6 +121,11 @@ export interface CeoOrchestratorDeps {
   /** Raw SSE emitter onto the turn buffer. */
   send: (event: string, data: Record<string, unknown>) => void;
   signal: AbortSignal;
+  /**
+   * LLM context-window management, resolved once for the whole turn and applied independently to
+   * every agent's own conversation (CEO + every team's leader/members). See src/context.
+   */
+  contextManagement: ContextManagementSettings;
 }
 
 /**
@@ -231,6 +237,7 @@ export class CeoOrchestrator {
       connectors: this.deps.connectors.active ? this.deps.connectors : undefined,
       mcp: this.deps.mcp?.active ? this.deps.mcp : undefined,
       getConversationContext: () => context.messages,
+      contextManagement: this.deps.contextManagement,
     });
   }
 
@@ -475,6 +482,16 @@ export class CeoOrchestrator {
       baseUrl: this.deps.baseUrl,
       temperature: this.deps.temperature,
       effort: this.deps.effort,
+      contextManagement: this.deps.contextManagement,
+      contextActor: {
+        type: (actor.role === "ceo"
+          ? "ceo"
+          : actor.role === "leader"
+            ? "team_leader"
+            : "team_member") as "ceo" | "team_leader" | "team_member",
+        id: actor.context.id,
+        label: `${actor.context.id} (${actor.role})`,
+      },
     };
 
     if (actor.role === "ceo") {

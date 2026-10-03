@@ -17,6 +17,7 @@ import { ConnectorRuntime } from "../../connectors/index.js";
 import { McpRuntime, type McpManager } from "../../mcp/index.js";
 import { CeoSessionStore } from "./store.js";
 import { CeoOrchestrator } from "./runtime.js";
+import { normalizeContextManagementSettings } from "../../../context/types.js";
 import type { RunCeoRequest } from "./types.js";
 
 export type { CeoAgentDefinition, RunCeoRequest, CeoActorRole } from "./types.js";
@@ -185,6 +186,7 @@ export class CeoAgentRunner {
         channelManager: this.channelManager,
         send,
         signal,
+        contextManagement: normalizeContextManagementSettings(request.contextManagement ?? {}),
       });
 
       await orchestrator.run(request.userMessage, firstMessageContext);

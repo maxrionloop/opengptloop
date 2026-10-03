@@ -6,6 +6,7 @@ import { runTeamAgentLoop } from "../agentLoop.js";
 import { buildCeoSystemPrompt } from "./systemprompt.js";
 import type { ConnectorRuntime } from "../../connectors/runtime.js";
 import type { McpRuntime } from "../../mcp/runtime.js";
+import type { ContextActorInfo, ContextManagementSettings } from "../../../context/types.js";
 import type { AgentTeamDefinition, TeamAgentRunResult } from "../types.js";
 import type { CeoAgentDefinition } from "./types.js";
 
@@ -42,6 +43,9 @@ export interface RunCeoAgentArgs {
   baseUrl?: string;
   temperature?: number;
   effort?: string;
+  /** LLM context-window management for the CEO's own conversation (see src/context). */
+  contextManagement?: ContextManagementSettings;
+  contextActor?: ContextActorInfo;
 }
 
 export async function runCeoAgent(args: RunCeoAgentArgs): Promise<TeamAgentRunResult> {
@@ -67,5 +71,7 @@ export async function runCeoAgent(args: RunCeoAgentArgs): Promise<TeamAgentRunRe
     mcp: args.mcp,
     send: args.send,
     signal: args.signal,
+    contextManagement: args.contextManagement,
+    contextActor: args.contextActor,
   });
 }

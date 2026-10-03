@@ -15,6 +15,8 @@ import type {
   MemoryRuntime,
 } from "./tools/types.js";
 import type { MemoryAgentService } from "./memoryagent/index.js";
+import { ContextGuard } from "../context/guard.js";
+import { normalizeContextManagementSettings, type ContextManagementMode } from "../context/types.js";
 
 /**
  * Chat mode — a lightweight "talk to the LLM" mode.
@@ -155,6 +157,12 @@ export interface RunChatRequest {
    * After how many completed user tasks the background memory agent runs. Defaults to 3.
    */
   memoryAgentInterval?: number;
+  /** LLM context-window management for this turn (see src/context). */
+  contextManagement?: {
+    mode?: ContextManagementMode;
+    contextWindow?: number;
+    slidingWindowTruncateTokens?: number;
+  };
 }
 
 export class ChatRunner {
@@ -231,6 +239,28 @@ export class ChatRunner {
       const visibleReasoning: string[] = [];
       let iteration = 0;
 
+      const contextGuard = new ContextGuard({
+        actor: { type: "chat", id: "chat", label: "Chat" },
+        settings: normalizeContextManagementSettings(request.contextManagement ?? {}),
+        getSystemPrompt: () => systemPrompt,
+        getMessages: () => session.messages,
+        setMessages: (next) => {
+          session.messages = next;
+        },
+        getMemoryBlock: () =>
+          [memoryRuntime!.firstMessageContext(), knowledgeRuntime.firstMessageContext()]
+            .filter((block) => block.trim().length > 0)
+            .join("\n\n"),
+        provider,
+        apiKey: request.apiKey,
+        model: request.model,
+        baseUrl: request.baseUrl,
+        temperature: request.temperature,
+        effort: request.effort,
+        emit: send,
+      });
+      contextGuard.announce();
+
       send("iteration", { current: 0, limit: null });
 
       // eslint-disable-next-line no-constant-condition
@@ -239,6 +269,8 @@ export class ChatRunner {
           send("done", { ok: false, aborted: true });
           return;
         }
+
+        await contextGuard.checkBeforeCall();
 
         iteration += 1;
         send("iteration", { current: iteration, limit: null });
@@ -250,15 +282,17 @@ export class ChatRunner {
         let finishReason: string | null = null;
 
         try {
+          const outgoingMessages = buildProviderMessages(systemPrompt, session.messages);
+          const callSignal = contextGuard.beginCall(signal, outgoingMessages);
           const stream = provider.streamChatCompletion({
             apiKey: request.apiKey,
             model: request.model,
-            messages: buildProviderMessages(systemPrompt, session.messages),
+            messages: outgoingMessages,
             tools: toolSchemas,
             baseUrl: request.baseUrl,
             temperature: request.temperature,
             effort: request.effort,
-            signal,
+            signal: callSignal,
           });
 
           for await (const delta of stream) {
@@ -280,8 +314,12 @@ export class ChatRunner {
             if (delta.finishReason) {
               finishReason = delta.finishReason;
             }
+            if (await contextGuard.onDelta(delta)) break;
           }
         } catch (error) {
+          if (contextGuard.pendingRetry) {
+            continue;
+          }
           if (signal.aborted) {
             send("done", { ok: false, aborted: true });
             return;
@@ -289,6 +327,10 @@ export class ChatRunner {
           send("error", { code: "provider_api_error", message: `Provider API error: ${messageOf(error)}` });
           send("done", { ok: false });
           return;
+        }
+
+        if (contextGuard.pendingRetry) {
+          continue;
         }
 
         const hasToolCalls = toolCalls.some((c) => c.function.name) || finishReason === "tool_calls";

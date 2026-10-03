@@ -43,6 +43,8 @@ function makeConfig(): AppConfig {
     textOnlyModelPatterns: [],
     memoryAgentEnabled: false,
     memoryAgentInterval: 3,
+    contextManagementMode: "summarize",
+    contextManagementSlidingWindowTruncateTokens: 5000,
   } as AppConfig;
 }
 

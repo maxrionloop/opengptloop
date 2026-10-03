@@ -41,6 +41,7 @@ import {
   type TeamMessageKind,
 } from "./types.js";
 import type { TeamAgentStatus } from "../tools/types.js";
+import type { ContextManagementSettings } from "../../context/types.js";
 
 /**
  * Safety valves against runaway multi-agent loops (the failure mode that previously froze the app).
@@ -118,6 +119,12 @@ export interface TeamOrchestratorDeps {
   /** Raw SSE emitter onto the turn buffer. */
   send: (event: string, data: Record<string, unknown>) => void;
   signal: AbortSignal;
+  /**
+   * LLM context-window management, resolved once for the whole turn and applied independently to
+   * every team agent's own conversation (see src/context). A no-op strategy (contextWindow <= 0)
+   * when the frontend could not resolve the active model's context limit.
+   */
+  contextManagement: ContextManagementSettings;
 }
 
 /**
@@ -208,6 +215,7 @@ export class TeamOrchestrator {
       connectors: this.deps.connectors.active ? this.deps.connectors : undefined,
       mcp: this.deps.mcp?.active ? this.deps.mcp : undefined,
       getConversationContext: () => context.messages,
+      contextManagement: this.deps.contextManagement,
     });
   }
 
@@ -443,6 +451,14 @@ export class TeamOrchestrator {
       baseUrl: this.deps.baseUrl,
       temperature: this.deps.temperature,
       effort: this.deps.effort,
+      contextManagement: this.deps.contextManagement,
+      contextActor: {
+        type: (actor.context.role === "leader" ? "team_leader" : "team_member") as
+          | "team_leader"
+          | "team_member",
+        id: actor.context.id,
+        label: `${actor.context.id} (${actor.context.role})`,
+      },
     };
 
     if (actor.context.role === "leader") {

@@ -6,6 +6,7 @@ import { runTeamAgentLoop } from "../agentLoop.js";
 import { buildMemberSystemPrompt } from "../systemprompt.js";
 import type { ConnectorRuntime } from "../../connectors/runtime.js";
 import type { McpRuntime } from "../../mcp/runtime.js";
+import type { ContextActorInfo, ContextManagementSettings } from "../../../context/types.js";
 import type {
   AgentTeamDefinition,
   TeamAgentRunResult,
@@ -44,6 +45,9 @@ export interface RunMemberAgentArgs {
   baseUrl?: string;
   temperature?: number;
   effort?: string;
+  /** LLM context-window management for this member's own conversation (see src/context). */
+  contextManagement?: ContextManagementSettings;
+  contextActor?: ContextActorInfo;
 }
 
 export async function runMemberAgent(args: RunMemberAgentArgs): Promise<TeamAgentRunResult> {
@@ -74,5 +78,7 @@ export async function runMemberAgent(args: RunMemberAgentArgs): Promise<TeamAgen
     mcp: args.mcp,
     send: args.send,
     signal: args.signal,
+    contextManagement: args.contextManagement,
+    contextActor: args.contextActor,
   });
 }

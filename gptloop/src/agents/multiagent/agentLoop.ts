@@ -10,6 +10,8 @@ import {
 } from "../tools/readImage.js";
 import type { ConnectorRuntime } from "../connectors/runtime.js";
 import type { McpRuntime } from "../mcp/runtime.js";
+import { ContextGuard } from "../../context/guard.js";
+import type { ContextActorInfo, ContextManagementSettings } from "../../context/types.js";
 import {
   EV_AGENT_REASONING,
   EV_AGENT_SEGMENT,
@@ -54,7 +56,19 @@ export interface TeamAgentLoopParams {
   /** Emit an SSE event already stamped with this agent's id/role. */
   send: (event: string, data: Record<string, unknown>) => void;
   signal?: AbortSignal;
+  /**
+   * LLM context-window management for THIS agent's own conversation (see src/context). Each team
+   * agent (leader, member, or CEO) manages its own `messages` array independently. Omitted/no
+   * `contextWindow` means the guard is a no-op.
+   */
+  contextManagement?: ContextManagementSettings;
+  /** Identifies this agent for context-management events (actor.type/id/label). Required when
+   * `contextManagement` is provided so events can be attributed in a multi-agent run. */
+  contextActor?: ContextActorInfo;
 }
+
+/** A signal that never aborts, used only as a linking base when no turn signal was supplied. */
+const NEVER_ABORT_SIGNAL = new AbortController().signal;
 
 /**
  * Execute one team agent's UNBOUNDED agentic loop (no iteration limit — the agent stops only when it
@@ -69,10 +83,36 @@ export async function runTeamAgentLoop(params: TeamAgentLoopParams): Promise<Tea
 
   const answerAcrossTurns: string[] = [];
 
+  // Context-window guard for this agent's own conversation. A no-op unless the caller resolved an
+  // effective context window (see RunTeamRequest/RunCeoRequest -> contextManagement plumbing).
+  const contextGuard =
+    params.contextManagement && params.contextActor
+      ? new ContextGuard({
+          actor: params.contextActor,
+          settings: params.contextManagement,
+          getSystemPrompt: () => params.systemPrompt,
+          getMessages: () => messages,
+          setMessages: (next) => {
+            messages.length = 0;
+            messages.push(...next);
+          },
+          provider,
+          apiKey: params.apiKey,
+          model: params.model,
+          baseUrl: params.baseUrl,
+          temperature: params.temperature,
+          effort: params.effort,
+          emit: send,
+        })
+      : null;
+  contextGuard?.announce();
+
   try {
     // eslint-disable-next-line no-constant-condition
     while (true) {
       if (signal?.aborted) return { ok: false, aborted: true, output: "" };
+
+      await contextGuard?.checkBeforeCall();
 
       const answerParts: string[] = [];
       const reasoningParts: string[] = [];
@@ -80,15 +120,21 @@ export async function runTeamAgentLoop(params: TeamAgentLoopParams): Promise<Tea
       let finishReason: string | null = null;
 
       try {
+        const outgoingMessages = buildProviderMessages(params.systemPrompt, messages);
+        // `beginCall` always needs a (possibly never-aborting) turn signal to link its own
+        // call-scoped controller to, so the guard can abort THIS call independently of the turn.
+        const callSignal = contextGuard
+          ? contextGuard.beginCall(signal ?? NEVER_ABORT_SIGNAL, outgoingMessages)
+          : signal;
         const stream = provider.streamChatCompletion({
           apiKey: params.apiKey,
           model: params.model,
-          messages: buildProviderMessages(params.systemPrompt, messages),
+          messages: outgoingMessages,
           tools: toolSchemas,
           baseUrl: params.baseUrl,
           temperature: params.temperature,
           effort: params.effort,
-          signal,
+          signal: callSignal,
         });
 
         for await (const delta of stream) {
@@ -104,12 +150,16 @@ export async function runTeamAgentLoop(params: TeamAgentLoopParams): Promise<Tea
           }
           if (delta.toolCalls) toolCalls = mergeToolCalls(toolCalls, delta.toolCalls);
           if (delta.finishReason) finishReason = delta.finishReason;
+          if (contextGuard && (await contextGuard.onDelta(delta))) break;
         }
       } catch (error) {
+        if (contextGuard?.pendingRetry) continue;
         if (signal?.aborted) return { ok: false, aborted: true, output: "" };
         const message = `Provider error: ${messageOf(error)}`;
         return { ok: false, aborted: false, output: "", error: message };
       }
+
+      if (contextGuard?.pendingRetry) continue;
 
       const namedCalls = toolCalls.filter((c) => c.function.name);
       const hasToolCalls = namedCalls.length > 0 || finishReason === "tool_calls";

@@ -31,6 +31,8 @@ const fakeConfig: AppConfig = {
   textOnlyModelPatterns: [],
   memoryAgentEnabled: true,
   memoryAgentInterval: 3,
+  contextManagementMode: "summarize",
+  contextManagementSlidingWindowTruncateTokens: 5000,
 };
 
 const ceo: CeoAgentDefinition = {
@@ -218,6 +220,7 @@ function buildOrchestrator(
     connectors: ConnectorRuntime.empty(),
     send: (e, d) => events.push({ e, d }),
     signal,
+    contextManagement: { mode: "summarize", contextWindow: 0, slidingWindowTruncateTokens: 5000 },
   });
 }
 

@@ -45,6 +45,8 @@ import {
 } from "./mcp/index.js";
 import { isMcpManagementTool } from "./tools/mcpManagement.js";
 import { isConnectorManagementTool } from "./tools/connectorManagement.js";
+import { ContextGuard } from "../context/guard.js";
+import { normalizeContextManagementSettings, type ContextManagementMode } from "../context/types.js";
 
 export interface RunAgentRequest {
   chatId: string;
@@ -149,6 +151,17 @@ export interface RunAgentRequest {
    * Secrets stay server-side — the wire carries ids only.
    */
   mcpServers?: McpServerSelection[];
+  /**
+   * LLM context-window management for this turn (see src/context). Resolved by the frontend from
+   * the active model's metadata (or a user-confirmed manual override when the provider publishes
+   * none) and the user's Settings choice of strategy. When `contextWindow` is omitted/<=0 the
+   * context guard becomes a no-op — the turn behaves exactly as it did before this feature existed.
+   */
+  contextManagement?: {
+    mode?: ContextManagementMode;
+    contextWindow?: number;
+    slidingWindowTruncateTokens?: number;
+  };
 }
 
 /** Lightweight identity of the Custom Agent handling a turn (see agents/customagent/configuration). */
@@ -418,6 +431,10 @@ export class AgentRunner {
       // built-in default sub-agents are merged underneath so they are pre-added and always
       // available, unless the user provides their own sub-agent with the same name (which
       // overrides the default).
+      // Resolved once per turn and reused by every actor this turn spawns (the main loop below,
+      // and every sub-agent run) so they all observe the SAME strategy/limit (see src/context).
+      const contextSettings = normalizeContextManagementSettings(request.contextManagement ?? {});
+
       const defaultSubAgents = await resolveDefaultSubAgents();
       const subAgentRuntime = createSubAgentRuntime({
         provider,
@@ -430,6 +447,7 @@ export class AgentRunner {
         baseUrl: request.baseUrl,
         temperature: request.temperature,
         effort: request.effort,
+        contextManagement: contextSettings,
         send,
         // The turn's connector runtime is shared with sub-agents so a sub-agent granted
         // connector tools can execute them natively (same account, same catalog).
@@ -474,6 +492,33 @@ export class AgentRunner {
       const visibleReasoning: string[] = [];
       let iteration = 0;
 
+      // Context-window guard for this turn's live conversation (session.messages). Resolves the
+      // user's chosen strategy (auto-summarization or sliding-window) and the effective context
+      // window the frontend determined for the active model. A no-op when the window is unknown.
+      const contextGuard = new ContextGuard({
+        actor: request.customAgent
+          ? { type: "custom_agent", id: request.customAgent.id, label: request.customAgent.name }
+          : { type: "main_agent", id: "main", label: "Main agent" },
+        settings: contextSettings,
+        getSystemPrompt: () => systemPrompt,
+        getMessages: () => session.messages,
+        setMessages: (next) => {
+          session.messages = next;
+        },
+        getMemoryBlock: () =>
+          [memoryRuntime!.firstMessageContext(), knowledgeRuntime.firstMessageContext()]
+            .filter((block) => block.trim().length > 0)
+            .join("\n\n"),
+        provider,
+        apiKey: request.apiKey,
+        model: request.model,
+        baseUrl: request.baseUrl,
+        temperature: request.temperature,
+        effort: request.effort,
+        emit: send,
+      });
+      contextGuard.announce();
+
       // The agent runs with NO iteration cap. `limit: null` signals "unlimited" to any UI listener.
       send("iteration", { current: 0, limit: null });
 
@@ -483,6 +528,10 @@ export class AgentRunner {
           send("done", { ok: false, aborted: true });
           return;
         }
+
+        // Proactive check: compacts BEFORE the next request when the context is already over
+        // threshold (e.g. a large tool result was just appended by the previous iteration).
+        await contextGuard.checkBeforeCall();
 
         iteration += 1;
         send("iteration", { current: iteration, limit: null });
@@ -494,15 +543,17 @@ export class AgentRunner {
         let finishReason: string | null = null;
 
         try {
+          const outgoingMessages = this.buildProviderMessages(systemPrompt, session.messages);
+          const callSignal = contextGuard.beginCall(signal, outgoingMessages);
           const stream = provider.streamChatCompletion({
             apiKey: request.apiKey,
             model: request.model,
-            messages: this.buildProviderMessages(systemPrompt, session.messages),
+            messages: outgoingMessages,
             tools: toolSchemas,
             baseUrl: request.baseUrl,
             temperature: request.temperature,
             effort: request.effort,
-            signal,
+            signal: callSignal,
           });
 
           for await (const delta of stream) {
@@ -524,8 +575,16 @@ export class AgentRunner {
             if (delta.finishReason) {
               finishReason = delta.finishReason;
             }
+            // Live context-window check: the instant the active threshold is crossed (even
+            // mid-response), the in-flight call is aborted and the context is compacted right
+            // here — the caller below sees `pendingRetry` and silently retries with fresh context.
+            if (await contextGuard.onDelta(delta)) break;
           }
         } catch (error) {
+          if (contextGuard.pendingRetry) {
+            // The guard itself aborted this call to compact the context — not a real failure.
+            continue;
+          }
           if (signal.aborted) {
             send("done", { ok: false, aborted: true });
             return;
@@ -533,6 +592,12 @@ export class AgentRunner {
           send("error", { code: "provider_api_error", message: `Provider API error: ${messageOf(error)}` });
           send("done", { ok: false });
           return;
+        }
+
+        if (contextGuard.pendingRetry) {
+          // The stream ended (cleanly or not) after the guard already compacted the context —
+          // retry this iteration now that session.messages reflects the compacted context.
+          continue;
         }
 
         const hasToolCalls = toolCalls.some((c) => c.function.name) || finishReason === "tool_calls";

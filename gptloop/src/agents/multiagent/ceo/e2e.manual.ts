@@ -36,6 +36,8 @@ const config: AppConfig = {
   textOnlyModelPatterns: [],
   memoryAgentEnabled: true,
   memoryAgentInterval: 3,
+  contextManagementMode: "summarize",
+  contextManagementSlidingWindowTruncateTokens: 5000,
 } as AppConfig;
 
 function has(msgs: ReadonlyArray<Record<string, unknown>>, tool: string): boolean {

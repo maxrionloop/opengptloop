@@ -25,6 +25,8 @@ import type { OpenAIToolSchema } from "./tools/registry.js";
 import { SUB_AGENT_RESTRICTED_TOOLS } from "./tools/subAgentRestrictedTools.js";
 import type { ConnectorRuntime } from "./connectors/runtime.js";
 import type { McpRuntime } from "./mcp/runtime.js";
+import { ContextGuard } from "../context/guard.js";
+import type { ContextManagementSettings } from "../context/types.js";
 
 /**
  * Tools a sub-agent may never use. This is the single canonical restricted set
@@ -73,6 +75,12 @@ export interface SubAgentRuntimeDeps {
    * the surrounding conversation. Returns the live message array; the runner copies/formats it.
    */
   getConversationContext?: () => StoredMessage[];
+  /**
+   * LLM context-window management for every sub-agent run spawned this turn (see src/context). Each
+   * run gets its own ContextGuard over its own (fresh, per-run) `history` array. A no-op strategy
+   * (contextWindow <= 0) when the frontend could not resolve the active model's context limit.
+   */
+  contextManagement?: ContextManagementSettings;
 }
 
 /**
@@ -909,6 +917,29 @@ class SubAgentRunner {
 
     const answerAcrossTurns: string[] = [];
 
+    const contextSettings = this.deps.contextManagement;
+    const contextGuard =
+      contextSettings && contextSettings.contextWindow > 0
+        ? new ContextGuard({
+            actor: { type: "sub_agent", id: parentId, label: `${definition.name} (sub-agent)` },
+            settings: contextSettings,
+            getSystemPrompt: () => systemPrompt,
+            getMessages: () => history,
+            setMessages: (next) => {
+              history.length = 0;
+              history.push(...next);
+            },
+            provider,
+            apiKey: this.deps.apiKey,
+            model: this.deps.model,
+            baseUrl: this.deps.baseUrl,
+            temperature: this.deps.temperature,
+            effort: this.deps.effort,
+            emit: send,
+          })
+        : null;
+    contextGuard?.announce();
+
     try {
       // Unbounded loop: the sub-agent has no iteration limit. It only stops when the model
       // returns a final answer (no tool calls) or the run is aborted via its own signal.
@@ -919,20 +950,26 @@ class SubAgentRunner {
           return { ok: false, aborted: true, output: "" };
         }
 
+        await contextGuard?.checkBeforeCall();
+
         const answerParts: string[] = [];
         const reasoningParts: string[] = [];
         let toolCalls: ToolCall[] = [];
 
         try {
+          const outgoingMessages = buildProviderMessages(systemPrompt, history);
+          const callSignal = contextGuard
+            ? contextGuard.beginCall(signal ?? NEVER_ABORT_SIGNAL, outgoingMessages)
+            : signal;
           const stream = provider.streamChatCompletion({
             apiKey: this.deps.apiKey,
             model: this.deps.model,
-            messages: buildProviderMessages(systemPrompt, history),
+            messages: outgoingMessages,
             tools: toolSchemas,
             baseUrl: this.deps.baseUrl,
             temperature: this.deps.temperature,
             effort: this.deps.effort,
-            signal,
+            signal: callSignal,
           });
 
           for await (const delta of stream) {
@@ -949,8 +986,10 @@ class SubAgentRunner {
             if (delta.toolCalls) {
               toolCalls = mergeToolCalls(toolCalls, delta.toolCalls);
             }
+            if (contextGuard && (await contextGuard.onDelta(delta))) break;
           }
         } catch (error) {
+          if (contextGuard?.pendingRetry) continue;
           if (signal?.aborted) {
             send("sub_agent_done", { id: parentId, ok: false, aborted: true, output: "" });
             return { ok: false, aborted: true, output: "" };
@@ -959,6 +998,8 @@ class SubAgentRunner {
           send("sub_agent_done", { id: parentId, ok: false, output: "", error: message });
           return { ok: false, aborted: false, output: "", error: message };
         }
+
+        if (contextGuard?.pendingRetry) continue;
 
         const namedCalls = toolCalls.filter((c) => c.function.name);
 
@@ -1159,6 +1200,9 @@ function slugifyName(name: string): string {
 function random5(): string {
   return String(Math.floor(10000 + Math.random() * 90000));
 }
+
+/** A signal that never aborts, used only as a linking base when a sub-agent run has no own signal. */
+const NEVER_ABORT_SIGNAL = new AbortController().signal;
 
 /** Upper bound on the shared-context block so a long conversation never bloats the sub-agent call. */
 const MAX_CONTEXT_CHARS = 12000;

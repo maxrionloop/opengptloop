@@ -17,6 +17,7 @@ import { ConnectorRuntime } from "../connectors/index.js";
 import { McpRuntime, type McpManager } from "../mcp/index.js";
 import { MultiAgentSessionStore } from "./store.js";
 import { TeamOrchestrator } from "./runtime.js";
+import { normalizeContextManagementSettings } from "../../context/types.js";
 import type { RunTeamRequest } from "./types.js";
 
 export type { AgentTeamDefinition, TeamMemberDefinition, RunTeamRequest } from "./types.js";
@@ -183,6 +184,7 @@ export class MultiAgentRunner {
         channelManager: this.channelManager,
         send,
         signal,
+        contextManagement: normalizeContextManagementSettings(request.contextManagement ?? {}),
       });
 
       await orchestrator.run(request.userMessage, firstMessageContext);

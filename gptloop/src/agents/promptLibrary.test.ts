@@ -35,6 +35,8 @@ const config = {
   textOnlyModelPatterns: [],
   memoryAgentEnabled: true,
   memoryAgentInterval: 3,
+  contextManagementMode: "summarize",
+  contextManagementSlidingWindowTruncateTokens: 5000,
 } as AppConfig;
 
 /** Scripted provider: each invocation yields the deltas the script returns. */
