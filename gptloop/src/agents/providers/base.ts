@@ -3,6 +3,7 @@ import type {
   Provider,
   ProviderMetadata,
   ProviderModel,
+  ProviderUsage,
   StreamDelta,
 } from "./types.js";
 import { applyReasoningEffort } from "./reasoning.js";
@@ -92,6 +93,10 @@ export class OpenAICompatibleProvider implements Provider {
       ...(hasTools ? { tools: options.tools, tool_choice: "auto", parallel_tool_calls: false } : {}),
       temperature: options.temperature ?? 0.2,
       stream: true,
+      // Ask OpenAI-compatible providers to append a final usage chunk so the
+      // analytics layer records REAL token counts instead of estimating. Providers
+      // that don't support it ignore the field; local servers strip it (see local.ts).
+      stream_options: { include_usage: true },
     };
     return applyReasoningEffort(body, options.effort);
   }
@@ -164,14 +169,72 @@ export class OpenAICompatibleProvider implements Provider {
     const reasoning = extractText(delta.reasoning ?? delta.reasoning_content ?? delta.reason ?? "");
     const toolCalls = (delta.tool_calls as StreamDelta["toolCalls"]) ?? undefined;
 
-    if (!text && !reasoning && !toolCalls && !finishReason) return null;
+    // The include_usage chunk arrives last with an empty `choices` array and a `usage`
+    // object; capture it (and the provider request id) so analytics has real numbers.
+    const usage = parseProviderUsage(event.usage);
+    const requestId = typeof event.id === "string" && event.id.length > 0 ? event.id : undefined;
+
+    if (!text && !reasoning && !toolCalls && !finishReason && !usage) return null;
     return {
       text: text || undefined,
       reasoning: reasoning || undefined,
       toolCalls,
       finishReason,
+      usage,
+      requestId,
     };
   }
+}
+
+/**
+ * Normalize an OpenAI-style `usage` object into the common {@link ProviderUsage} shape.
+ * Handles the standard fields plus the nested `prompt_tokens_details.cached_tokens` and
+ * `completion_tokens_details.reasoning_tokens`, and the OpenRouter `cost` field. Returns
+ * undefined when nothing usable is present so callers fall back to estimation.
+ */
+export function parseProviderUsage(raw: unknown): ProviderUsage | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const r = raw as Record<string, unknown>;
+
+  const input = tokenCount(r.prompt_tokens ?? r.input_tokens ?? r.promptTokens ?? r.inputTokens);
+  const output = tokenCount(
+    r.completion_tokens ?? r.output_tokens ?? r.completionTokens ?? r.outputTokens,
+  );
+  const total = tokenCount(r.total_tokens ?? r.totalTokens);
+
+  const promptDetails = (r.prompt_tokens_details ?? r.input_tokens_details) as
+    | Record<string, unknown>
+    | undefined;
+  const completionDetails = (r.completion_tokens_details ?? r.output_tokens_details) as
+    | Record<string, unknown>
+    | undefined;
+  const cached = tokenCount(promptDetails?.cached_tokens ?? r.cached_tokens);
+  const reasoning = tokenCount(completionDetails?.reasoning_tokens ?? r.reasoning_tokens);
+  const cost = costNumber(r.cost ?? r.total_cost);
+
+  if (input === null && output === null && total === null && cost === null) return undefined;
+  return {
+    inputTokens: input,
+    outputTokens: output,
+    totalTokens: total ?? (input !== null && output !== null ? input + output : null),
+    cachedInputTokens: cached,
+    reasoningTokens: reasoning,
+    cost,
+  };
+}
+
+/** Coerce a value into a non-negative integer token count, or null when not a valid number. */
+function tokenCount(value: unknown): number | null {
+  const n = typeof value === "string" && value.trim() !== "" ? Number(value) : (value as number);
+  if (typeof n !== "number" || !Number.isFinite(n) || n < 0) return null;
+  return Math.round(n);
+}
+
+/** Coerce a value into a non-negative USD cost, or null when not a valid number. */
+function costNumber(value: unknown): number | null {
+  const n = typeof value === "string" && value.trim() !== "" ? Number(value) : (value as number);
+  if (typeof n !== "number" || !Number.isFinite(n) || n < 0) return null;
+  return n;
 }
 
 function extractText(value: unknown): string {
