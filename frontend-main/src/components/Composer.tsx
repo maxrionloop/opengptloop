@@ -7,6 +7,7 @@ import { buildAttachmentPrompt, uploadFiles, type UploadedFile } from "@/lib/upl
 import { PLAN_TASK_MODE_ID, DEFAULT_TASK_MODE_ID } from "@/lib/taskModes";
 import { Modal } from "@/components/ui/Modal";
 import { Button, Field, TextArea, TextInput } from "@/components/ui/primitives";
+import { ContextMeter } from "@/components/ContextMeter";
 import { cn } from "@/utils/cn";
 
 export function Composer({ onSend, onStop }: { onSend: (text: string) => void; onStop: () => void }) {
@@ -334,6 +335,7 @@ export function Composer({ onSend, onStop }: { onSend: (text: string) => void; o
                 </span>
               </button>
               {agentMode !== "chat" && <TaskModePicker />}
+              <ContextMeter />
             </div>
 
             {streaming ? (

@@ -67,6 +67,7 @@ import {
   normalizePlanModePrompt,
   normalizeTaskModes,
 } from "@/lib/taskModes";
+import { normalizeManualContextLimits } from "@/lib/contextLimits";
 import { normalizePromptLibrary, newPromptLibraryId } from "@/lib/promptLibrary";
 import {
   DEFAULT_PROFILE_ID,
@@ -590,6 +591,7 @@ const defaultSettings: Settings = {
   enableCeoAgents: "no",
   memoryAgentEnabled: "yes",
   memoryAgentInterval: 3,
+  manualContextLimits: {},
 };
 
 function touch(conv: Conversation): Conversation {
@@ -744,6 +746,7 @@ function freshProfileSnapshot(): ProfileSnapshot {
       enableCeoAgents: "no",
       memoryAgentEnabled: "yes",
       memoryAgentInterval: 3,
+      manualContextLimits: {},
     },
     subAgents: DEFAULT_SUB_AGENTS.map((a) => ({ ...a })),
     skills: DEFAULT_SKILLS.map((sk) => ({ ...sk })),
@@ -935,10 +938,16 @@ export const useStore = create<AppState>()(
         }
 
         // Working-copy slices from the top-level documents (last-written state).
+        const baseSettingsRaw = {
+          ...defaults.settings,
+          ...(p.settings && typeof p.settings === "object" ? p.settings : {}),
+        };
         const base = {
           settings: {
-            ...defaults.settings,
-            ...(p.settings && typeof p.settings === "object" ? p.settings : {}),
+            ...baseSettingsRaw,
+            manualContextLimits: normalizeManualContextLimits(
+              (baseSettingsRaw as { manualContextLimits?: unknown }).manualContextLimits,
+            ),
           },
           subAgents: mergeSubAgentsWithDefaults(
             Array.isArray(p.subAgents) ? p.subAgents : defaults.subAgents,
@@ -1018,8 +1027,17 @@ export const useStore = create<AppState>()(
         // The active snapshot wins over the working copy (it is newer by construction:
         // it was captured the last time this profile was switched away from).
         const snap = profileStates[activePid]!;
+        const snapSettingsRaw =
+          snap.settings && typeof snap.settings === "object"
+            ? { ...base.settings, ...snap.settings }
+            : base.settings;
         const fromSnap = {
-          settings: snap.settings && typeof snap.settings === "object" ? { ...base.settings, ...snap.settings } : base.settings,
+          settings: {
+            ...snapSettingsRaw,
+            manualContextLimits: normalizeManualContextLimits(
+              (snapSettingsRaw as { manualContextLimits?: unknown }).manualContextLimits,
+            ),
+          },
           subAgents: mergeSubAgentsWithDefaults(Array.isArray(snap.subAgents) ? snap.subAgents : base.subAgents),
           skills: mergeSkillsWithDefaults(Array.isArray(snap.skills) ? snap.skills : base.skills),
           todos: Array.isArray(snap.todos) ? snap.todos : base.todos,

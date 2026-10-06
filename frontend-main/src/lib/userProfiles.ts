@@ -214,7 +214,23 @@ export function normalizeProfileStates(raw: unknown): Record<string, ProfileSnap
   const out: Record<string, ProfileSnapshot> = {};
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
     if (!key || !value || typeof value !== "object" || Array.isArray(value)) continue;
-    out[key] = value as ProfileSnapshot;
+    const snap = value as ProfileSnapshot;
+    // Heal legacy snapshots stored before manualContextLimits existed.
+    try {
+      const settings = (snap as { settings?: unknown }).settings;
+      if (settings && typeof settings === "object" && !Array.isArray(settings)) {
+        const rec = settings as Record<string, unknown>;
+        if (!rec.manualContextLimits || typeof rec.manualContextLimits !== "object") {
+          (snap as { settings: Settings }).settings = {
+            ...(settings as Settings),
+            manualContextLimits: {},
+          };
+        }
+      }
+    } catch {
+      // Never fail hydration on a malformed snapshot.
+    }
+    out[key] = snap;
   }
   return out;
 }

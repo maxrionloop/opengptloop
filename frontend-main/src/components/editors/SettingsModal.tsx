@@ -13,6 +13,13 @@ import {
 import { EFFORT_PRESETS, type CustomHeader, type CustomProvider } from "@/types";
 import { Modal } from "@/components/ui/Modal";
 import { Button, Field, Select, TextInput } from "@/components/ui/primitives";
+import {
+  DEFAULT_MANUAL_CONTEXT_LIMIT,
+  contextLimitKey,
+  formatContextLimitInput,
+  needsManualContextLimit,
+  parseContextLimitInput,
+} from "@/lib/contextLimits";
 import { cn } from "@/utils/cn";
 
 export function SettingsModal() {
@@ -79,6 +86,60 @@ export function SettingsModal() {
 
   const isLocal = isLocalProviderId(settings.provider);
 
+  // ---- Manual context-window limit (missing provider metadata) ----
+  // When the provider catalog returns no `context_window` for the selected
+  // model (or for custom providers, which never have catalog metadata), the
+  // user must confirm a manual limit ("250k" preloaded, "k"=thousand,
+  // "m"=million). Until confirmed, Settings cannot be closed/saved.
+  const manualLimits = settings.manualContextLimits ?? {};
+  const trimmedModel = (settings.model ?? "").trim();
+  const needsManual =
+    Boolean(trimmedModel) &&
+    needsManualContextLimit({
+      providerId: settings.provider,
+      modelId: settings.model,
+      models,
+    });
+  const manualKey = contextLimitKey(settings.provider, settings.model);
+  const savedManual = manualLimits[manualKey];
+  const mustConfirmManual =
+    needsManual && !(typeof savedManual === "number" && savedManual > 0);
+  const [manualInput, setManualInput] = useState("250k");
+  const [manualError, setManualError] = useState<string | null>(null);
+
+  // Reload the input whenever Settings opens or the active provider+model
+  // changes: saved value when confirmed before, else the "250k" preload.
+  useEffect(() => {
+    if (!open) return;
+    if (typeof savedManual === "number" && savedManual > 0) {
+      setManualInput(formatContextLimitInput(savedManual));
+    } else if (needsManual) {
+      setManualInput(formatContextLimitInput(DEFAULT_MANUAL_CONTEXT_LIMIT));
+    }
+    setManualError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, manualKey]);
+
+  const confirmManualLimit = () => {
+    const parsed = parseContextLimitInput(manualInput);
+    if (parsed == null) {
+      setManualError('Enter a limit like "250k" (thousand) or "1m" (million), e.g. 250k, 1m, 128000.');
+      return;
+    }
+    setSettings({ manualContextLimits: { ...manualLimits, [manualKey]: parsed } });
+    setManualError(null);
+    setError(null);
+  };
+
+  const tryCloseSettings = () => {
+    if (mustConfirmManual) {
+      setManualError("Confirm the context limit first — click Confirm beside the input.");
+      return;
+    }
+    setOpen(false);
+    setEditorOpen(false);
+  };
+
   const loadModels = async () => {
     if (!currentKey && !isLocal) {
       setError("Enter an API key first.");
@@ -104,10 +165,21 @@ export function SettingsModal() {
     <>
       <Modal
         open={open}
-        onClose={() => { setOpen(false); setEditorOpen(false); }}
+        onClose={tryCloseSettings}
         title="Settings"
         size="lg"
-        footer={<Button onClick={() => { setOpen(false); setEditorOpen(false); }}>Done</Button>}
+        footer={
+          <div className="flex items-center gap-3">
+            {mustConfirmManual && (
+              <span className="text-xs text-[var(--warning)]">
+                Confirm the manual context limit to continue.
+              </span>
+            )}
+            <Button onClick={tryCloseSettings} disabled={mustConfirmManual} title={mustConfirmManual ? "Confirm the context limit first" : "Done"}>
+              Done
+            </Button>
+          </div>
+        }
       >
         <div className="space-y-6 p-5">
           {/* Provider + model */}
@@ -135,37 +207,53 @@ export function SettingsModal() {
             </Field>
 
             {isCustom ? (
-              <div className="space-y-2 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--chip)] p-3">
-                <p className="text-xs text-[var(--muted)]">Connected to {selectedCustom?.baseUrl || "no base URL"}</p>
-                {modelOptions.length > 0 ? (
-                  <>
-                    <Select value={settings.model || modelOptions[0]} onChange={(e) => setSettings({ model: e.target.value })}>
-                      <option value="" disabled>
-                        Select a model…
-                      </option>
-                      {modelOptions.map((m) => (
-                        <option key={m} value={m}>
-                          {m}
+              <>
+                <div className="space-y-2 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--chip)] p-3">
+                  <p className="text-xs text-[var(--muted)]">Connected to {selectedCustom?.baseUrl || "no base URL"}</p>
+                  {modelOptions.length > 0 ? (
+                    <>
+                      <Select value={settings.model || modelOptions[0]} onChange={(e) => setSettings({ model: e.target.value })}>
+                        <option value="" disabled>
+                          Select a model…
                         </option>
-                      ))}
-                    </Select>
-                    <div className="flex flex-wrap gap-1.5">
-                      {modelOptions.map((m) => (
-                        <button key={m} onClick={() => setSettings({ model: m })} className={cn("rounded-full border px-2.5 py-1 text-xs", settings.model === m ? "border-[var(--secondary)] bg-[var(--secondary)] text-[var(--secondary-fg)]" : "border-[var(--border)] text-[var(--fg)] hover:border-[var(--secondary)]")}>
-                          {m}
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <TextInput value={settings.model} onChange={(e) => setSettings({ model: e.target.value })} placeholder="No models yet — add one below" />
+                        {modelOptions.map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                      </Select>
+                      <div className="flex flex-wrap gap-1.5">
+                        {modelOptions.map((m) => (
+                          <button key={m} onClick={() => setSettings({ model: m })} className={cn("rounded-full border px-2.5 py-1 text-xs", settings.model === m ? "border-[var(--secondary)] bg-[var(--secondary)] text-[var(--secondary-fg)]" : "border-[var(--border)] text-[var(--fg)] hover:border-[var(--secondary)]")}>
+                            {m}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <TextInput value={settings.model} onChange={(e) => setSettings({ model: e.target.value })} placeholder="No models yet — add one below" />
+                  )}
+                  {selectedCustom && (
+                    <button onClick={() => { setEditingId(selectedCustom.id); setEditorOpen(true); }} className="text-xs font-medium text-[var(--secondary)] hover:underline">
+                      Edit or add models
+                    </button>
+                  )}
+                </div>
+                {needsManual && (
+                  <ManualContextLimitField
+                    modelId={settings.model}
+                    input={manualInput}
+                    onInput={(v) => {
+                      setManualInput(v);
+                      setManualError(null);
+                    }}
+                    onConfirm={confirmManualLimit}
+                    confirmed={!mustConfirmManual}
+                    savedValue={typeof savedManual === "number" ? savedManual : null}
+                    error={manualError}
+                  />
                 )}
-                {selectedCustom && (
-                  <button onClick={() => { setEditingId(selectedCustom.id); setEditorOpen(true); }} className="text-xs font-medium text-[var(--secondary)] hover:underline">
-                    Edit or add models
-                  </button>
-                )}
-              </div>
+              </>
             ) : (
               <>
                 {isLocal ? (
@@ -221,6 +309,20 @@ export function SettingsModal() {
                   <TextInput value={settings.model} onChange={(e) => setSettings({ model: e.target.value })} placeholder="Or type a model id" className="font-mono text-xs" />
                 )}
                 {!isCustom && <ModelMetadataCard />}
+                {!isCustom && needsManual && (
+                  <ManualContextLimitField
+                    modelId={settings.model}
+                    input={manualInput}
+                    onInput={(v) => {
+                      setManualInput(v);
+                      setManualError(null);
+                    }}
+                    onConfirm={confirmManualLimit}
+                    confirmed={!mustConfirmManual}
+                    savedValue={typeof savedManual === "number" ? savedManual : null}
+                    error={manualError}
+                  />
+                )}
               </>
             )}
           </section>
@@ -555,6 +657,67 @@ function clampTemp(value: number): number {
   return Math.min(2, Math.max(0, Math.round(value * 100) / 100));
 }
 
+/**
+ * Manual context-limit input shown when the provider returns no model
+ * metadata (built-in without `context_window`, or any custom provider).
+ * Preloaded with "250k"; the user confirms with the button beside it.
+ * Until confirmed, Settings cannot be closed — enforced by the parent.
+ */
+function ManualContextLimitField({
+  modelId,
+  input,
+  onInput,
+  onConfirm,
+  confirmed,
+  savedValue,
+  error,
+}: {
+  modelId: string;
+  input: string;
+  onInput: (v: string) => void;
+  onConfirm: () => void;
+  confirmed: boolean;
+  savedValue: number | null;
+  error: string | null;
+}) {
+  return (
+    <div
+      className="rounded-[var(--radius-md)] border p-3"
+      style={{
+        borderColor: "color-mix(in oklab, var(--warning) 38%, transparent)",
+        background: "var(--warning-soft)",
+      }}
+    >
+      <p className="m-0 mb-1 text-xs font-semibold text-[var(--fg)]">
+        Context limit (manual){modelId ? ` · ${modelId}` : ""}
+      </p>
+      <p className="m-0 mb-2 text-[11px] leading-relaxed text-[var(--muted)]">
+        This provider returns no model metadata, so enter the context limit manually.
+        Use <strong>k</strong> for thousand or <strong>m</strong> for million (e.g. 250k, 1m, 128000).
+        Click Confirm to save it — Settings cannot be closed until confirmed.
+      </p>
+      <div className="flex gap-2">
+        <TextInput
+          value={input}
+          onChange={(e) => onInput(e.target.value)}
+          placeholder="250k"
+          className="flex-1 font-mono text-xs"
+          aria-label="Manual context limit (e.g. 250k or 1m)"
+        />
+        <Button variant="outline" onClick={onConfirm}>
+          <Check className="h-4 w-4" /> Confirm
+        </Button>
+      </div>
+      {confirmed && typeof savedValue === "number" && (
+        <p className="m-0 mt-1.5 text-[11px] font-medium text-[var(--success)]">
+          Confirmed: {savedValue.toLocaleString()} tokens.
+        </p>
+      )}
+      {error && <p className="m-0 mt-1.5 text-[11px] text-[var(--danger)]">{error}</p>}
+    </div>
+  );
+}
+
 function formatTokens(n: number | null | undefined): string | null {
   if (typeof n !== "number" || !Number.isFinite(n) || n <= 0) return null;
   if (n >= 1_000_000) {
@@ -670,6 +833,8 @@ function CustomProviderEditor({
 }) {
   const addCustomProvider = useStore((s) => s.addCustomProvider);
   const updateCustomProvider = useStore((s) => s.updateCustomProvider);
+  const manualLimits = useStore((s) => s.settings.manualContextLimits ?? {});
+  const setSettings = useStore((s) => s.setSettings);
   const [name, setName] = useState(existing?.name ?? "");
   const [baseUrl, setBaseUrl] = useState(existing?.baseUrl ?? "");
   const [apiKey, setApiKey] = useState(existing?.apiKey ?? "");
@@ -677,24 +842,127 @@ function CustomProviderEditor({
   const [headers, setHeaders] = useState<CustomHeader[]>(existing?.headers ?? []);
   const [error, setError] = useState<string | null>(null);
 
+  // ---- Manual context limits (custom providers never have catalog metadata) ----
+  // One input per model, preloaded with the saved value or "250k". The provider
+  // cannot be saved until the user clicks Confirm beside the inputs.
+  const initialLimitInputs = (list: string[]): string[] =>
+    list.map((m) => {
+      const clean = m.trim();
+      if (existing && clean) {
+        const saved = manualLimits[contextLimitKey(existing.id, clean)];
+        if (typeof saved === "number" && saved > 0) return formatContextLimitInput(saved);
+      }
+      return formatContextLimitInput(DEFAULT_MANUAL_CONTEXT_LIMIT);
+    });
+  const [limitInputs, setLimitInputs] = useState<string[]>(() =>
+    initialLimitInputs(existing?.models.length ? existing.models : [""]),
+  );
+  const [limitsConfirmed, setLimitsConfirmed] = useState(false);
+  const [limitsError, setLimitsError] = useState<string | null>(null);
+
+  const setModelsAndLimits = (next: string[]) => {
+    setModels(next);
+    setLimitInputs((prev) => {
+      const out = next.map((_, i) => prev[i] ?? formatContextLimitInput(DEFAULT_MANUAL_CONTEXT_LIMIT));
+      return out;
+    });
+    setLimitsConfirmed(false);
+    setLimitsError(null);
+  };
+
+  const setLimitAt = (index: number, value: string) => {
+    setLimitInputs((prev) => prev.map((v, i) => (i === index ? value : v)));
+    setLimitsConfirmed(false);
+    setLimitsError(null);
+  };
+
+  const confirmLimits = () => {
+    const cleanModels = models.map((m) => m.trim()).filter(Boolean);
+    if (cleanModels.length === 0) {
+      setLimitsError("Add at least one model before confirming its context limit.");
+      return;
+    }
+    for (let i = 0; i < models.length; i += 1) {
+      const modelName = (models[i] ?? "").trim();
+      if (!modelName) continue;
+      const parsed = parseContextLimitInput(limitInputs[i] ?? "");
+      if (parsed == null) {
+        setLimitsError(
+          `Invalid limit for "${modelName}" — use k for thousand or m for million (e.g. 250k, 1m).`,
+        );
+        return;
+      }
+    }
+    // Persist immediately when editing an existing provider so the Settings
+    // gate sees the confirmed values; for a new provider the ids don't exist
+    // yet, so persistence happens in save() below.
+    if (existing) {
+      const nextLimits = { ...manualLimits };
+      for (let i = 0; i < models.length; i += 1) {
+        const modelName = (models[i] ?? "").trim();
+        if (!modelName) continue;
+        const parsed = parseContextLimitInput(limitInputs[i] ?? "");
+        if (parsed != null) nextLimits[contextLimitKey(existing.id, modelName)] = parsed;
+      }
+      setSettings({ manualContextLimits: nextLimits });
+    }
+    setLimitsConfirmed(true);
+    setLimitsError(null);
+    setError(null);
+  };
+
   const save = () => {
     const cleanModels = models.map((m) => m.trim()).filter(Boolean);
     if (!name.trim()) return setError("A provider name is required.");
     if (!baseUrl.trim()) return setError("A base URL is required.");
     if (cleanModels.length === 0) return setError("Add at least one model.");
+    if (!limitsConfirmed) {
+      setLimitsError("Click Confirm beside the context limits first — the provider cannot be saved until then.");
+      return setError("Confirm the context limits first (click Confirm beside the inputs).");
+    }
+    // Validate every non-empty model's limit once more (inputs may have
+    // changed shape between confirm and save without resetting the flag in
+    // exotic flows — never persist garbage).
+    const parsedByModel = new Map<string, number>();
+    for (let i = 0; i < models.length; i += 1) {
+      const modelName = (models[i] ?? "").trim();
+      if (!modelName) continue;
+      const parsed = parseContextLimitInput(limitInputs[i] ?? "");
+      if (parsed == null) {
+        setLimitsError(`Invalid limit for "${modelName}" — use k/m (e.g. 250k, 1m).`);
+        return setError(`Invalid context limit for "${modelName}".`);
+      }
+      parsedByModel.set(modelName, parsed);
+    }
     const cleanHeaders = headers.filter((h) => h.key.trim()).map((h) => ({ key: h.key.trim(), value: h.value }));
     const url = baseUrl.trim().replace(/\/+$/, "");
     if (existing) {
       updateCustomProvider(existing.id, { name: name.trim(), baseUrl: url, apiKey, models: cleanModels, headers: cleanHeaders });
+      const nextLimits = { ...useStore.getState().settings.manualContextLimits };
+      for (const m of cleanModels) {
+        const parsed = parsedByModel.get(m);
+        if (parsed != null) nextLimits[contextLimitKey(existing.id, m)] = parsed;
+      }
+      setSettings({ manualContextLimits: nextLimits });
       onSaved(existing);
     } else {
       const created = addCustomProvider({ name: name.trim(), baseUrl: url, apiKey, models: cleanModels, headers: cleanHeaders });
+      const nextLimits = { ...useStore.getState().settings.manualContextLimits };
+      for (const m of cleanModels) {
+        const parsed = parsedByModel.get(m);
+        if (parsed != null) nextLimits[contextLimitKey(created.id, m)] = parsed;
+      }
+      setSettings({ manualContextLimits: nextLimits });
       onSaved(created);
     }
   };
 
+  const tryCloseEditor = () => {
+    onClose();
+  };
+
   return (
-    <Modal open onClose={onClose} title={existing ? "Edit custom provider" : "Add custom provider"} size="md" footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={save}><Check className="h-4 w-4" /> {existing ? "Save & connect" : "Connect"}</Button></>}>
+    <Modal open onClose={tryCloseEditor} title={existing ? "Edit custom provider" : "Add custom provider"} size="md" footer={<><Button variant="ghost" onClick={tryCloseEditor}>Cancel</Button><Button onClick={save} disabled={!limitsConfirmed} title={limitsConfirmed ? (existing ? "Save & connect" : "Connect") : "Confirm the context limits first"}><Check className="h-4 w-4" /> {existing ? "Save & connect" : "Connect"}</Button></>}>
       <div className="space-y-4 p-5">
         <Field label="Provider name *">
           <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="My Provider" />
@@ -710,16 +978,69 @@ function CustomProviderEditor({
           <div className="space-y-2">
             {models.map((m, i) => (
               <div key={i} className="flex gap-2">
-                <TextInput value={m} onChange={(e) => setModels((ms) => ms.map((x, xi) => (xi === i ? e.target.value : x)))} placeholder="model-id" className="font-mono" />
-                <button onClick={() => setModels((ms) => (ms.length > 1 ? ms.filter((_, xi) => xi !== i) : ms))} disabled={models.length <= 1} className="shrink-0 text-[var(--subtle)] hover:text-[var(--danger)] disabled:opacity-30">
+                <TextInput value={m} onChange={(e) => {
+                  const next = models.map((x, xi) => (xi === i ? e.target.value : x));
+                  setModelsAndLimits(next);
+                }} placeholder="model-id" className="font-mono" />
+                <button onClick={() => {
+                  if (models.length <= 1) return;
+                  setModelsAndLimits(models.filter((_, xi) => xi !== i));
+                }} disabled={models.length <= 1} className="shrink-0 text-[var(--subtle)] hover:text-[var(--danger)] disabled:opacity-30">
                   <Trash2 className="h-4 w-4" />
                 </button>
               </div>
             ))}
-            <Button variant="ghost" onClick={() => setModels((ms) => [...ms, ""])}>
+            <Button variant="ghost" onClick={() => setModelsAndLimits([...models, ""])}>
               <Plus className="h-3.5 w-3.5" /> Add model
             </Button>
           </div>
+        </div>
+        <div
+          className="rounded-[var(--radius-md)] border p-3"
+          style={{
+            borderColor: "color-mix(in oklab, var(--warning) 38%, transparent)",
+            background: "var(--warning-soft)",
+          }}
+        >
+          <p className="m-0 mb-1 text-xs font-semibold text-[var(--fg)]">Context limits (manual, per model)</p>
+          <p className="m-0 mb-2 text-[11px] leading-relaxed text-[var(--muted)]">
+            Custom providers return no model metadata, so enter each model's context limit manually.
+            Use <strong>k</strong> for thousand or <strong>m</strong> for million (preloaded 250k).
+            Click Confirm — the provider cannot be saved until then.
+          </p>
+          <div className="space-y-2">
+            {models.map((m, i) => {
+              const label = (m ?? "").trim() || `Model ${i + 1}`;
+              return (
+                <div key={i} className="flex items-center gap-2">
+                  <span className="w-28 shrink-0 truncate font-mono text-[11px] text-[var(--muted)]" title={label}>
+                    {label}
+                  </span>
+                  <TextInput
+                    value={limitInputs[i] ?? "250k"}
+                    onChange={(e) => setLimitAt(i, e.target.value)}
+                    placeholder="250k"
+                    className="flex-1 font-mono text-xs"
+                    aria-label={`Context limit for ${label} (e.g. 250k or 1m)`}
+                  />
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <Button variant="outline" onClick={confirmLimits}>
+              <Check className="h-4 w-4" /> Confirm
+            </Button>
+            {limitsConfirmed && (
+              <span className="text-[11px] font-medium text-[var(--success)]">Confirmed.</span>
+            )}
+          </div>
+          {limitsError && <p className="m-0 mt-1.5 text-[11px] text-[var(--danger)]">{limitsError}</p>}
+          {!limitsConfirmed && (
+            <p className="m-0 mt-1.5 text-[11px] text-[var(--warning)]">
+              Confirm the limits to enable {existing ? "Save & connect" : "Connect"}.
+            </p>
+          )}
         </div>
         <div>
           <div className="mb-1.5 text-xs font-medium text-[var(--muted)]">Custom headers (optional)</div>

@@ -899,6 +899,14 @@ export interface Settings {
    * System default is 3: tasks 1–2 stay idle, task 3 triggers a build, then 6, 9, ...
    */
   memoryAgentInterval: number;
+  /**
+   * Confirmed manual LLM context-window limits, keyed by
+   * `${providerId}::${modelId}`. Used ONLY when the provider's `/models`
+   * catalog returns no `context_window` metadata (including custom providers,
+   * which never have catalog metadata). Written only via the explicit Confirm
+   * button in Settings; the context meter reads it to compute usage %.
+   */
+  manualContextLimits: Record<string, number>;
 }
 
 /** The four built-in reasoning-effort presets shown in Settings. */
