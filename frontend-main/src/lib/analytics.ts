@@ -149,11 +149,15 @@ export interface AnalyticsContext {
   transcriptTokens: number;
   /** Most recent logged call's input size (actual when provider-counted). */
   lastPromptTokens: number | null;
+  /** Same call's output size, incl. partial output of aborted/error calls. */
+  lastCompletionTokens?: number | null;
+  /** Same call's input+output total — the context the next call will carry. */
+  lastTotalTokens?: number | null;
   lastPromptSource: "provider" | "estimated" | null;
   lastModel: string | null;
   lastProvider: string | null;
   lastTimestamp: number | null;
-  /** Best current-context figure: last prompt size, else the transcript estimate. */
+  /** Best current-context figure: last call total, else the transcript estimate. */
   usedTokens: number;
   /** Where `usedTokens` comes from. */
   usedSource: "provider" | "estimated" | "transcript";

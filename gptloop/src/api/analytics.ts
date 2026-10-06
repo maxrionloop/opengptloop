@@ -123,8 +123,14 @@ export function buildAnalyticsRouter(db: GptLoopDatabase, store?: SessionStore):
    *   session: the provider's ACTUAL prompt count when it reported usage
    *   (includes system prompt + tools), otherwise the built-in estimate of
    *   that call (which also included system prompt + tools).
-   * - `usedTokens` is the best current-context figure: the last prompt size
-   *   when a call was logged, else the transcript estimate.
+   * - `lastCompletionTokens` / `lastTotalTokens` are the same call's output
+   *   size and input+output total (partial output is recorded even for
+   *   aborted/error calls, so an aborted mid-response still counts).
+   * - `usedTokens` is the best current-context figure: the last call's TOTAL
+   *   (input+output — the transcript after that call plus system/tools, i.e.
+   *   the context the NEXT call will carry) when a call was logged, else the
+   *   transcript estimate. Using the total (not input-only) is what keeps the
+   *   meter from undercounting long or aborted responses.
    */
   router.get("/context", (req: Request, res: Response) => {
     try {
@@ -167,6 +173,8 @@ export function buildAnalyticsRouter(db: GptLoopDatabase, store?: SessionStore):
       const transcriptTokens = estimateMessagesTokens(transcript);
 
       let lastPromptTokens: number | null = null;
+      let lastCompletionTokens: number | null = null;
+      let lastTotalTokens: number | null = null;
       let lastPromptSource: "provider" | "estimated" | null = null;
       let lastModel: string | null = null;
       let lastProvider: string | null = null;
@@ -176,6 +184,11 @@ export function buildAnalyticsRouter(db: GptLoopDatabase, store?: SessionStore):
         const last = logs.find((l) => l.kind === "llm_request" && l.inputTokens != null);
         if (last) {
           lastPromptTokens = last.inputTokens;
+          lastCompletionTokens = last.outputTokens;
+          // Prefer the stored total (provider actual total when reported);
+          // otherwise input+output so aborted/estimated partial output counts.
+          lastTotalTokens =
+            last.totalTokens ?? (lastPromptTokens ?? 0) + (lastCompletionTokens ?? 0);
           lastPromptSource = last.tokenSource === "provider" ? "provider" : "estimated";
           lastModel = last.model;
           lastProvider = last.provider;
@@ -197,12 +210,14 @@ export function buildAnalyticsRouter(db: GptLoopDatabase, store?: SessionStore):
           chars,
           transcriptTokens,
           lastPromptTokens,
+          lastCompletionTokens,
+          lastTotalTokens,
           lastPromptSource,
           lastModel,
           lastProvider,
           lastTimestamp,
-          usedTokens: lastPromptTokens ?? transcriptTokens,
-          usedSource: lastPromptTokens != null ? (lastPromptSource ?? "estimated") : "transcript",
+          usedTokens: lastTotalTokens ?? transcriptTokens,
+          usedSource: lastTotalTokens != null ? (lastPromptSource ?? "estimated") : "transcript",
         },
       });
     } catch (error) {

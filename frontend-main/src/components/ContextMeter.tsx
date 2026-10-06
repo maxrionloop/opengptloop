@@ -6,19 +6,36 @@ import {
   formatContextTokens,
   resolveContextLimit,
 } from "@/lib/contextLimits";
+import { estimateLiveTranscriptTokens } from "@/lib/tokenEstimate";
 import { cn } from "@/utils/cn";
 
-const POLL_MS = 5_000;
+const POLL_MS_IDLE = 5_000;
+const POLL_MS_STREAMING = 1_000;
 
 /**
  * Context meter — the small circle in the prompt box, just beside the task
  * mode picker. Shows the current LLM context usage as a percentage ("%").
  * Clicking it opens a read-only popup with the available context tokens.
  *
- * Data sources (both already fetched by the app — nothing new invented):
- * - Used tokens: GET /api/analytics/context?sessionId= (provider-counted
+ * Live-updating design (per-token, synchronized with streaming output):
+ * - Authoritative base: GET /api/analytics/context?sessionId= (provider-counted
  *   actual when the provider reported usage, else the built-in estimate,
- *   else the live transcript estimate).
+ *   else the transcript estimate). Polled (1s while streaming, 5s idle) so
+ *   multi-iteration turns pick up each logged LLM call.
+ * - Live overlay: the zustand transcript for the current session is estimated
+ *   locally with the same heuristic as the backend (`lib/tokenEstimate.ts`,
+ *   mirroring `gptloop/src/tokens.ts`). Because the meter subscribes to the
+ *   SAME store slice that `StreamBatcher` writes token deltas into
+ *   (rAF-coalesced, ~once per frame), the circle + popup re-render on every
+ *   flushed token batch — the counter increments simultaneously with the
+ *   visible streaming output instead of only after the response finishes.
+ * - Combined figure: live transcript + backend system/tools overhead
+ *   (`backendUsed (last call total) - backendTranscript`, clamped >= 0),
+ *   always taking the max with the backend figure so the meter never
+ *   undercounts — including right after an aborted mid-response or any other
+ *   divergence where the backend transcript/poll is stale — and converges to
+ *   the authoritative count when the turn settles.
+ *
  * - Total window: the provider `/models` catalog `context_window`, falling
  *   back to the user's confirmed manual limit (Settings → 250k default).
  * Display-only: editing a limit happens only in Settings, never here.
@@ -30,8 +47,14 @@ export function ContextMeter() {
   const customProviders = useStore((s) => s.customProviders);
   const streaming = useStore((s) => s.streaming);
   const setSettingsOpen = useStore((s) => s.setSettingsOpen);
-  const messageCount = useStore((s) =>
-    s.conversations.find((c) => c.id === s.currentId)?.messages.length ?? 0,
+  // Subscribe to the live transcript itself (not just its length): every flushed
+  // token/reasoning/tool delta creates a new messages reference via
+  // applyAssistantDelta, so this selector re-renders the meter in lockstep with
+  // the chat output — the core of the per-token live update.
+  const liveMessages = useStore((s) =>
+    s.currentId
+      ? (s.conversations.find((c) => c.id === s.currentId)?.messages ?? null)
+      : null,
   );
 
   const [context, setContext] = useState<AnalyticsContext | null>(null);
@@ -65,20 +88,50 @@ export function ContextMeter() {
         const ctx = await fetchAnalyticsContext(currentId);
         if (!cancelled) setContext(ctx);
       } catch {
-        // Keep the last known figure; the meter degrades to the transcript
+        // Keep the last known figure; the meter degrades to the live transcript
         // estimate rather than failing the whole prompt box.
         if (!cancelled) setContext((prev) => (prev?.sessionId === currentId ? prev : null));
       }
     };
     void load();
-    const timer = setInterval(() => void load(), POLL_MS);
+    // Poll faster while streaming so each logged LLM call of a multi-iteration
+    // agent turn refreshes the authoritative base promptly; the per-token motion
+    // itself comes from the live store subscription above, not from polling.
+    const timer = setInterval(() => void load(), streaming ? POLL_MS_STREAMING : POLL_MS_IDLE);
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [currentId, streaming, messageCount]);
+  }, [currentId, streaming]);
 
-  const used = context?.usedTokens ?? 0;
+  // Live transcript estimate from the same store state the chat renders.
+  // Recomputed whenever any message content / tool / team segment changes —
+  // i.e. on every streamed token batch while the agent is generating.
+  const liveTranscriptTokens = useMemo(
+    () => estimateLiveTranscriptTokens(liveMessages),
+    [liveMessages],
+  );
+
+  const backendUsed = context?.usedTokens ?? 0;
+  const backendTranscript = context?.transcriptTokens ?? 0;
+  // System prompt + tool-schema overhead captured by the last logged LLM call:
+  // (the last call total covered transcript-before + system/tools + output;
+  // the backend transcript alone covers transcript-after without system/tools).
+  // Clamped >= 0 so estimator drift can never shrink the live figure.
+  const overhead = Math.max(0, backendUsed - backendTranscript);
+  const liveUsed = liveTranscriptTokens + overhead;
+
+  // Combined figure: never undercount. The live estimate already contains
+  // in-flight tokens — and, after an aborted mid-response or any backend
+  // staleness (restart, eviction, race), the partial output the backend has
+  // not logged yet. The max keeps the meter monotonic and converges to the
+  // authoritative count when the turn settles. With no backend data yet
+  // (fresh chat), the live estimate stands alone.
+  const used = !context ? liveUsed : Math.max(backendUsed, liveUsed);
+  // Live leads whenever the local transcript (what the user sees) exceeds the
+  // last backend poll — while streaming AND right after an abort/failure.
+  const isLive = !!context && liveUsed > backendUsed;
+
   const percent =
     limit != null && limit > 0 ? Math.min(100, Math.max(0, Math.round((used / limit) * 100))) : null;
   const remaining = limit != null ? Math.max(0, limit - used) : null;
@@ -98,8 +151,28 @@ export function ContextMeter() {
     !modelId
       ? "Pick a model in Settings to measure context"
       : limit == null
-        ? `Context used: ${used.toLocaleString()} tokens — window unknown, set it in Settings`
-        : `LLM context: ${percent}% used (${used.toLocaleString()} / ${limit.toLocaleString()})`;
+        ? `Context used: ${used.toLocaleString()} tokens${streaming ? " (live — updating as tokens stream)" : ""} — window unknown, set it in Settings`
+        : `LLM context: ${percent}% used (${used.toLocaleString()} / ${limit.toLocaleString()})${streaming ? " · live" : ""}`;
+
+  const countedByLabel = !context
+    ? liveTranscriptTokens > 0
+      ? "Live estimate"
+      : "—"
+    : isLive
+      ? context.usedSource === "provider"
+        ? "Provider actual + live"
+        : context.usedSource === "estimated"
+          ? "Built-in estimate + live"
+          : "Transcript + live"
+      : context.usedSource === "provider"
+        ? "Provider actual"
+        : context.usedSource === "estimated"
+          ? "Built-in estimate"
+          : context.usedSource === "transcript"
+            ? "Transcript estimate"
+            : "—";
+
+  const liveMessageCount = liveMessages?.length ?? 0;
 
   return (
     <div className="relative">
@@ -140,6 +213,13 @@ export function ContextMeter() {
           >
             {label}
           </span>
+          {streaming && (
+            <span
+              className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-emerald-500"
+              style={{ boxShadow: "0 0 0 2px var(--bg)" }}
+              title="Updating live as tokens stream"
+            />
+          )}
         </span>
       </button>
 
@@ -153,7 +233,24 @@ export function ContextMeter() {
             aria-label="Current LLM context"
           >
             <div className="border-b border-[var(--border)] px-3.5 py-2.5">
-              <p className="m-0 text-xs font-semibold text-[var(--fg)]">Current LLM context</p>
+              <p className="m-0 flex items-center gap-1.5 text-xs font-semibold text-[var(--fg)]">
+                Current LLM context
+                {(streaming || isLive) && (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-1.5 py-px text-[10px] font-medium text-emerald-600"
+                    title={
+                      streaming
+                        ? "Updating live as tokens stream"
+                        : "Includes output newer than the last backend poll (e.g. an aborted response)"
+                    }
+                  >
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full bg-emerald-500 ${streaming ? "animate-pulse" : ""}`}
+                    />
+                    live
+                  </span>
+                )}
+              </p>
               <p className="m-0 mt-0.5 truncate font-mono text-[10px] text-[var(--subtle)]" title={`${providerId} · ${modelId}`}>
                 {modelId ? `${modelId} · ${providerId}` : "No model selected"}
               </p>
@@ -196,23 +293,28 @@ export function ContextMeter() {
                     <div className="flex items-baseline justify-between gap-3">
                       <dt className="text-[var(--muted)]">Counted by</dt>
                       <dd className="m-0 text-right font-medium text-[var(--fg)]">
-                        {context?.usedSource === "provider"
-                          ? "Provider actual"
-                          : context?.usedSource === "estimated"
-                            ? "Built-in estimate"
-                            : context?.usedSource === "transcript"
-                              ? "Transcript estimate"
-                              : "—"}
+                        {countedByLabel}
                       </dd>
                     </div>
                   </dl>
-                  {context && (context.messageCount > 0 || context.usedTokens > 0) && (
+                  {(context && (context.messageCount > 0 || context.usedTokens > 0)) ||
+                  liveMessageCount > 0 ||
+                  used > 0 ? (
                     <p className="m-0 text-[10px] leading-relaxed text-[var(--subtle)]">
-                      {context.messageCount} message{context.messageCount === 1 ? "" : "s"}
-                      {` (${context.userMessages} user · ${context.assistantMessages} assistant · ${context.toolMessages} tool)`}
-                      {context.live ? " · live" : ""}
+                      {context ? (
+                        <>
+                          {context.messageCount} message{context.messageCount === 1 ? "" : "s"}
+                          {` (${context.userMessages} user · ${context.assistantMessages} assistant · ${context.toolMessages} tool)`}
+                          {context.live ? " · live" : ""}
+                        </>
+                      ) : (
+                        <>
+                          {liveMessageCount} message{liveMessageCount === 1 ? "" : "s"} (live)
+                        </>
+                      )}
+                      {streaming ? " · streaming" : ""}
                     </p>
-                  )}
+                  ) : null}
                 </>
               ) : (
                 <>
@@ -239,6 +341,11 @@ export function ContextMeter() {
 
               <p className="m-0 border-t border-[var(--border)] pt-2 text-[10px] leading-relaxed text-[var(--subtle)]">
                 Showing the current LLM context only.
+                {streaming
+                  ? " Updating live as tokens stream."
+                  : isLive
+                    ? " Includes output newer than the last backend poll."
+                    : ""}
                 {limitSource === "manual" && limit != null && (
                   <>
                     {" "}Manual window {formatContextTokens(limit)} ({contextLimitKey(providerId, modelId)}).

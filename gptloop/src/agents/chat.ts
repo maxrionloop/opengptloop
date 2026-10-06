@@ -293,6 +293,17 @@ export class ChatRunner {
             }
           }
         } catch (error) {
+          // Preserve what the user already saw: partial text/reasoning streamed
+          // before the abort/failure stays in the transcript so the next turn
+          // keeps its context and the context meter counts it. Incomplete
+          // tool-call fragments are dropped (they would corrupt the next call).
+          const partialText = answerParts.join("");
+          const partialReasoning = reasoningParts.join("");
+          if (partialText.length > 0 || partialReasoning.length > 0) {
+            const partial: StoredMessage = { role: "assistant", content: partialText };
+            if (partialReasoning.length > 0) partial.reasoning_content = partialReasoning;
+            session.messages.push(partial);
+          }
           if (signal.aborted) {
             send("done", { ok: false, aborted: true });
             return;
@@ -362,18 +373,38 @@ export class ChatRunner {
               label: toolLabel,
             });
 
-            const result = await this.tools.execute(toolName, args, {
-              workspaceRoot: this.config.workspaceRoot,
-              shellTimeoutMs: this.config.shellTimeoutMs,
-              signal,
-              web,
-              memory: memoryRuntime,
-              knowledge: knowledgeRuntime,
-              toolCallId: toolCall.id ?? undefined,
-              chatId: request.chatId,
-              emit: send,
-              model: request.model,
-            });
+            // A throwing tool (e.g. abort mid-search) must not leave a dangling
+            // assistant tool_call with no tool response — the next provider call
+            // would reject it and the transcript would diverge from the UI.
+            let result: Awaited<ReturnType<typeof this.tools.execute>>;
+            try {
+              result = await this.tools.execute(toolName, args, {
+                workspaceRoot: this.config.workspaceRoot,
+                shellTimeoutMs: this.config.shellTimeoutMs,
+                signal,
+                web,
+                memory: memoryRuntime,
+                knowledge: knowledgeRuntime,
+                toolCallId: toolCall.id ?? undefined,
+                chatId: request.chatId,
+                emit: send,
+                model: request.model,
+              });
+            } catch (toolError) {
+              const code =
+                typeof (toolError as { code?: unknown })?.code === "string"
+                  ? ((toolError as { code: string }).code as string)
+                  : signal.aborted
+                    ? "aborted"
+                    : "tool_error";
+              result = {
+                ok: false,
+                error: {
+                  code,
+                  message: messageOf(toolError).slice(0, 2000),
+                },
+              } as typeof result;
+            }
 
             session.messages.push({
               role: "tool",

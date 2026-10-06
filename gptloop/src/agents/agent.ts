@@ -546,6 +546,18 @@ export class AgentRunner {
             }
           }
         } catch (error) {
+          // Preserve what the user already saw: partial text/reasoning streamed
+          // before the abort/failure is part of the conversation — it stays in
+          // the transcript so the next turn keeps its context and the context
+          // meter counts it. Incomplete tool-call fragments are dropped (they
+          // would corrupt the next provider call); only the visible text is kept.
+          const partialText = answerParts.join("");
+          const partialReasoning = reasoningParts.join("");
+          if (partialText.length > 0 || partialReasoning.length > 0) {
+            const partial: StoredMessage = { role: "assistant", content: partialText };
+            if (partialReasoning.length > 0) partial.reasoning_content = partialReasoning;
+            session.messages.push(partial);
+          }
           if (signal.aborted) {
             send("done", { ok: false, aborted: true });
             return;
@@ -600,45 +612,64 @@ export class AgentRunner {
               label: toolLabel,
             });
 
-            const result = isConnectorTool
-              ? await connectorRuntime.execute(toolName, args)
-              : isMcpTool && mcpRuntime
-              ? await mcpRuntime.execute(toolName, args)
-              : await this.tools.execute(toolName, args, {
-              workspaceRoot: this.config.workspaceRoot,
-              shellTimeoutMs: this.config.shellTimeoutMs,
-              signal,
-              web,
-              subAgents: subAgentRuntime,
-              skills: skillRuntime,
-              todos: todoRuntime,
-              memory: memoryRuntime,
-              knowledge: knowledgeRuntime,
-              promptLibrary: promptLibraryRuntime,
-              schedules: scheduleRuntime,
-              toolCallId: toolCall.id ?? undefined,
-              chatId: request.chatId,
-              emit: send,
-              planApprovals: this.planApprovals,
-              planApprovalTimeoutMs:
-                request.planApprovalTimeoutMs ?? this.config.planApprovalTimeoutMs,
-              askQuestions: this.askQuestions,
-              questionTimeoutMs: this.config.questionTimeoutMs,
-              model: request.model,
-              visionCapable,
-              channel: request.channel ?? undefined,
-              connectors: connectorRuntime,
-              connectorManager: this.connectorManager,
-              mcp: mcpRuntime ?? undefined,
-              mcpManager: this.mcpManager,
-              channelManager: this.channelManager,
-              // LLM-created sub-agents may also use the turn's connector + MCP tools.
-              availableToolNames: [
-                ...this.tools.names(),
-                ...(connectorRuntime.active ? connectorRuntime.names() : []),
-                ...(mcpRuntime?.active ? mcpRuntime.names() : []),
-              ],
-            });
+            // A tool throwing (e.g. abort mid-search) must not leave a dangling
+            // assistant tool_call with no tool response — the next provider call
+            // would reject it and the transcript would diverge from what the
+            // user saw. Convert throws into error results so every announced
+            // tool_call always gets its tool response (and its context tokens).
+            let result: Awaited<ReturnType<typeof connectorRuntime.execute>>;
+            try {
+              result = isConnectorTool
+                ? await connectorRuntime.execute(toolName, args)
+                : isMcpTool && mcpRuntime
+                  ? await mcpRuntime.execute(toolName, args)
+                  : await this.tools.execute(toolName, args, {
+                      workspaceRoot: this.config.workspaceRoot,
+                      shellTimeoutMs: this.config.shellTimeoutMs,
+                      signal,
+                      web,
+                      subAgents: subAgentRuntime,
+                      skills: skillRuntime,
+                      todos: todoRuntime,
+                      memory: memoryRuntime,
+                      knowledge: knowledgeRuntime,
+                      promptLibrary: promptLibraryRuntime,
+                      schedules: scheduleRuntime,
+                      toolCallId: toolCall.id ?? undefined,
+                      chatId: request.chatId,
+                      emit: send,
+                      planApprovals: this.planApprovals,
+                      planApprovalTimeoutMs:
+                        request.planApprovalTimeoutMs ?? this.config.planApprovalTimeoutMs,
+                      askQuestions: this.askQuestions,
+                      questionTimeoutMs: this.config.questionTimeoutMs,
+                      model: request.model,
+                      visionCapable,
+                      channel: request.channel ?? undefined,
+                      connectors: connectorRuntime,
+                      connectorManager: this.connectorManager,
+                      mcp: mcpRuntime ?? undefined,
+                      mcpManager: this.mcpManager,
+                      channelManager: this.channelManager,
+                      // LLM-created sub-agents may also use the turn's connector + MCP tools.
+                      availableToolNames: [
+                        ...this.tools.names(),
+                        ...(connectorRuntime.active ? connectorRuntime.names() : []),
+                        ...(mcpRuntime?.active ? mcpRuntime.names() : []),
+                      ],
+                    });
+            } catch (toolError) {
+              const code =
+                typeof (toolError as { code?: unknown })?.code === "string"
+                  ? ((toolError as { code: string }).code as string)
+                  : signal.aborted
+                    ? "aborted"
+                    : "tool_error";
+              result = {
+                ok: false,
+                error: { code, message: messageOf(toolError).slice(0, 2000) },
+              } as typeof result;
+            }
 
             // read_image attaches the loaded image to its result. The base64 payload
             // is stripped from the model-visible tool message (it is useless as text

@@ -597,11 +597,19 @@ export async function* streamWithAnalytics(
         totalTokens = triple.totalTokens;
         tokenSource = "estimated";
       } else {
-        // Failed calls still record what we can (input estimate; no output).
-        if (estimatedInput != null) {
-          inputTokens = Math.max(0, Math.floor(estimatedInput));
-          outputTokens = 0;
-          totalTokens = inputTokens;
+        // Failed/aborted calls still consumed context: the prompt was sent and a
+        // partial completion may have streamed before the failure (abort in
+        // mid-response is the common case). Record both so the context meter
+        // never undercounts aborted turns — the partial output is part of the
+        // transcript and counts toward the next call's context window.
+        // When nothing streamed at all this degrades to the old behavior
+        // (input estimate, zero output).
+        if (estimatedInput != null || completionText.length > 0 || completionReasoning.length > 0) {
+          const estimatedOutput = estimateCompletionTokens(completionText, completionReasoning);
+          const triple = toTokenTriple(estimatedInput ?? 0, estimatedOutput);
+          inputTokens = triple.inputTokens;
+          outputTokens = triple.outputTokens;
+          totalTokens = triple.totalTokens;
           tokenSource = "estimated";
         }
       }
