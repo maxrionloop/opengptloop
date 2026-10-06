@@ -227,7 +227,7 @@ function main(): void {
   app.use("/api/mcp", buildMcpRouter(mcp));
   app.use("/api/schedules", buildSchedulesRouter(scheduleStore, scheduler, db, customAgents));
   app.use("/api/channels", buildChannelsRouter(channels, customAgents));
-  app.use("/api/analytics", buildAnalyticsRouter(db));
+  app.use("/api/analytics", buildAnalyticsRouter(db, store));
 
   const server = app.listen(config.port, () => {
     // eslint-disable-next-line no-console

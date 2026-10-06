@@ -135,6 +135,38 @@ export async function fetchAnalyticsProviders(sessionId?: string): Promise<strin
   return data.providers ?? [];
 }
 
+/** One session's estimated LLM context-window usage (read-only). */
+export interface AnalyticsContext {
+  sessionId: string;
+  /** True when measured from the live in-memory transcript (incl. in-flight turn). */
+  live: boolean;
+  messageCount: number;
+  userMessages: number;
+  assistantMessages: number;
+  toolMessages: number;
+  chars: number;
+  /** Built-in-counter estimate of the transcript alone (no system prompt/tools). */
+  transcriptTokens: number;
+  /** Most recent logged call's input size (actual when provider-counted). */
+  lastPromptTokens: number | null;
+  lastPromptSource: "provider" | "estimated" | null;
+  lastModel: string | null;
+  lastProvider: string | null;
+  lastTimestamp: number | null;
+  /** Best current-context figure: last prompt size, else the transcript estimate. */
+  usedTokens: number;
+  /** Where `usedTokens` comes from. */
+  usedSource: "provider" | "estimated" | "transcript";
+}
+
+export async function fetchAnalyticsContext(sessionId: string): Promise<AnalyticsContext> {
+  const url =
+    routeUrl(API_ROUTES.analyticsContext) + queryString({ sessionId });
+  const data = await requestJson<{ context?: AnalyticsContext }>(url);
+  if (!data.context) throw new Error("Context unavailable for this session.");
+  return data.context;
+}
+
 export async function clearAnalytics(sessionId?: string): Promise<void> {
   const url =
     routeUrl(API_ROUTES.analyticsClear) + queryString({ sessionId });

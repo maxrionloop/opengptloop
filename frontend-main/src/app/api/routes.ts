@@ -506,6 +506,12 @@ export const API_ROUTES = {
     path: "/api/analytics/providers",
     description: "Distinct providers present in the analytics logs (for filter dropdowns).",
   },
+  analyticsContext: {
+    name: "analytics.context",
+    method: "GET",
+    path: "/api/analytics/context",
+    description: "Estimate one session's LLM context-window usage (transcript + last prompt size).",
+  },
   analyticsClear: {
     name: "analytics.clear",
     method: "DELETE",

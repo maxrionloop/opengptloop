@@ -1,6 +1,8 @@
 import { Router, type Request, type Response } from "express";
 import { analytics } from "../services/analytics.js";
 import type { GptLoopDatabase } from "../database/index.js";
+import type { SessionStore } from "../services/sessionStore.js";
+import { contentToText, estimateMessagesTokens } from "../tokens.js";
 
 /**
  * Analytics & Logs API (read-only for the dashboard).
@@ -10,6 +12,8 @@ import type { GptLoopDatabase } from "../database/index.js";
  * - GET /api/analytics/logs   — paginated log list with filters + search.
  * - GET /api/analytics/logs/:id — one log with full metadata.
  * - GET /api/analytics/providers — distinct providers (for filter dropdowns).
+ * - GET /api/analytics/context?sessionId= — estimate one session's LLM
+ *   context-window usage (transcript size + last prompt size).
  * - DELETE /api/analytics    — clear logs (analytics-only; never touches
  *   agent transcripts, settings, or any operational data).
  *
@@ -32,7 +36,7 @@ function numParam(value: unknown): number | undefined {
   return undefined;
 }
 
-export function buildAnalyticsRouter(_db: GptLoopDatabase): Router {
+export function buildAnalyticsRouter(db: GptLoopDatabase, store?: SessionStore): Router {
   const router = Router();
 
   router.get("/stats", (req: Request, res: Response) => {
@@ -99,6 +103,108 @@ export function buildAnalyticsRouter(_db: GptLoopDatabase): Router {
         strParam(req.query.sessionId ?? req.query.session_id),
       );
       res.json({ ok: true, providers });
+    } catch (error) {
+      res.status(500).json({
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  /**
+   * Estimate one chat session's LLM context-window usage (read-only).
+   *
+   * - The transcript is read live from the in-memory session when the backend
+   *   currently holds it (exact, including the in-flight turn), otherwise from
+   *   the persisted SQLite transcript.
+   * - `transcriptTokens` is the built-in-counter estimate of the transcript
+   *   alone (no system prompt, no tool schemas).
+   * - `lastPromptTokens` is the most recent LLM call's input size for this
+   *   session: the provider's ACTUAL prompt count when it reported usage
+   *   (includes system prompt + tools), otherwise the built-in estimate of
+   *   that call (which also included system prompt + tools).
+   * - `usedTokens` is the best current-context figure: the last prompt size
+   *   when a call was logged, else the transcript estimate.
+   */
+  router.get("/context", (req: Request, res: Response) => {
+    try {
+      const sessionId = strParam(req.query.sessionId ?? req.query.session_id);
+      if (!sessionId) {
+        res.status(400).json({ ok: false, error: "sessionId is required." });
+        return;
+      }
+
+      let transcript: Array<Record<string, unknown>> = [];
+      let live = false;
+      try {
+        const session = store?.get(sessionId);
+        if (session && session.messages.length > 0) {
+          transcript = session.messages as unknown as Array<Record<string, unknown>>;
+          live = true;
+        } else {
+          transcript = db.messages.list(sessionId) as unknown as Array<Record<string, unknown>>;
+        }
+      } catch {
+        transcript = [];
+      }
+
+      let userMessages = 0;
+      let assistantMessages = 0;
+      let toolMessages = 0;
+      let chars = 0;
+      for (const message of transcript) {
+        if (!message || typeof message !== "object") continue;
+        const role = typeof message.role === "string" ? message.role : "";
+        if (role === "user") userMessages += 1;
+        else if (role === "assistant") assistantMessages += 1;
+        else if (role === "tool") toolMessages += 1;
+        try {
+          chars += contentToText(message.content).length;
+        } catch {
+          // Per-message accounting must never fail the whole read.
+        }
+      }
+      const transcriptTokens = estimateMessagesTokens(transcript);
+
+      let lastPromptTokens: number | null = null;
+      let lastPromptSource: "provider" | "estimated" | null = null;
+      let lastModel: string | null = null;
+      let lastProvider: string | null = null;
+      let lastTimestamp: number | null = null;
+      try {
+        const { logs } = analytics.list({ sessionId, limit: 20 });
+        const last = logs.find((l) => l.kind === "llm_request" && l.inputTokens != null);
+        if (last) {
+          lastPromptTokens = last.inputTokens;
+          lastPromptSource = last.tokenSource === "provider" ? "provider" : "estimated";
+          lastModel = last.model;
+          lastProvider = last.provider;
+          lastTimestamp = last.timestamp;
+        }
+      } catch {
+        // Analytics lookup failure still leaves the transcript estimate usable.
+      }
+
+      res.json({
+        ok: true,
+        context: {
+          sessionId,
+          live,
+          messageCount: transcript.length,
+          userMessages,
+          assistantMessages,
+          toolMessages,
+          chars,
+          transcriptTokens,
+          lastPromptTokens,
+          lastPromptSource,
+          lastModel,
+          lastProvider,
+          lastTimestamp,
+          usedTokens: lastPromptTokens ?? transcriptTokens,
+          usedSource: lastPromptTokens != null ? (lastPromptSource ?? "estimated") : "transcript",
+        },
+      });
     } catch (error) {
       res.status(500).json({
         ok: false,

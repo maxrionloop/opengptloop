@@ -7,6 +7,7 @@ import {
   Clock,
   Coins,
   Cpu,
+  Gauge,
   Loader2,
   RefreshCw,
   Search,
@@ -17,14 +18,18 @@ import {
 import { useStore } from "@/store/useStore";
 import {
   clearAnalytics,
+  fetchAnalyticsContext,
   fetchAnalyticsLogs,
   fetchAnalyticsProviders,
   fetchAnalyticsStats,
+  type AnalyticsContext,
   type AnalyticsLog,
   type AnalyticsStats,
 } from "@/lib/analytics";
+import { fetchModels } from "@/lib/api";
+import { isCustomProviderId, isLocalProviderId } from "@/lib/providers";
 import { Modal } from "@/components/ui/Modal";
-import { Button, EmptyState, PanelHeader, Select, TextInput, Toggle } from "@/components/ui/primitives";
+import { Button, EmptyState, PanelHeader, Select, TextInput } from "@/components/ui/primitives";
 import { cn } from "@/utils/cn";
 import { timeAgo } from "@/utils/format";
 
@@ -62,18 +67,30 @@ function formatTime(ts: number): string {
  *
  * Shows exactly what the AI agent is doing: which providers/models it uses,
  * how many tokens are consumed, and what errors or performance issues occur.
- * Defaults to the current session's logs; toggle to all sessions. Polls the
- * backend while visible — reading never affects the agent's operation.
+ * Scope can be the current session, one specific chat session (picked from
+ * the session list), or all sessions. Current/specific scopes additionally
+ * show the session's LLM context-window usage. Polls the backend while
+ * visible — reading never affects the agent's operation.
  */
+type Scope = "current" | "specific" | "all";
+
 export function AnalyticsPanel() {
   const currentId = useStore((s) => s.currentId);
-  const [scopeCurrent, setScopeCurrent] = useState(true);
+  const conversations = useStore((s) => s.conversations);
+  const settings = useStore((s) => s.settings);
+  const storeModels = useStore((s) => s.models);
+  const [scope, setScope] = useState<Scope>("current");
+  const [specificId, setSpecificId] = useState<string>("");
   const [stats, setStats] = useState<AnalyticsStats | null>(null);
   const [logs, setLogs] = useState<AnalyticsLog[]>([]);
   const [providers, setProviders] = useState<string[]>([]);
+  const [context, setContext] = useState<AnalyticsContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
+  // Resolved model context-window totals, keyed by `${provider}::${model}`.
+  // `null` = looked up and unknown; absent = not looked up yet.
+  const [windowCache, setWindowCache] = useState<Record<string, number | null>>({});
 
   // Filters / search
   const [provider, setProvider] = useState("");
@@ -84,7 +101,23 @@ export function AnalyticsPanel() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const sessionId = scopeCurrent ? (currentId ?? undefined) : undefined;
+  // All known chat sessions, newest first, for the specific-session picker.
+  const sessionOptions = useMemo(
+    () => [...conversations].sort((a, b) => b.updatedAt - a.updatedAt),
+    [conversations],
+  );
+
+  const sessionId =
+    scope === "current" ? (currentId ?? undefined) : scope === "specific" ? (specificId || undefined) : undefined;
+
+  // When entering specific-session mode with nothing picked yet, start from
+  // the current session (falling back to the newest known session).
+  const enterScope = (next: Scope) => {
+    setScope(next);
+    if (next === "specific") {
+      setSpecificId((prev) => prev || currentId || sessionOptions[0]?.id || "");
+    }
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search.trim()), 400);
@@ -93,7 +126,11 @@ export function AnalyticsPanel() {
 
   const reload = useCallback(async () => {
     try {
-      const [s, list, provs] = await Promise.all([
+      const contextPromise =
+        sessionId != null
+          ? fetchAnalyticsContext(sessionId).catch(() => null)
+          : Promise.resolve(null);
+      const [s, list, provs, ctx] = await Promise.all([
         fetchAnalyticsStats(sessionId, provider || undefined),
         fetchAnalyticsLogs({
           sessionId,
@@ -105,10 +142,12 @@ export function AnalyticsPanel() {
           limit: 100,
         }),
         fetchAnalyticsProviders(sessionId),
+        contextPromise,
       ]);
       setStats(s);
       setLogs(list);
       setProviders(provs);
+      setContext(ctx);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -126,10 +165,56 @@ export function AnalyticsPanel() {
     return () => clearInterval(timer);
   }, [reload]);
 
-  // Reset provider filter when scope changes to avoid stale selections.
+  // Reset provider filter when the scope/session changes to avoid stale selections.
   useEffect(() => {
     setProvider("");
-  }, [scopeCurrent, currentId]);
+  }, [scope, sessionId]);
+
+  // Which model the context-window card refers to: the live settings model for
+  // the current session; the session's last-used model for a specific session
+  // (historical analysis), falling back to the settings model.
+  const targetModel =
+    scope === "specific" ? (context?.lastModel || settings.model) : settings.model || context?.lastModel || "";
+  const targetProvider =
+    scope === "specific" ? (context?.lastProvider || settings.provider) : settings.provider;
+
+  // The model's context-window total: prefer the already-loaded catalog, else
+  // fetch the provider catalog on demand with the stored API key (cached).
+  const storeWindow = useMemo(() => {
+    if (!targetModel) return null;
+    const match =
+      storeModels.find((m) => m.id === targetModel && m.provider === targetProvider) ??
+      storeModels.find((m) => m.id === targetModel);
+    return typeof match?.context_window === "number" ? match.context_window : null;
+  }, [storeModels, targetModel, targetProvider]);
+  const windowKey = targetProvider && targetModel ? `${targetProvider}::${targetModel}` : "";
+  const cachedWindow = windowKey ? windowCache[windowKey] : undefined;
+
+  useEffect(() => {
+    if (!windowKey || storeWindow != null || cachedWindow !== undefined) return;
+    if (isCustomProviderId(targetProvider)) return; // manual models — no catalog to query
+    const key = settings.apiKeys[targetProvider] ?? "";
+    if (!key && !isLocalProviderId(targetProvider)) {
+      setWindowCache((c) => (c[windowKey] === null ? c : { ...c, [windowKey]: null }));
+      return;
+    }
+    let cancelled = false;
+    fetchModels(targetProvider, key, settings.baseUrl || undefined)
+      .then((list) => {
+        if (cancelled) return;
+        const found = list.find((m) => m.id === targetModel)?.context_window ?? null;
+        setWindowCache((c) => ({ ...c, [windowKey]: found }));
+      })
+      .catch(() => {
+        if (!cancelled) setWindowCache((c) => ({ ...c, [windowKey]: null }));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [windowKey, storeWindow, cachedWindow, targetProvider, targetModel, settings.apiKeys, settings.baseUrl]);
+
+  const contextWindow = storeWindow ?? cachedWindow ?? null;
+  const windowLoading = Boolean(windowKey) && storeWindow == null && cachedWindow === undefined && !isCustomProviderId(targetProvider);
 
   const selected = useMemo(
     () => logs.find((l) => l.id === selectedId) ?? null,
@@ -143,7 +228,12 @@ export function AnalyticsPanel() {
 
   const handleClear = async () => {
     if (clearing) return;
-    const label = scopeCurrent && currentId ? "this session's" : "all";
+    const label =
+      scope === "current" && currentId
+        ? "this session's"
+        : scope === "specific" && sessionId
+          ? "the selected session's"
+          : "all";
     if (!window.confirm(`Clear ${label} analytics logs? This never touches agent chats, settings, or tools.`)) {
       return;
     }
@@ -175,23 +265,63 @@ export function AnalyticsPanel() {
 
       <p className="mb-4 text-sm leading-relaxed text-[var(--muted)]">
         Exactly what the agent is doing — providers, models, tokens, latency, and errors.
-        {scopeCurrent && currentId ? (
+        {scope === "current" && currentId ? (
           <>
-            {" "}Showing the <span className="font-medium text-[var(--fg)]">current session</span> logs.
+            {" "}Showing the <span className="font-medium text-[var(--fg)]">current session</span> logs
+            and context window.
           </>
+        ) : scope === "specific" && sessionId ? (
+          <>
+            {" "}Showing logs and context window for{" "}
+            <span className="font-medium text-[var(--fg)]">
+              {sessionOptions.find((c) => c.id === sessionId)?.title || "the selected session"}
+            </span>
+            .
+          </>
+        ) : scope === "specific" ? (
+          <> Pick a chat session below to inspect its logs and context window.</>
         ) : (
           <> Showing logs across <span className="font-medium text-[var(--fg)]">all sessions</span>.</>
         )}
       </p>
 
-      {/* Scope toggle */}
-      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--chip)] px-3 py-2.5">
-        <Toggle checked={scopeCurrent} onChange={setScopeCurrent} label="Current session only" />
-        <span className="text-xs font-medium text-[var(--fg)]">
-          {scopeCurrent ? "Current session only" : "All sessions"}
-        </span>
-        {scopeCurrent && currentId && (
+      {/* Scope picker: current session, one specific session, or all sessions */}
+      <div className="mb-4 flex flex-wrap items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--chip)] px-3 py-2.5">
+        <div className="flex gap-1 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg)] p-1" role="group" aria-label="Analytics scope">
+          {(["current", "specific", "all"] as Scope[]).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => enterScope(s)}
+              aria-pressed={scope === s}
+              className={cn(
+                "rounded-[var(--radius-sm)] px-3 py-1.5 text-xs font-medium transition-colors",
+                scope === s
+                  ? "bg-[var(--secondary)] text-[var(--secondary-fg)]"
+                  : "text-[var(--muted)] hover:text-[var(--fg)]",
+              )}
+            >
+              {s === "current" ? "Current session" : s === "specific" ? "Specific session" : "All sessions"}
+            </button>
+          ))}
+        </div>
+        {scope === "current" && currentId && (
           <span className="truncate font-mono text-[10px] text-[var(--subtle)]">{currentId}</span>
+        )}
+        {scope === "specific" && (
+          <Select
+            value={specificId}
+            onChange={(e) => setSpecificId(e.target.value)}
+            className="min-w-0 flex-1"
+            aria-label="Pick a chat session"
+          >
+            <option value="">Pick a chat session…</option>
+            {sessionOptions.map((c) => (
+              <option key={c.id} value={c.id}>
+                {(c.title || "Untitled").slice(0, 60)}{c.id === currentId ? " (current)" : ""}
+              </option>
+            ))}
+          </Select>
         )}
       </div>
 
@@ -208,6 +338,18 @@ export function AnalyticsPanel() {
             <StatCard icon={<Clock className="h-4 w-4" />} label="Avg latency" value={formatLatency(stats.avgLatencyMs)} sub={stats.minLatencyMs != null ? `min ${formatLatency(stats.minLatencyMs)} · max ${formatLatency(stats.maxLatencyMs)}` : "—"} />
             <StatCard icon={<Coins className="h-4 w-4" />} label="Cost" value={formatCost(stats.totalCostUsd, stats.hasCost)} sub={stats.hasCost ? "provider-reported" : "no provider reported cost"} />
           </div>
+
+          {/* LLM context window for the current / specific session */}
+          {sessionId && (
+            <ContextWindowCard
+              context={context}
+              loading={loading && context == null}
+              model={targetModel}
+              provider={targetProvider}
+              windowTotal={contextWindow}
+              windowLoading={windowLoading}
+            />
+          )}
 
           {/* Success vs failed + token source */}
           <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -358,7 +500,7 @@ export function AnalyticsPanel() {
         </p>
         {logs.length === 0 ? (
           <EmptyState icon={<BarChart3 className="h-8 w-8" />}>
-            No AI requests logged yet{scopeCurrent ? " in this session" : ""}. Send a chat message and
+            No AI requests logged yet{sessionId ? " in this session" : ""}. Send a chat message and
             usage, latency, and errors will appear here automatically.
           </EmptyState>
         ) : (
@@ -422,6 +564,117 @@ function StatCard({ icon, label, value, sub }: { icon: React.ReactNode; label: s
       </p>
       <p className="m-0 text-2xl font-semibold tabular-nums text-[var(--fg)]">{value}</p>
       <p className="m-0 mt-0.5 truncate text-[11px] text-[var(--subtle)]" title={sub}>{sub}</p>
+    </div>
+  );
+}
+
+/**
+ * LLM context-window card: how much of the model's context window the
+ * session's conversation currently occupies.
+ *
+ * - `used` is the last logged prompt size for the session (the provider's
+ *   ACTUAL input count when it reported usage, else the built-in estimate —
+ *   both include system prompt + tools), falling back to the transcript
+ *   estimate when no call was logged yet.
+ * - `windowTotal` is the model's advertised context window; when the catalog
+ *   has no entry for the model the card still shows usage with an "unknown
+ *   window" note instead of failing.
+ */
+function ContextWindowCard({
+  context,
+  loading,
+  model,
+  provider,
+  windowTotal,
+  windowLoading,
+}: {
+  context: AnalyticsContext | null;
+  loading: boolean;
+  model: string;
+  provider: string;
+  windowTotal: number | null;
+  windowLoading: boolean;
+}) {
+  return (
+    <div className="mt-3 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg)] p-4" style={{ boxShadow: "var(--shadow-chip)" }}>
+      <p className="m-0 mb-2 flex flex-wrap items-center gap-1.5 text-xs font-medium text-[var(--muted)]">
+        <Gauge className="h-3.5 w-3.5" /> LLM context window
+        {model && (
+          <span className="truncate font-mono font-normal normal-case tracking-normal text-[var(--subtle)]" title={`${provider} · ${model}`}>
+            {model} · {provider}
+          </span>
+        )}
+        {context?.live && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-600">
+            live transcript
+          </span>
+        )}
+      </p>
+
+      {loading && !context ? (
+        <div className="flex items-center gap-2 py-2 text-sm text-[var(--muted)]">
+          <Loader2 className="h-4 w-4 animate-spin" /> Measuring context…
+        </div>
+      ) : !context || (context.messageCount === 0 && context.usedTokens === 0) ? (
+        <p className="m-0 text-xs text-[var(--muted)]">
+          No conversation context yet — send a message and the used window appears here.
+        </p>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            <p className="m-0 text-2xl font-semibold tabular-nums text-[var(--fg)]">
+              {formatTokens(context.usedTokens)}
+            </p>
+            <p className="m-0 text-sm tabular-nums text-[var(--muted)]">
+              {windowTotal != null ? `/ ${formatTokens(windowTotal)} tokens` : "tokens used"}
+            </p>
+            {windowTotal != null && (
+              <p className="m-0 ml-auto text-sm font-medium tabular-nums text-[var(--fg)]">
+                {Math.min(100, Math.round((context.usedTokens / windowTotal) * 100))}% used
+              </p>
+            )}
+          </div>
+
+          {windowTotal != null ? (
+            <>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--chip)]">
+                <div
+                  className={cn(
+                    "h-full rounded-full",
+                    context.usedTokens / windowTotal >= 0.9
+                      ? "bg-red-500"
+                      : context.usedTokens / windowTotal >= 0.7
+                        ? "bg-amber-500"
+                        : "bg-emerald-500",
+                  )}
+                  style={{ width: `${Math.min(100, (context.usedTokens / windowTotal) * 100)}%` }}
+                />
+              </div>
+              <p className="m-0 mt-1.5 text-[11px] tabular-nums text-[var(--subtle)]">
+                {formatTokens(Math.max(0, windowTotal - context.usedTokens))} remaining
+              </p>
+            </>
+          ) : (
+            <p className="m-0 mt-1.5 text-[11px] leading-relaxed text-[var(--subtle)]">
+              {windowLoading
+                ? "Looking up this model's context window…"
+                : "Context-window size unknown for this model — usage above is still accurate."}
+            </p>
+          )}
+
+          <p className="m-0 mt-2 text-[11px] leading-relaxed text-[var(--muted)]">
+            {context.messageCount} message{context.messageCount === 1 ? "" : "s"}
+            {` (${context.userMessages} user · ${context.assistantMessages} assistant · ${context.toolMessages} tool)`}
+            {" · "}
+            {context.usedSource === "provider"
+              ? "last prompt: provider-counted actual"
+              : context.usedSource === "estimated"
+                ? "last prompt: built-in estimate (provider sent no usage)"
+                : "transcript estimate (no calls logged yet)"}
+            {context.live ? " · measured live" : " · from saved transcript"}
+          </p>
+        </>
+      )}
     </div>
   );
 }
