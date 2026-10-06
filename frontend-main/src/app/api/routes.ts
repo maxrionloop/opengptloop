@@ -482,6 +482,36 @@ export const API_ROUTES = {
     path: "/api/channels/:id/chats/:userKey/new-chat",
     description: "Start a fresh chat for an external user.",
   },
+  analyticsStats: {
+    name: "analytics.stats",
+    method: "GET",
+    path: "/api/analytics/stats",
+    description: "Aggregate AI usage stats (tokens, success/error, latency, cost, breakdowns).",
+  },
+  analyticsLogs: {
+    name: "analytics.logs",
+    method: "GET",
+    path: "/api/analytics/logs",
+    description: "Paginated AI usage + agent activity logs with filters and search.",
+  },
+  analyticsLogGet: {
+    name: "analytics.log.get",
+    method: "GET",
+    path: "/api/analytics/logs/:id",
+    description: "Load one analytics log with full metadata.",
+  },
+  analyticsProviders: {
+    name: "analytics.providers",
+    method: "GET",
+    path: "/api/analytics/providers",
+    description: "Distinct providers present in the analytics logs (for filter dropdowns).",
+  },
+  analyticsClear: {
+    name: "analytics.clear",
+    method: "DELETE",
+    path: "/api/analytics",
+    description: "Clear analytics logs (analytics-only; never touches agent data).",
+  },
 } as const satisfies Record<string, ApiRoute>;
 
 export type ApiRouteName = keyof typeof API_ROUTES;

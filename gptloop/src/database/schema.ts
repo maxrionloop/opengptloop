@@ -212,6 +212,44 @@ CREATE TABLE IF NOT EXISTS channel_messages (
   created_at INTEGER NOT NULL,
   PRIMARY KEY (chat_id, seq)
 ) WITHOUT ROWID;
+
+-- Centralized AI usage + agent activity analytics. One row per LLM call made by
+-- ANY agent surface (main, chat, sub-agent, team, CEO, memory, channel, schedule)
+-- through ANY provider, plus generic agent events (retries, fallbacks, errors).
+-- Reads are indexed point lookups / bounded timestamp-ordered scans, so the
+-- dashboard stays fast regardless of table size. Oldest rows are pruned beyond
+-- a cap so the table never grows unbounded.
+CREATE TABLE IF NOT EXISTS analytics_logs (
+  id              TEXT PRIMARY KEY,            -- 12-char alphanumeric log id
+  session_id      TEXT NOT NULL,               -- chat/session id this call belongs to
+  timestamp       INTEGER NOT NULL,            -- epoch ms when the request started
+  kind            TEXT NOT NULL DEFAULT 'llm_request', -- llm_request | agent_event
+  provider        TEXT NOT NULL DEFAULT '',
+  provider_label  TEXT,
+  model           TEXT NOT NULL DEFAULT '',
+  agent_type      TEXT NOT NULL DEFAULT 'main',
+  request_id      TEXT,                        -- provider request/response id when supplied
+  input_tokens    INTEGER,
+  output_tokens   INTEGER,
+  total_tokens    INTEGER,
+  token_source    TEXT NOT NULL DEFAULT 'none', -- provider | estimated | none
+  latency_ms      INTEGER,
+  status          TEXT NOT NULL DEFAULT 'success', -- success | error
+  error_code      TEXT,
+  error_message   TEXT,
+  cost_usd        REAL,                        -- provider-reported cost when supplied
+  prompt_chars    INTEGER,
+  completion_chars INTEGER,
+  tool_calls      INTEGER,
+  tool_names      TEXT,                        -- JSON array of tool names used
+  message         TEXT,
+  metadata        TEXT                         -- JSON blob with extra provider/model metadata
+) WITHOUT ROWID;
+
+CREATE INDEX IF NOT EXISTS idx_analytics_session_time ON analytics_logs (session_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_analytics_time ON analytics_logs (timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_analytics_provider ON analytics_logs (provider, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_analytics_status ON analytics_logs (status, timestamp DESC);
 `;
 
 /** Create all tables/indexes (idempotent) and stamp the schema version. */

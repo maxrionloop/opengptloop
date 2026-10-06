@@ -23,6 +23,7 @@ import { createSubAgentSessionId, isSafeSessionId } from "../database/ids.js";
 import { subAgentSessionStore, type SubAgentSessionStatus } from "./subAgentSessionStore.js";
 import type { OpenAIToolSchema } from "./tools/registry.js";
 import { SUB_AGENT_RESTRICTED_TOOLS } from "./tools/subAgentRestrictedTools.js";
+import { streamWithAnalytics } from "../services/analytics.js";
 import type { ConnectorRuntime } from "./connectors/runtime.js";
 import type { McpRuntime } from "./mcp/runtime.js";
 
@@ -924,16 +925,26 @@ class SubAgentRunner {
         let toolCalls: ToolCall[] = [];
 
         try {
-          const stream = provider.streamChatCompletion({
-            apiKey: this.deps.apiKey,
-            model: this.deps.model,
-            messages: buildProviderMessages(systemPrompt, history),
-            tools: toolSchemas,
-            baseUrl: this.deps.baseUrl,
-            temperature: this.deps.temperature,
-            effort: this.deps.effort,
-            signal,
-          });
+          const stream = streamWithAnalytics(
+            provider,
+            {
+              apiKey: this.deps.apiKey,
+              model: this.deps.model,
+              messages: buildProviderMessages(systemPrompt, history),
+              tools: toolSchemas,
+              baseUrl: this.deps.baseUrl,
+              temperature: this.deps.temperature,
+              effort: this.deps.effort,
+              signal,
+            },
+            {
+              sessionId: this.deps.chatId,
+              agentType: "subagent",
+              provider: provider.metadata.id,
+              providerLabel: provider.metadata.label,
+              model: this.deps.model,
+            },
+          );
 
           for await (const delta of stream) {
             if (delta.reasoning) {

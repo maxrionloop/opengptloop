@@ -8,6 +8,7 @@ import { buildMemoryAgentSystemPrompt } from "./systemprompt.js";
 import { buildMemoryAgentUserMessage } from "./context.js";
 import { MEMORY_AGENT_TOOLS, type MemoryAgentBuildRequest } from "./types.js";
 import type { MemoryFile } from "../tools/types.js";
+import { streamWithAnalytics, analytics } from "../../services/analytics.js";
 
 /** The outcome of a completed memory-agent run. */
 export interface MemoryAgentRunOutcome {
@@ -86,21 +87,45 @@ export async function runMemoryAgent(params: RunMemoryAgentParams): Promise<Memo
     let finishReason: string | null = null;
 
     try {
+      const attemptTracker = { attempts: 0 };
       await streamWithRetry(async () => {
         answerParts.length = 0;
         reasoningParts.length = 0;
         toolCalls = [];
         finishReason = null;
+        attemptTracker.attempts += 1;
+        // Retry attempts after the first are logged as agent events so the
+        // dashboard surfaces retries/fallbacks explicitly.
+        if (attemptTracker.attempts > 1) {
+          analytics.recordEvent({
+            sessionId: request.chatId,
+            provider: provider.metadata.id,
+            model: request.model,
+            agentType: "memory",
+            message: `Retrying memory-agent provider call (attempt ${attemptTracker.attempts}/${PROVIDER_MAX_ATTEMPTS}).`,
+            metadata: { attempt: attemptTracker.attempts, maxAttempts: PROVIDER_MAX_ATTEMPTS },
+          });
+        }
 
-        const stream = provider.streamChatCompletion({
-          apiKey: request.apiKey,
-          model: request.model,
-          messages: buildProviderMessages(systemPrompt, messages),
-          tools: toolSchemas,
-          baseUrl: request.baseUrl,
-          temperature: request.temperature,
-          effort: request.effort,
-        });
+        const stream = streamWithAnalytics(
+          provider,
+          {
+            apiKey: request.apiKey,
+            model: request.model,
+            messages: buildProviderMessages(systemPrompt, messages),
+            tools: toolSchemas,
+            baseUrl: request.baseUrl,
+            temperature: request.temperature,
+            effort: request.effort,
+          },
+          {
+            sessionId: request.chatId,
+            agentType: "memory",
+            provider: provider.metadata.id,
+            providerLabel: provider.metadata.label,
+            model: request.model,
+          },
+        );
 
         for await (const delta of stream) {
           if (delta.reasoning) {

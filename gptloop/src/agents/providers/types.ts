@@ -4,6 +4,25 @@ export interface StreamDelta {
   reasoning?: string;
   toolCalls?: ToolCallDelta[];
   finishReason?: string | null;
+  /**
+   * Provider-reported token usage carried by this chunk (when the provider
+   * supplies it). Analytics uses it verbatim and marks the log
+   * `tokenSource: "provider"` — it is NEVER estimated over.
+   */
+  usage?: ProviderUsage | null;
+  /** Provider request/response id for this stream when supplied. */
+  requestId?: string | null;
+}
+
+/** Normalized token usage + cost as reported by the provider/API. */
+export interface ProviderUsage {
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  totalTokens?: number | null;
+  /** Provider-reported cost in USD when the API supplies it. */
+  cost?: number | null;
+  /** Provider request/response id when carried inside the usage payload. */
+  requestId?: string | null;
 }
 
 /** Incremental tool-call fragment as emitted by OpenAI-style streaming. */

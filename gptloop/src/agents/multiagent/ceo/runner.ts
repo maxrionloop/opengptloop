@@ -67,5 +67,8 @@ export async function runCeoAgent(args: RunCeoAgentArgs): Promise<TeamAgentRunRe
     mcp: args.mcp,
     send: args.send,
     signal: args.signal,
+    chatId: args.toolCtx.chatId,
+    providerId: args.provider.metadata.id,
+    agentType: "ceo",
   });
 }

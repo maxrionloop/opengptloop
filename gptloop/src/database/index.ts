@@ -14,6 +14,7 @@ import { SchedulesRepo } from "./repositories/schedulesRepo.js";
 import { ScheduleRunsRepo } from "./repositories/scheduleRunsRepo.js";
 import { ChannelChatsRepo } from "./repositories/channelChatsRepo.js";
 import { ChannelMessagesRepo } from "./repositories/channelMessagesRepo.js";
+import { AnalyticsRepo } from "./repositories/analyticsRepo.js";
 
 export {
   createChatSessionId,
@@ -64,6 +65,7 @@ export class GptLoopDatabase {
   readonly scheduleRuns: ScheduleRunsRepo;
   readonly channelChats: ChannelChatsRepo;
   readonly channelMessages: ChannelMessagesRepo;
+  readonly analytics: AnalyticsRepo;
   readonly queue: DatabaseWriteQueue;
 
   private readonly maintenance: DatabaseMaintenance;
@@ -84,6 +86,7 @@ export class GptLoopDatabase {
     this.scheduleRuns = new ScheduleRunsRepo(db);
     this.channelChats = new ChannelChatsRepo(db);
     this.channelMessages = new ChannelMessagesRepo(db);
+    this.analytics = new AnalyticsRepo(db);
     this.queue = new DatabaseWriteQueue(db);
     this.maintenance = new DatabaseMaintenance(db);
   }

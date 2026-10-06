@@ -81,6 +81,7 @@ import {
 /** The workspace sections the rail switches between. */
 export type Section =
   | "chat"
+  | "analytics"
   | "memory"
   | "knowledge"
   | "agents"

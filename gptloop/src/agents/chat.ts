@@ -15,6 +15,7 @@ import type {
   MemoryRuntime,
 } from "./tools/types.js";
 import type { MemoryAgentService } from "./memoryagent/index.js";
+import { streamWithAnalytics } from "../services/analytics.js";
 
 /**
  * Chat mode — a lightweight "talk to the LLM" mode.
@@ -250,16 +251,26 @@ export class ChatRunner {
         let finishReason: string | null = null;
 
         try {
-          const stream = provider.streamChatCompletion({
-            apiKey: request.apiKey,
-            model: request.model,
-            messages: buildProviderMessages(systemPrompt, session.messages),
-            tools: toolSchemas,
-            baseUrl: request.baseUrl,
-            temperature: request.temperature,
-            effort: request.effort,
-            signal,
-          });
+          const stream = streamWithAnalytics(
+            provider,
+            {
+              apiKey: request.apiKey,
+              model: request.model,
+              messages: buildProviderMessages(systemPrompt, session.messages),
+              tools: toolSchemas,
+              baseUrl: request.baseUrl,
+              temperature: request.temperature,
+              effort: request.effort,
+              signal,
+            },
+            {
+              sessionId: request.chatId,
+              agentType: "chat",
+              provider: request.provider || provider.metadata.id,
+              providerLabel: provider.metadata.label,
+              model: request.model,
+            },
+          );
 
           for await (const delta of stream) {
             if (delta.reasoning) {

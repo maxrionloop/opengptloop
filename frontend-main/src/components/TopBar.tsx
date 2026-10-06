@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Settings, Paperclip, Brain, History, Boxes, Crown, MoreVertical, GitBranch, Copy, Pencil, MessageCircle, Search } from "lucide-react";
+import { Plus, Settings, Paperclip, Brain, History, Boxes, Crown, MoreVertical, GitBranch, Copy, Pencil, MessageCircle, Search, BarChart3 } from "lucide-react";
 import { useStore, type Section } from "@/store/useStore";
 import { DEFAULT_PROFILE_ID } from "@/lib/userProfiles";
 import { cn } from "@/utils/cn";
@@ -41,6 +41,8 @@ function contextLabel(section: Section, counts: Record<string, number>): string 
       return `${counts.channels} channel${counts.channels === 1 ? "" : "s"}`;
     case "profiles":
       return `${counts.profiles} profile${counts.profiles === 1 ? "" : "s"}`;
+    case "analytics":
+      return "Usage & logs";
     default:
       return null;
   }
@@ -178,6 +180,21 @@ export function TopBar() {
         <TopIcon title="Search everything (Ctrl+K)" onClick={() => useStore.getState().setSearchOpen(true)}>
           <Search className="h-[18px] w-[18px]" strokeWidth={1.7} />
         </TopIcon>
+        <button
+          type="button"
+          onClick={() => setSection("analytics")}
+          title="Analytics — AI usage, tokens, logs (read-only)"
+          aria-label="Analytics"
+          className={cn(
+            "inline-flex h-11 items-center gap-1.5 rounded-full px-4 text-xs font-medium tracking-[0.02em] transition-colors active:scale-[0.98]",
+            section === "analytics"
+              ? "bg-[var(--secondary)] text-[var(--secondary-fg)]"
+              : "bg-[var(--chip)] text-[var(--muted)] hover:bg-[var(--chip-hover)] hover:text-[var(--fg)]",
+          )}
+        >
+          <BarChart3 className="h-4 w-4" strokeWidth={1.9} />
+          Analytics
+        </button>
         <TopIcon
           title="Memory agent"
           onClick={() => setMemoryAgentOpen(true)}

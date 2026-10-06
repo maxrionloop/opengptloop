@@ -92,6 +92,12 @@ export class OpenAICompatibleProvider implements Provider {
       ...(hasTools ? { tools: options.tools, tool_choice: "auto", parallel_tool_calls: false } : {}),
       temperature: options.temperature ?? 0.2,
       stream: true,
+      // Ask providers to include token usage in the final stream chunk when they
+      // support it (OpenAI, OpenRouter, Groq, Together-style gateways, ...).
+      // Providers that don't understand it ignore it; strict local servers use
+      // their own body builder without this field. Analytics uses the reported
+      // usage verbatim and only estimates when nothing arrives.
+      stream_options: { include_usage: true },
     };
     return applyReasoningEffort(body, options.effort);
   }
@@ -163,15 +169,98 @@ export class OpenAICompatibleProvider implements Provider {
     const text = extractText(delta.content);
     const reasoning = extractText(delta.reasoning ?? delta.reasoning_content ?? delta.reason ?? "");
     const toolCalls = (delta.tool_calls as StreamDelta["toolCalls"]) ?? undefined;
+    // Provider-reported usage (final chunk when `stream_options.include_usage`
+    // is honored). Covers OpenAI/OpenRouter/Groq-style `usage.prompt_tokens`,
+    // Anthropic-style `input_tokens`, and gateway `cost` fields. Null when the
+    // provider reports nothing — analytics then uses the built-in estimator.
+    const usage = extractUsage(event);
+    const requestId = extractRequestId(event);
 
-    if (!text && !reasoning && !toolCalls && !finishReason) return null;
+    if (!text && !reasoning && !toolCalls && !finishReason && !usage && !requestId) return null;
     return {
       text: text || undefined,
       reasoning: reasoning || undefined,
       toolCalls,
       finishReason,
+      usage: usage ?? undefined,
+      requestId: requestId ?? undefined,
     };
   }
+}
+
+/**
+ * Normalize provider-reported usage from the many shapes gateways use.
+ * Returns null when the event carries no usable counts or cost.
+ */
+export function extractUsage(event: Record<string, unknown>): import("./types.js").ProviderUsage | null {
+  const raw = event.usage;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    // Some providers nest usage one level deeper (e.g. `{ data: { usage } }`).
+    const nested = (event.data as Record<string, unknown> | undefined)?.usage;
+    if (!nested || typeof nested !== "object" || Array.isArray(nested)) return null;
+    return normalizeUsageObject(nested as Record<string, unknown>, event);
+  }
+  return normalizeUsageObject(raw as Record<string, unknown>, event);
+}
+
+function normalizeUsageObject(
+  u: Record<string, unknown>,
+  event: Record<string, unknown>,
+): import("./types.js").ProviderUsage | null {
+  const num = (v: unknown): number | null => {
+    if (typeof v === "number" && Number.isFinite(v) && v >= 0) return Math.floor(v);
+    if (typeof v === "string" && v.trim() !== "") {
+      const n = Number(v);
+      if (Number.isFinite(n) && n >= 0) return Math.floor(n);
+    }
+    return null;
+  };
+  const promptTokens =
+    num(u.prompt_tokens ?? u.input_tokens ?? u.promptTokens ?? u.inputTokens ?? u.prompt);
+  const completionTokens =
+    num(u.completion_tokens ?? u.output_tokens ?? u.completionTokens ?? u.outputTokens ?? u.completion);
+  const totalTokens =
+    num(u.total_tokens ?? u.totalTokens ?? u.total) ??
+    (promptTokens != null || completionTokens != null ? (promptTokens ?? 0) + (completionTokens ?? 0) : null);
+  // Cost is fractional USD (e.g. 0.00042) — read as a float, never floored.
+  const cost = (() => {
+    const rawCost = u.cost ?? u.total_cost ?? u.price ?? u.total_price;
+    if (typeof rawCost === "number" && Number.isFinite(rawCost) && rawCost >= 0) return rawCost;
+    if (typeof rawCost === "string" && rawCost.trim() !== "") {
+      const n = Number(rawCost);
+      if (Number.isFinite(n) && n >= 0) return n;
+    }
+    return null;
+  })();
+  const requestId =
+    typeof u.request_id === "string" && u.request_id.length > 0
+      ? u.request_id
+      : typeof u.id === "string" && u.id.length > 0
+        ? u.id
+        : typeof event.id === "string" && event.id.length > 0
+          ? event.id
+          : null;
+  if (promptTokens == null && completionTokens == null && totalTokens == null && cost == null) {
+    return requestId ? { requestId } : null;
+  }
+  return {
+    promptTokens,
+    completionTokens,
+    totalTokens,
+    cost,
+    requestId,
+  };
+}
+
+/** Pull the provider request/response id from common SSE envelope fields. */
+export function extractRequestId(event: Record<string, unknown>): string | null {
+  const id = event.id;
+  if (typeof id === "string" && id.trim().length > 0) return id.trim().slice(0, 200);
+  const responseId = event.response_id ?? event.responseId ?? event.request_id ?? event.requestId;
+  if (typeof responseId === "string" && responseId.trim().length > 0) {
+    return responseId.trim().slice(0, 200);
+  }
+  return null;
 }
 
 function extractText(value: unknown): string {

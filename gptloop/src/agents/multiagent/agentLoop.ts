@@ -18,6 +18,7 @@ import {
   EV_AGENT_TOOL_RESULT,
   type TeamAgentRunResult,
 } from "./types.js";
+import { streamWithAnalytics } from "../../services/analytics.js";
 
 /**
  * Parameters for one team agent's streaming Thought -> Action -> Observation loop. `messages` is
@@ -54,6 +55,12 @@ export interface TeamAgentLoopParams {
   /** Emit an SSE event already stamped with this agent's id/role. */
   send: (event: string, data: Record<string, unknown>) => void;
   signal?: AbortSignal;
+  /** Chat/session id for analytics attribution (falls back to toolCtx.chatId). */
+  chatId?: string;
+  /** Provider id for analytics (falls back to provider.metadata.id). */
+  providerId?: string;
+  /** Agent surface label for analytics (team head/member default, ceo for CEO). */
+  agentType?: "team" | "ceo";
 }
 
 /**
@@ -80,16 +87,26 @@ export async function runTeamAgentLoop(params: TeamAgentLoopParams): Promise<Tea
       let finishReason: string | null = null;
 
       try {
-        const stream = provider.streamChatCompletion({
-          apiKey: params.apiKey,
-          model: params.model,
-          messages: buildProviderMessages(params.systemPrompt, messages),
-          tools: toolSchemas,
-          baseUrl: params.baseUrl,
-          temperature: params.temperature,
-          effort: params.effort,
-          signal,
-        });
+        const stream = streamWithAnalytics(
+          provider,
+          {
+            apiKey: params.apiKey,
+            model: params.model,
+            messages: buildProviderMessages(params.systemPrompt, messages),
+            tools: toolSchemas,
+            baseUrl: params.baseUrl,
+            temperature: params.temperature,
+            effort: params.effort,
+            signal,
+          },
+          {
+            sessionId: params.chatId ?? toolCtx.chatId ?? "unknown",
+            agentType: params.agentType ?? "team",
+            provider: params.providerId || provider.metadata.id,
+            providerLabel: provider.metadata.label,
+            model: params.model,
+          },
+        );
 
         for await (const delta of stream) {
           if (delta.reasoning) {

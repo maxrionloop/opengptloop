@@ -25,6 +25,8 @@ import { buildMainAgentPromptsRouter } from "./api/mainagentprompts.js";
 import { buildPromptLibraryRouter } from "./api/promptlibrary.js";
 import { buildSchedulesRouter } from "./api/schedules.js";
 import { buildChannelsRouter } from "./api/channels.js";
+import { buildAnalyticsRouter } from "./api/analytics.js";
+import { analytics } from "./services/analytics.js";
 import { ScheduleStore } from "./cron/store.js";
 import { ScheduleRunner } from "./cron/runner.js";
 import { ScheduleScheduler } from "./cron/scheduler.js";
@@ -45,6 +47,12 @@ function main(): void {
 
   // The SQLite database (workspace/.gptloop/gptloop.db) is created automatically on boot.
   const db = GptLoopDatabase.open(config.workspaceRoot);
+
+  // Centralized analytics: every provider/model call from every agent surface
+  // is recorded through the shared analytics store (SQLite-backed, read-only
+  // for the dashboard). Attaching here keeps all logging in one structure and
+  // never affects agent execution.
+  analytics.attachDatabase(db);
 
   const providers = createProviderRegistry();
   const tools = createToolRegistry();
@@ -219,6 +227,7 @@ function main(): void {
   app.use("/api/mcp", buildMcpRouter(mcp));
   app.use("/api/schedules", buildSchedulesRouter(scheduleStore, scheduler, db, customAgents));
   app.use("/api/channels", buildChannelsRouter(channels, customAgents));
+  app.use("/api/analytics", buildAnalyticsRouter(db));
 
   const server = app.listen(config.port, () => {
     // eslint-disable-next-line no-console

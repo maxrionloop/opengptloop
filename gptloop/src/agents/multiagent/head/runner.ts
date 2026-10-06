@@ -71,5 +71,8 @@ export async function runHeadAgent(args: RunHeadAgentArgs): Promise<TeamAgentRun
     mcp: args.mcp,
     send: args.send,
     signal: args.signal,
+    chatId: args.toolCtx.chatId,
+    providerId: args.provider.metadata.id,
+    agentType: "team",
   });
 }

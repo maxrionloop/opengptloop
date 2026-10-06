@@ -17,6 +17,7 @@ import type { ChatSession, StoredMessage } from "../services/sessionStore.js";
 import type { SessionEventBuffer } from "../services/eventBuffer.js";
 import type { PlanApprovalStore } from "../services/planApprovalStore.js";
 import type { QuestionStore } from "../services/questionStore.js";
+import { streamWithAnalytics } from "../services/analytics.js";
 import { safeJsonParse } from "../utils/json.js";
 import { createSubAgentRuntime } from "./subagents.js";
 import { createSkillRuntime } from "./skills.js";
@@ -494,16 +495,35 @@ export class AgentRunner {
         let finishReason: string | null = null;
 
         try {
-          const stream = provider.streamChatCompletion({
-            apiKey: request.apiKey,
-            model: request.model,
-            messages: this.buildProviderMessages(systemPrompt, session.messages),
-            tools: toolSchemas,
-            baseUrl: request.baseUrl,
-            temperature: request.temperature,
-            effort: request.effort,
-            signal,
-          });
+          // Centralized analytics: every provider/model flows through the same
+          // tracked wrapper (usage, latency, errors, token fallback). The
+          // streamed deltas are forwarded unchanged — agent behavior is identical.
+          const stream = streamWithAnalytics(
+            provider,
+            {
+              apiKey: request.apiKey,
+              model: request.model,
+              messages: this.buildProviderMessages(systemPrompt, session.messages),
+              tools: toolSchemas,
+              baseUrl: request.baseUrl,
+              temperature: request.temperature,
+              effort: request.effort,
+              signal,
+            },
+            {
+              sessionId: request.chatId,
+              agentType: request.customAgent
+                ? "custom"
+                : request.channel
+                  ? "channel"
+                  : request.chatId.startsWith("sched_")
+                    ? "schedule"
+                    : "main",
+              provider: request.provider || provider.metadata.id,
+              providerLabel: provider.metadata.label,
+              model: request.model,
+            },
+          );
 
           for await (const delta of stream) {
             if (delta.reasoning) {

@@ -19,6 +19,7 @@ import { ConnectorsPanel } from "@/components/panels/ConnectorsPanel";
 import { McpPanel } from "@/components/panels/McpPanel";
 import { ChannelsPanel } from "@/components/panels/ChannelsPanel";
 import { ProfilesPanel } from "@/components/panels/ProfilesPanel";
+import { AnalyticsPanel } from "@/components/panels/AnalyticsPanel";
 import { SettingsModal } from "@/components/editors/SettingsModal";
 import { FilesPanel } from "@/components/overlays/FilesPanel";
 import { PreviewPanel } from "@/components/overlays/PreviewPanel";
@@ -174,6 +175,7 @@ export function App() {
               {section === "mcp" && <McpPanel />}
               {section === "channels" && <ChannelsPanel />}
               {section === "profiles" && <ProfilesPanel />}
+              {section === "analytics" && <AnalyticsPanel />}
             </div>
           )}
         </main>

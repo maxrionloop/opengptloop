@@ -120,13 +120,30 @@ function deltaFromEvent(event: Record<string, unknown>): StreamDelta {
   const toolCalls = openAiStyleToolCalls(message.tool_calls);
   const done = event.done === true;
   const finishReason = done ? ((event.done_reason as string) ?? "stop") : null;
+  // Ollama reports counts on the final frame (`prompt_eval_count` /
+  // `eval_count`); surface them as provider usage so analytics never estimates
+  // over real counts. Absent on non-final frames → null → estimated fallback.
+  const usage = extractOllamaUsage(event);
 
   return {
     text: text || undefined,
     reasoning: reasoning || undefined,
     toolCalls,
     finishReason,
+    usage: usage ?? undefined,
   };
+}
+
+/** Normalize Ollama's final-frame counters into provider usage. Null when absent. */
+function extractOllamaUsage(event: Record<string, unknown>): StreamDelta["usage"] {
+  const num = (v: unknown): number | null =>
+    typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.floor(v) : null;
+  const prompt = num(event.prompt_eval_count ?? event.prompt_tokens);
+  const completion = num(event.eval_count ?? event.completion_tokens);
+  const total =
+    num(event.total_tokens) ?? (prompt != null || completion != null ? (prompt ?? 0) + (completion ?? 0) : null);
+  if (prompt == null && completion == null && total == null) return null;
+  return { promptTokens: prompt, completionTokens: completion, totalTokens: total };
 }
 
 /** Convert Ollama's tool-call objects into OpenAI-style streaming deltas. */
