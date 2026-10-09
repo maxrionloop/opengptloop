@@ -69,6 +69,7 @@ import {
   normalizeTaskModes,
 } from "@/lib/taskModes";
 import { normalizePromptLibrary, newPromptLibraryId } from "@/lib/promptLibrary";
+import { manualLimitKey, sanitizeManualContextLimits } from "@/lib/contextMeter";
 import {
   DEFAULT_PROFILE_ID,
   findActiveProfile,
@@ -544,6 +545,10 @@ interface AppState {
 
   // Settings + UI
   setSettings: (patch: Partial<Settings>) => void;
+  /** Save a manual context-window limit for one provider+model pair (persisted in settings). */
+  setManualContextLimit: (provider: string, model: string, limit: number) => void;
+  /** Drop the manual context-window limit for one provider+model pair. */
+  clearManualContextLimit: (provider: string, model: string) => void;
   setApiKey: (provider: string, key: string) => void;
   setSearchProvider: (provider: SearchProvider) => void;
   setFetchProvider: (provider: FetchProvider) => void;
@@ -602,6 +607,7 @@ const defaultSettings: Settings = {
   enableCeoAgents: "no",
   memoryAgentEnabled: "yes",
   memoryAgentInterval: 3,
+  manualContextLimits: {},
 };
 
 function touch(conv: Conversation): Conversation {
@@ -736,27 +742,7 @@ function normalizeAgentMode(raw: unknown): AgentMode {
  */
 function freshProfileSnapshot(): ProfileSnapshot {
   return {
-    settings: {
-      provider: "openrouter",
-      model: "",
-      apiKeys: {},
-      baseUrl: "",
-      searchProvider: "duckduckgo",
-      fetchProvider: "builtin",
-      tavilyApiKey: "",
-      exaApiKey: "",
-      serpapiApiKey: "",
-      firecrawlApiKey: "",
-      composioApiKey: "",
-      enableReuseSubAgentSession: "no",
-      effort: "high",
-      temperature: 0.6,
-      enableAgentTeams: "no",
-      enableSendMessageToTeam: "no",
-      enableCeoAgents: "no",
-      memoryAgentEnabled: "yes",
-      memoryAgentInterval: 3,
-    },
+    settings: { ...defaultSettings },
     subAgents: DEFAULT_SUB_AGENTS.map((a) => ({ ...a })),
     skills: DEFAULT_SKILLS.map((sk) => ({ ...sk })),
     todos: [],
@@ -952,6 +938,11 @@ export const useStore = create<AppState>()(
           settings: {
             ...defaults.settings,
             ...(p.settings && typeof p.settings === "object" ? p.settings : {}),
+            // Manual context limits from older/foreign clients may be malformed —
+            // sanitize so a corrupt entry can never break limit resolution.
+            manualContextLimits: sanitizeManualContextLimits(
+              (p.settings as { manualContextLimits?: unknown } | undefined)?.manualContextLimits,
+            ),
           },
           subAgents: mergeSubAgentsWithDefaults(
             Array.isArray(p.subAgents) ? p.subAgents : defaults.subAgents,
@@ -2477,6 +2468,22 @@ export const useStore = create<AppState>()(
         }),
 
       setSettings: (patch) => set((s) => ({ settings: { ...s.settings, ...patch } })),
+      setManualContextLimit: (provider, model, limit) =>
+        set((s) => ({
+          settings: {
+            ...s.settings,
+            manualContextLimits: sanitizeManualContextLimits({
+              ...s.settings.manualContextLimits,
+              [manualLimitKey(provider, model)]: limit,
+            }),
+          },
+        })),
+      clearManualContextLimit: (provider, model) =>
+        set((s) => {
+          const next = { ...s.settings.manualContextLimits };
+          delete next[manualLimitKey(provider, model)];
+          return { settings: { ...s.settings, manualContextLimits: next } };
+        }),
       setApiKey: (provider, key) =>
         set((s) => ({ settings: { ...s.settings, apiKeys: { ...s.settings.apiKeys, [provider]: key } } })),
       setSearchProvider: (searchProvider) => set((s) => ({ settings: { ...s.settings, searchProvider } })),

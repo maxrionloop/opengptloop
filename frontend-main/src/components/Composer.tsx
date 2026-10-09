@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Paperclip, ArrowUp, Square, FolderOpen, X, Loader2, ChevronDown, ListChecks, Plus, Bookmark } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { isCustomProviderId, isLocalProviderId } from "@/lib/providers";
+import { isContextLimitRequired, isMainAgentActive } from "@/lib/contextMeter";
 import { fetchWorkspace, mkdirWorkspace, setWorkspace } from "@/lib/workspace";
 import { buildAttachmentPrompt, uploadFiles, type UploadedFile } from "@/lib/uploads";
 import { PLAN_TASK_MODE_ID, DEFAULT_TASK_MODE_ID } from "@/lib/taskModes";
@@ -22,6 +23,12 @@ export function Composer({ onSend, onStop }: { onSend: (text: string) => void; o
   const promptLibrary = useStore((s) => s.promptLibrary);
   const composerPrefill = useStore((s) => s.composerPrefill);
   const setComposerPrefill = useStore((s) => s.setComposerPrefill);
+  const models = useStore((s) => s.models);
+  const modelsLoading = useStore((s) => s.modelsLoading);
+  const activeCustomAgentId = useStore((s) => s.activeCustomAgentId);
+  const customAgents = useStore((s) => s.customAgents);
+  const ceoAgents = useStore((s) => s.ceoAgents);
+  const agentTeams = useStore((s) => s.agentTeams);
   // "/" shortcut stages: "menu" shows the single "Prompt library" option,
   // "list" shows the saved prompts (title + optional short description).
   const [slashStage, setSlashStage] = useState<"menu" | "list">("menu");
@@ -84,11 +91,36 @@ export function Composer({ onSend, onStop }: { onSend: (text: string) => void; o
       ? Boolean(settings.model)
       : Boolean(settings.apiKeys[settings.provider] && settings.model);
 
+  // Main-agent context-limit requirement (mirrors the blocking context popup):
+  // a model is selected but no limit is known, so new turns stay blocked until a
+  // manual limit is saved. Other agents never mount the meter and are unaffected.
+  const limitRequired =
+    isMainAgentActive({
+      agentMode,
+      activeCustomAgentId,
+      customAgents,
+      settings,
+      ceoAgents,
+      agentTeams,
+    }) &&
+    isContextLimitRequired({
+      models,
+      modelsLoading,
+      provider: settings.provider,
+      model: settings.model,
+      manualLimits: settings.manualContextLimits,
+    });
+
   const submit = () => {
     const text = value.trim();
     if (!text || streaming || uploading) return;
     if (!ready) {
       setSettingsOpen(true);
+      return;
+    }
+    if (limitRequired) {
+      // Keep the draft: land on chat so the blocking popup explains what to do.
+      setSection("chat");
       return;
     }
     setSection("chat");
@@ -168,6 +200,20 @@ export function Composer({ onSend, onStop }: { onSend: (text: string) => void; o
             }}
           >
             Add your API key and pick a model in Settings to start chatting.
+          </button>
+        )}
+        {ready && limitRequired && (
+          <button
+            onClick={() => setSection("chat")}
+            className="mb-2 w-full rounded-[var(--radius-md)] border px-3 py-2 text-xs transition-colors"
+            style={{
+              borderColor: "color-mix(in oklab, var(--warning) 32%, transparent)",
+              background: "var(--warning-soft)",
+              color: "var(--warning)",
+            }}
+          >
+            Enter the context limit for “{settings.model}” in the context popup to start
+            chatting.
           </button>
         )}
 

@@ -899,6 +899,14 @@ export interface Settings {
    * System default is 3: tasks 1–2 stay idle, task 3 triggers a build, then 6, 9, ...
    */
   memoryAgentInterval: number;
+  /**
+   * Manually entered context-window limits keyed by `"<provider>::<model>"` (see
+   * `manualLimitKey` in lib/contextMeter). Fallback used only when the provider's
+   * model catalog publishes no `context_window` for the pair — without an
+   * effective limit the Main Agent context meter cannot show a percentage and new
+   * Main Agent turns stay blocked until one is entered.
+   */
+  manualContextLimits: Record<string, number>;
 }
 
 /** The four built-in reasoning-effort presets shown in Settings. */

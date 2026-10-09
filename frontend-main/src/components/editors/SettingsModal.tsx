@@ -652,7 +652,8 @@ function ModelMetadataCard() {
       )}
       {!context && !hasPricing && (
         <p className="m-0 mt-1 text-[11px] text-[var(--subtle)]">
-          This provider does not publish limits or pricing — chatting works normally.
+          This provider publishes no context limit or pricing — enter the limit manually
+          in the context popup (required before chatting as the main agent).
         </p>
       )}
     </div>

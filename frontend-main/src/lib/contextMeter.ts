@@ -117,3 +117,152 @@ export function contextPercent(used: number, limit: number | null | undefined): 
   const pct = (used / limit) * 100;
   return Math.min(100, Math.max(0, Math.round(pct * 10) / 10));
 }
+
+// ---------------------------------------------------------------------------
+// Manual context limits (fallback when a provider publishes no metadata).
+// ---------------------------------------------------------------------------
+
+/** Where an effective context limit came from: the provider catalog or manual entry. */
+export type ContextLimitSource = "provider" | "manual";
+
+/** Bounds for a manually entered context limit, in tokens. */
+export const MANUAL_LIMIT_MIN = 1_000;
+export const MANUAL_LIMIT_MAX = 1_000_000_000;
+/** Cap on stored manual entries so one document cannot grow without bound. */
+export const MANUAL_LIMIT_MAX_ENTRIES = 200;
+
+/** Storage key for one provider+model pair's manual limit. Model ids are case-sensitive. */
+export function manualLimitKey(provider: string, model: string): string {
+  return `${provider.trim()}::${model.trim()}`;
+}
+
+/** Look up a stored manual limit for a provider+model pair. Null when absent/invalid. */
+export function getManualContextLimit(
+  limits: Record<string, number> | undefined | null,
+  provider: string,
+  model: string,
+): number | null {
+  try {
+    if (!limits || typeof limits !== "object") return null;
+    const raw = (limits as Record<string, unknown>)[manualLimitKey(provider, model)];
+    return typeof raw === "number" && Number.isInteger(raw) && raw >= MANUAL_LIMIT_MIN && raw <= MANUAL_LIMIT_MAX
+      ? raw
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Parse user-typed manual limit input: plain digits with optional commas/spaces and
+ * an optional `k`/`M` suffix (e.g. `128000`, `128,000`, `128k`, `1.5M`).
+ * Returns the token count, or an error message for invalid input. Never throws.
+ */
+export function parseManualContextLimit(input: unknown): { ok: true; value: number } | { ok: false; error: string } {
+  try {
+    const cleaned = typeof input === "string" ? input : typeof input === "number" ? String(input) : "";
+    const compact = cleaned.replace(/[,\s_]+/g, "").trim();
+    if (!compact) return { ok: false, error: "Enter a limit first." };
+    const match = /^(\d+(?:\.\d+)?)([kKmM])?$/.exec(compact);
+    if (!match) return { ok: false, error: "Use digits, e.g. 128000 or 128k." };
+    const multiplier = !match[2] ? 1 : match[2].toLowerCase() === "k" ? 1_000 : 1_000_000;
+    const value = Math.floor(Number(match[1]) * multiplier);
+    if (!Number.isFinite(value)) return { ok: false, error: "Use digits, e.g. 128000 or 128k." };
+    if (value < MANUAL_LIMIT_MIN) {
+      return { ok: false, error: `At least ${MANUAL_LIMIT_MIN.toLocaleString("en-US")} tokens.` };
+    }
+    if (value > MANUAL_LIMIT_MAX) {
+      return { ok: false, error: `At most ${MANUAL_LIMIT_MAX.toLocaleString("en-US")} tokens.` };
+    }
+    return { ok: true, value };
+  } catch {
+    return { ok: false, error: "Use digits, e.g. 128000 or 128k." };
+  }
+}
+
+/**
+ * Sanitize a persisted manual-limits document: keep only well-formed provider+model
+ * keys with in-range integer values (capped entry count). Never throws.
+ */
+export function sanitizeManualContextLimits(raw: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  try {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+      if (Object.keys(out).length >= MANUAL_LIMIT_MAX_ENTRIES) break;
+      if (typeof key !== "string" || key.trim().length === 0 || key.length > 400) continue;
+      if (typeof value !== "number" || !Number.isInteger(value)) continue;
+      if (value < MANUAL_LIMIT_MIN || value > MANUAL_LIMIT_MAX) continue;
+      out[key] = value;
+    }
+  } catch {
+    // fall through with whatever survived
+  }
+  return out;
+}
+
+export interface CatalogModel {
+  provider: string;
+  id: string;
+  context_window?: number | null;
+}
+
+/** The provider catalog's published limit for a provider+model pair, if any. */
+export function catalogContextLimit(
+  models: Array<CatalogModel>,
+  provider: string,
+  model: string,
+): number | null {
+  const id = model.trim();
+  if (!id) return null;
+  const match =
+    models.find((m) => m.provider === provider && m.id === id) ??
+    models.find((m) => m.id === id);
+  const limit = match?.context_window;
+  return typeof limit === "number" && Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : null;
+}
+
+/**
+ * Effective context limit for a provider+model pair: the provider catalog wins when
+ * it publishes metadata, otherwise a stored manual entry fills the gap. Null when
+ * neither knows the limit. Never throws.
+ */
+export function resolveContextLimit(
+  models: Array<CatalogModel>,
+  provider: string,
+  model: string,
+  manualLimits: Record<string, number> | undefined | null,
+): { limit: number | null; source: ContextLimitSource | null } {
+  try {
+    const catalog = catalogContextLimit(models, provider, model);
+    if (catalog !== null) return { limit: catalog, source: "provider" };
+    if (!model.trim()) return { limit: null, source: null };
+    const manual = getManualContextLimit(manualLimits, provider, model);
+    if (manual !== null) return { limit: manual, source: "manual" };
+    return { limit: null, source: null };
+  } catch {
+    return { limit: null, source: null };
+  }
+}
+
+/**
+ * True when the Main Agent interface must force manual entry: a model is selected,
+ * the catalog is settled (not loading), and neither the catalog nor a manual entry
+ * provides a limit. While true the context popup stays open and non-dismissable
+ * and new chat turns are blocked until a limit is saved.
+ */
+export function isContextLimitRequired(args: {
+  models: Array<CatalogModel>;
+  modelsLoading: boolean;
+  provider: string;
+  model: string;
+  manualLimits: Record<string, number> | undefined | null;
+}): boolean {
+  try {
+    if (args.modelsLoading) return false;
+    if (typeof args.model !== "string" || args.model.trim().length === 0) return false;
+    return resolveContextLimit(args.models, args.provider, args.model, args.manualLimits).limit === null;
+  } catch {
+    return false;
+  }
+}

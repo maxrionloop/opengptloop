@@ -3,11 +3,17 @@ import { FileText, Gauge } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { cn } from "@/utils/cn";
 import {
+  catalogContextLimit,
   contextPercent,
   formatTokenCompact,
   formatTokenCount,
+  getManualContextLimit,
+  isContextLimitRequired,
+  parseManualContextLimit,
+  resolveContextLimit,
 } from "@/lib/contextMeter";
 import { RawContextModal } from "@/components/chat/RawContextModal";
+import { Button, TextInput } from "@/components/ui/primitives";
 
 /**
  * Main-agent context meter: a header button + popup showing the current conversation's
@@ -27,28 +33,54 @@ export function ContextMeter() {
   const [open, setOpen] = useState(false);
   const [rawOpen, setRawOpen] = useState(false);
   const currentId = useStore((s) => s.currentId);
+  const models = useStore((s) => s.models);
+  const modelsLoading = useStore((s) => s.modelsLoading);
+  const settings = useStore((s) => s.settings);
+
+  // Blocking requirement: a model is selected but no limit is known — neither
+  // the provider catalog nor a manual entry provides one. While required the
+  // popup forces itself open and cannot be dismissed (no toggle-off, no overlay
+  // click, no Escape) until a manual limit is saved, and new chat turns stay
+  // blocked (see the send gate in `hooks/useChatStream.ts`).
+  const required = isContextLimitRequired({
+    models,
+    modelsLoading,
+    provider: settings.provider,
+    model: settings.model,
+    manualLimits: settings.manualContextLimits,
+  });
+
+  // While a limit is required the popup forces itself open. Derived during
+  // render (same pattern as the composer's prefill handling) so forcing open
+  // never triggers a cascading effect render.
+  const [wasRequired, setWasRequired] = useState(required);
+  if (required !== wasRequired) {
+    setWasRequired(required);
+    if (required) setOpen(true);
+  }
 
   // Close on Escape (the overlay click also closes). No subscriptions here beyond the
   // store selectors below — opening/closing mounts/unmounts the popup with no extra
   // listeners, timers, or fetches, so repeated toggling cannot leak or duplicate work.
   // While the raw-context modal is open it owns Escape (it is a portal above this
-  // popup), so this listener stands down to avoid closing both layers at once.
+  // popup), so this listener stands down to avoid closing both layers at once. While
+  // a limit is required the popup is non-dismissable, so Escape stands down too.
   useEffect(() => {
-    if (!open || rawOpen) return;
+    if (!open || rawOpen || required) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, rawOpen]);
+  }, [open, rawOpen, required]);
 
   return (
     <div className="relative">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
-        title="Main agent context usage"
-        aria-label="Main agent context usage"
+        onClick={() => setOpen((v) => (required ? true : !v))}
+        title={required ? "Enter the context limit to continue" : "Main agent context usage"}
+        aria-label={required ? "Enter the context limit to continue" : "Main agent context usage"}
         aria-expanded={open}
         aria-haspopup="dialog"
         className={cn(
@@ -61,16 +93,23 @@ export function ContextMeter() {
 
       {open && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => {
+              if (!required) setOpen(false);
+            }}
+          />
           <div
             role="dialog"
             aria-label="Main agent context usage"
+            aria-modal={required ? true : undefined}
             className="absolute right-0 top-12 z-50 w-72 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg)] pop-in"
             style={{ boxShadow: "var(--shadow-pop)" }}
           >
             <ContextMeterBody
               currentId={currentId}
               onViewRaw={() => setRawOpen(true)}
+              required={required}
             />
           </div>
         </>
@@ -97,7 +136,12 @@ function MeterDot() {
   const settings = useStore((s) => s.settings);
 
   if (!usage) return null;
-  const limit = limitFor(models, settings.provider, settings.model);
+  const { limit } = resolveContextLimit(
+    models,
+    settings.provider,
+    settings.model,
+    settings.manualContextLimits,
+  );
   const pct = contextPercent(usage.promptTokens, limit);
   if (pct === null) return null;
   const tone =
@@ -123,9 +167,12 @@ function MeterDot() {
 function ContextMeterBody({
   currentId,
   onViewRaw,
+  required,
 }: {
   currentId: string | null;
   onViewRaw: () => void;
+  /** True while no limit is known: the popup shows the manual form and cannot close. */
+  required: boolean;
 }) {
   const usage = useStore((s) => (currentId ? s.contextUsage[currentId] : undefined));
   const streaming = useStore((s) => s.streaming);
@@ -138,8 +185,21 @@ function ContextMeterBody({
     currentId ? s.conversations.find((c) => c.id === currentId)?.loaded === false : false,
   );
 
-  const limit = limitFor(models, settings.provider, settings.model);
+  // Effective limit: the provider catalog wins when it publishes metadata, else a
+  // stored manual entry fills the gap. Percentages always derive from this value.
+  const manualLimits = settings.manualContextLimits ?? {};
+  const catalogLimit = catalogContextLimit(models, settings.provider, settings.model);
+  const { limit, source } = resolveContextLimit(
+    models,
+    settings.provider,
+    settings.model,
+    manualLimits,
+  );
   const modelLabel = usage?.model || settings.model || "current model";
+  const modelSelected = settings.model.trim().length > 0;
+  // The provider publishes nothing for this model: offer manual entry (mandatory
+  // while `required` — see the blocking behavior in `ContextMeter` above).
+  const needsManual = modelSelected && !modelsLoading && catalogLimit === null;
 
   // No log data for this conversation yet: unavailable (not zero). The meter fills in
   // once the main agent's first `context_usage` event arrives via the stream, or the
@@ -159,6 +219,15 @@ function ContextMeterBody({
           Usage comes from the main agent's request logs. Providers that stay silent report
           nothing rather than an estimate.
         </p>
+        {needsManual && (
+          <ManualLimitForm
+            key={`${settings.provider}::${settings.model}`}
+            provider={settings.provider}
+            model={settings.model}
+            manualLimits={manualLimits}
+            required={required}
+          />
+        )}
         <ViewRawContextButton onViewRaw={onViewRaw} disabled={!currentId} />
       </div>
     );
@@ -179,6 +248,12 @@ function ContextMeterBody({
         <>
           <p className="m-0 mt-1 text-xs tabular-nums text-[var(--muted)]">
             of {formatTokenCount(limit)} ({pct}%)
+            {source === "manual" && (
+              <span title="Entered manually — the provider publishes no limit for this model">
+                {" "}
+                · manual
+              </span>
+            )}
           </p>
           <div
             role="progressbar"
@@ -197,11 +272,21 @@ function ContextMeterBody({
             />
           </div>
         </>
+      ) : needsManual ? (
+        <ManualLimitForm
+          key={`${settings.provider}::${settings.model}`}
+          provider={settings.provider}
+          model={settings.model}
+          manualLimits={manualLimits}
+          required={required}
+        />
       ) : (
         <p className="m-0 mt-1 text-xs leading-relaxed text-[var(--subtle)]">
           {modelsLoading
             ? "Loading the model's context limit…"
-            : "Context limit unknown for this model — showing tokens only."}
+            : !modelSelected
+              ? "Pick a model in Settings to show the context limit."
+              : "Context limit unknown for this model — showing tokens only."}
         </p>
       )}
 
@@ -278,17 +363,80 @@ function PopupTitle({ modelLabel }: { modelLabel: string }) {
   );
 }
 
-/** Resolve the context-window limit for the active provider+model from the models catalog. */
-function limitFor(
-  models: Array<{ provider: string; id: string; context_window?: number | null }>,
-  provider: string,
-  model: string,
-): number | null {
-  const id = model.trim();
-  if (!id) return null;
-  const match =
-    models.find((m) => m.provider === provider && m.id === id) ??
-    models.find((m) => m.id === id);
-  const limit = match?.context_window;
-  return typeof limit === "number" && Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : null;
+/**
+ * Manual context-limit entry shown when the provider catalog publishes no
+ * `context_window` for the selected model. The value is stored per
+ * provider+model pair and immediately unlocks the percentage display; while the
+ * popup is in required mode saving is the only way to dismiss it or chat.
+ * Remounted per model via `key` at the call sites, so the draft never leaks
+ * across models.
+ */
+function ManualLimitForm({
+  provider,
+  model,
+  manualLimits,
+  required,
+}: {
+  provider: string;
+  model: string;
+  manualLimits: Record<string, number>;
+  required: boolean;
+}) {
+  const existing = getManualContextLimit(manualLimits, provider, model);
+  const [value, setValue] = useState(existing != null ? existing.toLocaleString("en-US") : "");
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const setManualContextLimit = useStore((s) => s.setManualContextLimit);
+
+  const save = () => {
+    const parsed = parseManualContextLimit(value);
+    if (!parsed.ok) {
+      setError(parsed.error);
+      setSaved(false);
+      return;
+    }
+    setManualContextLimit(provider, model, parsed.value);
+    setError(null);
+    setSaved(true);
+  };
+
+  return (
+    <div className="mt-3 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--chip)] p-3">
+      <p className="m-0 text-xs font-medium text-[var(--fg)]">
+        {required ? "Context limit required" : "Set context limit manually"}
+      </p>
+      <p className="m-0 mt-1 text-[11px] leading-relaxed text-[var(--muted)]">
+        {required
+          ? `The provider publishes no limit for this model. Enter it to continue — this popup stays open and chatting stays blocked until saved.`
+          : `The provider publishes no limit for this model. Enter it to show usage as a percentage.`}
+      </p>
+      <div className="mt-2 flex gap-1.5">
+        <TextInput
+          value={value}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setError(null);
+            setSaved(false);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") save();
+          }}
+          placeholder="e.g. 128000 or 128k"
+          inputMode="numeric"
+          aria-label="Context limit in tokens"
+          className="font-mono text-xs"
+        />
+        <Button onClick={save}>Save</Button>
+      </div>
+      {error && <p className="m-0 mt-1.5 text-[11px] text-[var(--danger)]">{error}</p>}
+      {saved && !error && (
+        <p className="m-0 mt-1.5 text-[11px] text-[var(--success)]">
+          Saved — usage now shows as a percentage.
+        </p>
+      )}
+      <p className="m-0 mt-1.5 text-[10px] leading-relaxed text-[var(--subtle)]">
+        Find it in the provider&apos;s model docs. You can also Load models in Settings.
+      </p>
+    </div>
+  );
 }

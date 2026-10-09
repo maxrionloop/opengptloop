@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { abortChat } from "@/lib/api";
 import { runChatStream, type StreamPhase, type StreamResult } from "@/lib/chatStream";
+import { isContextLimitRequired, isMainAgentActive } from "@/lib/contextMeter";
 import { StreamBatcher } from "@/lib/streamBatcher";
 import { dispatchStreamEvent } from "@/lib/streamDispatch";
 import { attachLatestMemoryAgentRun } from "@/lib/memoryAgent";
@@ -269,6 +270,32 @@ export function useChatStream(onFilesChanged?: () => void) {
       if (!trimmed || runningRef.current) return;
 
       const store = useStore.getState();
+      // Main-agent context-limit gate: without an effective limit (provider
+      // catalog or manual entry) the meter cannot show a percentage, so new
+      // turns stay blocked. Land on chat so the blocking context popup — which
+      // forces itself open until a manual limit is saved — explains why.
+      // Other agents never mount the meter and are unaffected.
+      if (
+        isMainAgentActive({
+          agentMode: store.agentMode,
+          activeCustomAgentId: store.activeCustomAgentId,
+          customAgents: store.customAgents,
+          settings: store.settings,
+          ceoAgents: store.ceoAgents,
+          agentTeams: store.agentTeams,
+        }) &&
+        isContextLimitRequired({
+          models: store.models,
+          modelsLoading: store.modelsLoading,
+          provider: store.settings.provider,
+          model: store.settings.model,
+          manualLimits: store.settings.manualContextLimits,
+        })
+      ) {
+        store.setSection("chat");
+        return;
+      }
+
       const convId = store.ensureConversation();
       const conv = useStore.getState().conversations.find((c) => c.id === convId)!;
 
