@@ -87,6 +87,11 @@ export function buildSessionsRouter(db: GptLoopDatabase): Router {
       snapshot: db.snapshots.get(id),
       transcript: db.messages.list(id),
       subAgentRuns: db.subAgentRuns.listBySession(id),
+      // Latest main-agent context usage from the persisted stream-event log, so the
+      // context meter survives refresh/reopen without a live stream. Null when the
+      // session never logged main-agent usage (silent provider, old history, or a
+      // thread that only ran other agents). Additive field — existing clients ignore it.
+      contextUsage: latestMainContextUsage(db, id),
     });
   });
 
@@ -151,3 +156,50 @@ export function buildSessionsRouter(db: GptLoopDatabase): Router {
 
 /** Re-exported so callers can mint ids without touching the database module directly. */
 export { createChatSessionId };
+
+/**
+ * Newest main-agent `context_usage` log entry for a session, sanitized for the meter.
+ * Picks the newest logged row tagged `agent: "main"` (custom-agent rows are valid log
+ * data for future use — never served as main-agent usage). Returns null when there is
+ * nothing usable, so the UI shows "unavailable" rather than a fabricated number.
+ * Never throws: persistence reads must not break session loading.
+ */
+function latestMainContextUsage(
+  db: GptLoopDatabase,
+  sessionId: string,
+): Record<string, unknown> | null {
+  try {
+    const rows = db.events.latestContextUsage(sessionId, 25);
+    for (const row of rows) {
+      const data = row.data ?? {};
+      const scope = typeof data.agent === "string" ? data.agent.trim().toLowerCase() : "";
+      if (scope !== "main") continue;
+      const prompt_tokens = cleanCount(data.prompt_tokens);
+      if (prompt_tokens === undefined) continue;
+      const out: Record<string, unknown> = { agent: "main", prompt_tokens };
+      const completion_tokens = cleanCount(data.completion_tokens);
+      if (completion_tokens !== undefined) out.completion_tokens = completion_tokens;
+      const total_tokens = cleanCount(data.total_tokens);
+      if (total_tokens !== undefined) out.total_tokens = total_tokens;
+      if (typeof data.provider === "string" && data.provider.trim().length > 0) {
+        out.provider = data.provider.trim().slice(0, 120);
+      }
+      if (typeof data.model === "string" && data.model.trim().length > 0) {
+        out.model = data.model.trim().slice(0, 200);
+      }
+      const iteration = cleanCount(data.iteration);
+      if (iteration !== undefined) out.iteration = iteration;
+      return out;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** A finite, non-negative token count (zero is legitimate; NaN/negative is not). */
+function cleanCount(value: unknown): number | undefined {
+  const n =
+    typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : NaN;
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined;
+}

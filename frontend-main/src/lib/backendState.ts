@@ -32,6 +32,12 @@ export interface BackendSessionDetail {
   session: { id: string; title: string; running: boolean; createdAt: number; updatedAt: number };
   snapshot: unknown;
   transcript: Array<{ role: string; content?: unknown }>;
+  /**
+   * Latest main-agent context usage from the persisted stream-event log (null when the
+   * session never logged main-agent usage). Served with the `agent: "main"` scope tag so
+   * the client's `normalizeContextUsageEvent` validates it exactly like a live event.
+   */
+  contextUsage?: unknown;
 }
 
 /** Load the entire application state from the backend database (boot hydration). */

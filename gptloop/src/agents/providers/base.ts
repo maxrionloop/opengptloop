@@ -92,6 +92,10 @@ export class OpenAICompatibleProvider implements Provider {
       ...(hasTools ? { tools: options.tools, tool_choice: "auto", parallel_tool_calls: false } : {}),
       temperature: options.temperature ?? 0.2,
       stream: true,
+      // Ask the provider to attach per-request token usage to the stream (usually on the
+      // final chunk). Providers that do not understand this field ignore it; the agent
+      // treats a missing `usage` payload as "unavailable", never as zero.
+      stream_options: { include_usage: true },
     };
     return applyReasoningEffort(body, options.effort);
   }
@@ -163,15 +167,39 @@ export class OpenAICompatibleProvider implements Provider {
     const text = extractText(delta.content);
     const reasoning = extractText(delta.reasoning ?? delta.reasoning_content ?? delta.reason ?? "");
     const toolCalls = (delta.tool_calls as StreamDelta["toolCalls"]) ?? undefined;
+    const usage = parseUsage(event.usage);
 
-    if (!text && !reasoning && !toolCalls && !finishReason) return null;
+    if (!text && !reasoning && !toolCalls && !finishReason && !usage) return null;
     return {
       text: text || undefined,
       reasoning: reasoning || undefined,
       toolCalls,
       finishReason,
+      usage: usage ?? undefined,
     };
   }
+}
+
+/**
+ * Extract per-request token usage from a stream chunk's top-level `usage` object.
+ * Accepts OpenAI-style `prompt_tokens` / `completion_tokens` / `total_tokens` (numbers
+ * or numeric strings). Returns null when nothing usable is present so callers treat
+ * the usage as unavailable rather than zero. Never throws on malformed payloads.
+ */
+function parseUsage(raw: unknown): import("./types.js").UsageInfo | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  const num = (v: unknown): number | undefined => {
+    const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined;
+  };
+  const prompt_tokens = num(r.prompt_tokens);
+  const completion_tokens = num(r.completion_tokens);
+  const total_tokens = num(r.total_tokens);
+  if (prompt_tokens === undefined && completion_tokens === undefined && total_tokens === undefined) {
+    return null;
+  }
+  return { prompt_tokens, completion_tokens, total_tokens };
 }
 
 function extractText(value: unknown): string {

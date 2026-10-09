@@ -1085,6 +1085,24 @@ export interface SSEEventData {
   to?: string;
   kind?: TeamMessageKind;
 
+  // ---- context_usage fields (main-agent context meter) ----
+  /**
+   * context_usage: per-request token usage reported by the provider for the current
+   * request. `prompt_tokens` is the current context size of that request (system +
+   * history + tools) — the most accurate context signal available, NOT a cumulative
+   * total. All counts are absent when the provider does not report usage.
+   */
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  /** context_usage: top-level agent scope tag ("main" | "custom"); other agents never emit this event. */
+  // NOTE: `agent` above is reused as the scope tag for context_usage (event name disambiguates).
+  /** context_usage: provider id + model id serving the request (for display only). */
+  provider?: string;
+  model?: string;
+  /** context_usage: the agent-loop iteration that produced this usage. */
+  iteration?: number;
+
   // ---- Communication-channel fields ----
   /** channel_connection_request / channel tool results: the channel kind (telegram/discord/slack). */
   channel_name?: string;
@@ -1096,6 +1114,29 @@ export interface SSEEventData {
   addressing?: string;
   /** Full channel list mirrored by channels_updated. */
   channels?: unknown[];
+}
+
+/**
+ * The main agent's current context-token usage for one conversation, derived from the
+ * latest `context_usage` log event (see SSEEventData). `promptTokens` is the current
+ * context size of the latest provider request — NOT a cumulative total across requests.
+ * A missing record (no entry for the conversation) means "unavailable", which the UI
+ * must distinguish from a legitimate zero-token count.
+ */
+export interface MainContextUsage {
+  /** Current context size (prompt tokens of the latest request). Always a finite >= 0 number. */
+  promptTokens: number;
+  /** Completion tokens of the latest request, when reported. */
+  completionTokens?: number;
+  /** Total tokens of the latest request, when reported. */
+  totalTokens?: number;
+  /** Provider id + model id serving the request (display only, when known). */
+  provider?: string;
+  model?: string;
+  /** Agent-loop iteration that produced this usage (when known). */
+  iteration?: number;
+  /** Epoch ms when this usage was recorded. */
+  updatedAt: number;
 }
 
 /** Lifecycle states of a background memory-agent run. */

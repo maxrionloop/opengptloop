@@ -120,12 +120,48 @@ function deltaFromEvent(event: Record<string, unknown>): StreamDelta {
   const toolCalls = openAiStyleToolCalls(message.tool_calls);
   const done = event.done === true;
   const finishReason = done ? ((event.done_reason as string) ?? "stop") : null;
+  const usage = parseOllamaUsage(event);
 
   return {
     text: text || undefined,
     reasoning: reasoning || undefined,
     toolCalls,
     finishReason,
+    usage: usage ?? undefined,
+  };
+}
+
+/**
+ * Best-effort usage mapping for Ollama's NDJSON `/api/chat` shape, which reports
+ * `prompt_eval_count` / `eval_count` on the final (`done: true`) frame instead of an
+ * OpenAI-style `usage` object. Returns null when nothing usable is present.
+ */
+function parseOllamaUsage(event: Record<string, unknown>): import("./types.js").UsageInfo | null {
+  const num = (v: unknown): number | undefined => {
+    const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined;
+  };
+  // Prefer an OpenAI-style usage object when present (some gateways include one).
+  const direct = event.usage;
+  if (direct && typeof direct === "object" && !Array.isArray(direct)) {
+    const r = direct as Record<string, unknown>;
+    const prompt_tokens = num(r.prompt_tokens ?? r.prompt_eval_count);
+    const completion_tokens = num(r.completion_tokens ?? r.eval_count);
+    const total_tokens = num(r.total_tokens);
+    if (prompt_tokens !== undefined || completion_tokens !== undefined || total_tokens !== undefined) {
+      return { prompt_tokens, completion_tokens, total_tokens };
+    }
+  }
+  const prompt_tokens = num(event.prompt_eval_count);
+  const completion_tokens = num(event.eval_count);
+  if (prompt_tokens === undefined && completion_tokens === undefined) return null;
+  return {
+    prompt_tokens,
+    completion_tokens,
+    total_tokens:
+      prompt_tokens !== undefined && completion_tokens !== undefined
+        ? prompt_tokens + completion_tokens
+        : undefined,
   };
 }
 

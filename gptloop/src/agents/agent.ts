@@ -492,6 +492,11 @@ export class AgentRunner {
         const reasoningParts: string[] = [];
         let toolCalls: ToolCall[] = [];
         let finishReason: string | null = null;
+        // Per-request token usage reported by the provider for THIS LLM call. `prompt_tokens`
+        // is the current context size of the request (system + history + tools) — the most
+        // accurate context signal available. Later iterations supersede earlier ones; the
+        // frontend keeps the latest per conversation. Null when the provider reports nothing.
+        let requestUsage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null = null;
 
         try {
           const stream = provider.streamChatCompletion({
@@ -524,6 +529,10 @@ export class AgentRunner {
             if (delta.finishReason) {
               finishReason = delta.finishReason;
             }
+            // Keep the latest usage payload of this request (providers typically send it
+            // once, on the final chunk). Malformed values are dropped, never forwarded.
+            const usage = sanitizeUsage(delta.usage);
+            if (usage) requestUsage = usage;
           }
         } catch (error) {
           if (signal.aborted) {
@@ -533,6 +542,26 @@ export class AgentRunner {
           send("error", { code: "provider_api_error", message: `Provider API error: ${messageOf(error)}` });
           send("done", { ok: false });
           return;
+        }
+
+        // Record this request's context size in the turn's event log (the existing logging
+        // pipeline: SessionEventBuffer → SQLite stream_events → SSE replay). The `agent` tag
+        // identifies the top-level agent through the run-request architecture: the shared core
+        // runtime handles both the built-in Main Agent and Custom Agents, distinguished by
+        // `request.customAgent`. Team/CEO/chat turns never reach this runner, and sub-agent
+        // loops emit only `sub_agent_*` events — so `agent: "main"` reliably means the main
+        // agent. Tagged (rather than filtered) so additional agents can be supported later
+        // without changing the pipeline.
+        if (requestUsage) {
+          send("context_usage", {
+            agent: request.customAgent ? "custom" : "main",
+            provider: request.provider,
+            model: request.model,
+            prompt_tokens: requestUsage.prompt_tokens,
+            completion_tokens: requestUsage.completion_tokens,
+            total_tokens: requestUsage.total_tokens,
+            iteration,
+          });
         }
 
         const hasToolCalls = toolCalls.some((c) => c.function.name) || finishReason === "tool_calls";
@@ -820,6 +849,28 @@ function withFirstMessageContext(
 
 function normalize(text: string): string {
   return text.replace(/\r\n/g, "\n");
+}
+
+/**
+ * Sanitize a provider-reported usage payload. Returns the cleaned usage when at least
+ * one non-negative finite token count is present, otherwise null (unavailable —
+ * callers must not emit a zero-usage event for it). Never throws on malformed input.
+ */
+function sanitizeUsage(
+  raw: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null | undefined,
+): { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const num = (v: unknown): number | undefined => {
+    const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined;
+  };
+  const prompt_tokens = num((raw as Record<string, unknown>).prompt_tokens);
+  const completion_tokens = num((raw as Record<string, unknown>).completion_tokens);
+  const total_tokens = num((raw as Record<string, unknown>).total_tokens);
+  if (prompt_tokens === undefined && completion_tokens === undefined && total_tokens === undefined) {
+    return null;
+  }
+  return { prompt_tokens, completion_tokens, total_tokens };
 }
 
 function messageOf(error: unknown): string {

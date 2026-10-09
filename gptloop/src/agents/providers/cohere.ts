@@ -67,6 +67,9 @@ class CohereProvider extends OpenAICompatibleProvider {
       ...(hasTools ? { tools: options.tools, tool_choice: "auto" } : {}),
       temperature: options.temperature ?? 0.2,
       stream: true,
+      // Same usage request as the base provider (see base.ts): providers that do not
+      // understand this field ignore it; missing usage is treated as unavailable.
+      stream_options: { include_usage: true },
     };
     return applyReasoningEffort(body, options.effort);
   }

@@ -1,6 +1,7 @@
 import { useStore } from "@/store/useStore";
 import { uid } from "@/utils/id";
 import { watchMemoryAgentRun } from "@/lib/memoryAgent";
+import { normalizeContextUsageEvent } from "@/lib/contextMeter";
 import { normalizeMcpServers } from "@/lib/mcp";
 import { normalizeChannel } from "@/lib/channels";
 import { normalizeConnectors } from "@/lib/connectors";
@@ -292,6 +293,18 @@ export function dispatchStreamEvent(event: string, data: SSEEventData, ctx: Disp
         watchMemoryAgentRun(data.run_id);
       }
       break;
+
+    case "context_usage": {
+      // Main-agent context-token log from the backend event pipeline (live or replayed).
+      // Validated + scoped by normalizeContextUsageEvent: non-main scopes and malformed
+      // payloads return null and are ignored, so the meter never shows another agent's
+      // usage or a fabricated number. Latest event per conversation wins.
+      const usage = normalizeContextUsageEvent(data);
+      if (usage) {
+        s.setContextUsage(convId, { ...usage, updatedAt: Date.now() });
+      }
+      break;
+    }
 
     case "knowledge_updated":
       if (Array.isArray(data.knowledgeFiles)) s.setKnowledge(data.knowledgeFiles as KnowledgeFile[]);

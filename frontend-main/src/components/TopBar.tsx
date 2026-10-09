@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Plus, Settings, Paperclip, Brain, History, Boxes, Crown, MoreVertical, GitBranch, Copy, Pencil, MessageCircle, Search } from "lucide-react";
 import { useStore, type Section } from "@/store/useStore";
 import { DEFAULT_PROFILE_ID } from "@/lib/userProfiles";
+import { isMainAgentActive } from "@/lib/contextMeter";
+import { ContextMeter } from "@/components/chat/ContextMeter";
 import { cn } from "@/utils/cn";
 import { newSessionId } from "@/utils/id";
 import { forkSessionData, renameSessionData, saveSessionSnapshot } from "@/lib/backendState";
@@ -92,6 +94,20 @@ export function TopBar() {
     profiles: userProfiles.length,
   });
   const isChat = section === "chat";
+  // Context meter visibility: main-agent interface only — the chat section running as the
+  // built-in Main Agent (not a Custom Agent, CEO, team, or chat-mode assistant). Uses the
+  // same routing resolvers as turn construction so the button and the `agent: "main"` log
+  // tag agree; subagent views (nested tool blocks) never reach this header.
+  const showContextMeter =
+    isChat &&
+    isMainAgentActive({
+      agentMode,
+      activeCustomAgentId,
+      customAgents,
+      settings,
+      ceoAgents,
+      agentTeams,
+    });
   const activeAgent = customAgents.find((a) => a.id === activeCustomAgentId) ?? null;
   // The active CEO (only when the CEO feature is on and no Custom Agent overrides it) — the first
   // message of a chat goes to this CEO agent.
@@ -178,6 +194,7 @@ export function TopBar() {
         <TopIcon title="Search everything (Ctrl+K)" onClick={() => useStore.getState().setSearchOpen(true)}>
           <Search className="h-[18px] w-[18px]" strokeWidth={1.7} />
         </TopIcon>
+        {showContextMeter && <ContextMeter />}
         <TopIcon
           title="Memory agent"
           onClick={() => setMemoryAgentOpen(true)}

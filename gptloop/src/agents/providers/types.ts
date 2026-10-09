@@ -4,6 +4,22 @@ export interface StreamDelta {
   reasoning?: string;
   toolCalls?: ToolCallDelta[];
   finishReason?: string | null;
+  /**
+   * Token usage reported by the provider for the current request. OpenAI-compatible
+   * providers attach `usage` to a stream chunk (usually the final one) when the
+   * request asks for it via `stream_options: { include_usage: true }`. `prompt_tokens`
+   * is the size of the current context for that request (system + history + tools) —
+   * the most accurate current-context signal available, NOT a cumulative total.
+   * Absent when the provider does not report usage.
+   */
+  usage?: UsageInfo;
+}
+
+/** Token usage for a single provider request (all fields optional — providers vary). */
+export interface UsageInfo {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
 }
 
 /** Incremental tool-call fragment as emitted by OpenAI-style streaming. */

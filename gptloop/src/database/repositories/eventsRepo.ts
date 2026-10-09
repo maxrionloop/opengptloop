@@ -18,6 +18,7 @@ export class EventsRepo {
   private readonly selectTurnSince: Database.Statement;
   private readonly selectLastTurn: Database.Statement;
   private readonly countBySession: Database.Statement;
+  private readonly selectLatestUsage: Database.Statement;
 
   constructor(db: Database.Database) {
     this.selectTurnSince = db.prepare(
@@ -31,6 +32,16 @@ export class EventsRepo {
     );
     this.countBySession = db.prepare(
       `SELECT COUNT(*) AS n FROM stream_events WHERE session_id = ?`,
+    );
+    // Newest-first scan of one session's context_usage log rows, across all turns.
+    // context_usage rows are rare (one per LLM request), so this stays cheap no
+    // matter how large the token/reasoning history grows.
+    this.selectLatestUsage = db.prepare(
+      `SELECT turn, event_id, first_event_id, event, data, created_at
+       FROM stream_events
+       WHERE session_id = ? AND event = 'context_usage'
+       ORDER BY turn DESC, event_id DESC
+       LIMIT ?`,
     );
   }
 
@@ -68,6 +79,47 @@ export class EventsRepo {
   lastTurn(sessionId: string): number {
     const row = this.selectLastTurn.get(sessionId) as { turn: number | null } | undefined;
     return row?.turn ?? 0;
+  }
+
+  /**
+   * Latest `context_usage` log rows for a session, newest first across all turns
+   * (callers pick the newest entry for the agent scope they need). Empty when the
+   * session never logged usage (e.g. silent provider or pre-usage history).
+   * Never throws — malformed rows are skipped, never surfaced.
+   */
+  latestContextUsage(sessionId: string, limit = 25): StoredStreamEvent[] {
+    let rows: Array<{
+      turn: number;
+      event_id: number;
+      first_event_id: number;
+      event: string;
+      data: string;
+      created_at: number;
+    }>;
+    try {
+      const n = Number.isFinite(limit) ? Math.min(100, Math.max(1, Math.floor(limit))) : 25;
+      rows = this.selectLatestUsage.all(sessionId, n) as typeof rows;
+    } catch {
+      return [];
+    }
+    const out: StoredStreamEvent[] = [];
+    for (const row of rows ?? []) {
+      let data: Record<string, unknown> = {};
+      try {
+        data = JSON.parse(row.data) as Record<string, unknown>;
+      } catch {
+        // keep an empty payload rather than dropping the event marker
+      }
+      out.push({
+        turn: row.turn,
+        eventId: row.event_id,
+        firstEventId: row.first_event_id,
+        event: row.event,
+        data,
+        createdAt: row.created_at,
+      });
+    }
+    return out;
   }
 
   count(sessionId: string): number {

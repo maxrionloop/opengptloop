@@ -1,5 +1,6 @@
 import { useStore } from "@/store/useStore";
-import type { Conversation } from "@/types";
+import type { Conversation, SSEEventData } from "@/types";
+import { normalizeContextUsageEvent } from "@/lib/contextMeter";
 import {
   beaconSessionSnapshot,
   beaconStateKey,
@@ -126,6 +127,21 @@ export async function loadConversationIfNeeded(id: string): Promise<Conversation
   }
 
   useStore.getState().replaceConversation(conv);
+
+  // Restore the meter from the persisted event log: the database's latest main-agent
+  // `context_usage` entry for this session (served on the detail payload). Only fills
+  // in when this client holds nothing — live stream events arriving later always win,
+  // so a fresh turn can never be clobbered by an older logged value. Validated through
+  // the same normalizer as live events (non-main scopes and malformed payloads ignored).
+  try {
+    const store = useStore.getState();
+    if (!store.contextUsage[id] && detail.contextUsage && typeof detail.contextUsage === "object") {
+      const usage = normalizeContextUsageEvent(detail.contextUsage as SSEEventData);
+      if (usage) store.setContextUsage(id, { ...usage, updatedAt: Date.now() });
+    }
+  } catch {
+    // Meter restore must never break conversation loading.
+  }
   return conv;
 }
 

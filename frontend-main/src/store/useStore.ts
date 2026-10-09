@@ -19,6 +19,7 @@ import type {
   KnowledgeSource,
   MainAgentPrompt,
   McpServer,
+  MainContextUsage,
   MemoryAgentLiveRun,
   MemoryAgentRunCounts,
   MemoryAgentRunMeta,
@@ -221,6 +222,14 @@ interface AppState {
   memoryAgentCounts: MemoryAgentRunCounts;
   /** Streamed live state per run id (rebuilt from the SSE stream, live or replayed). */
   memoryAgentLive: Record<string, MemoryAgentLiveRun>;
+
+  // Main-agent context meter (ephemeral, rebuilt from the `context_usage` log events in the
+  // turn's SSE stream — live or replayed from the database event log). Keyed by conversation
+  // id so switching threads never shows a stale value from another chat. A missing entry
+  // means "unavailable" (never sent / provider silent), distinct from a zero-token count.
+  // Scoped for future agents: keyed per conversation today, shaped so per-agent entries can
+  // be added later without changing the pipeline.
+  contextUsage: Record<string, MainContextUsage>;
 
   // Hydration from the backend SQLite database
   hydrateFromBackend: (payload: BackendBootPayload) => void;
@@ -567,6 +576,10 @@ interface AppState {
     runId: string,
     outcome: { status: "completed" | "failed"; error?: string; updatedFiles?: string[] },
   ) => void;
+
+  // Main-agent context meter (latest `context_usage` log per conversation)
+  /** Record the latest main-agent context usage for a conversation (from a validated log event). */
+  setContextUsage: (convId: string, usage: MainContextUsage) => void;
 }
 
 const defaultSettings: Settings = {
@@ -867,6 +880,7 @@ export const useStore = create<AppState>()(
       memoryAgentRuns: [],
       memoryAgentCounts: { queued: 0, running: 0, completed: 0, failed: 0, total: 0 },
       memoryAgentLive: {},
+      contextUsage: {},
 
       hydrateFromBackend: (payload) => {
         const state = payload.state ?? {};
@@ -1152,6 +1166,12 @@ export const useStore = create<AppState>()(
           loaded: true,
         };
         set((s) => ({ conversations: [conv, ...s.conversations], currentId: id, section: "chat" }));
+        // A fork copies the server-side event log too (see forkSessionData), so it inherits
+        // the source's logged usage — mirror that locally so the meter shows immediately
+        // instead of waiting for the next reply. (A branch starts a fresh backend session
+        // with no log history, so it correctly starts empty.)
+        const inherited = get().contextUsage[source.id];
+        if (inherited) get().setContextUsage(id, { ...inherited });
         return id;
       },
 
@@ -1175,7 +1195,10 @@ export const useStore = create<AppState>()(
           const conversations = s.conversations.filter((c) => c.id !== id);
           const currentId = s.currentId === id ? (conversations[0]?.id ?? null) : s.currentId;
           const activeRun = s.activeRun?.chatId === id ? null : s.activeRun;
-          return { conversations, currentId, activeRun };
+          // Drop the meter reading with the thread so a recycled id can never show stale usage.
+          const contextUsage = { ...s.contextUsage };
+          delete contextUsage[id];
+          return { conversations, currentId, activeRun, contextUsage };
         }),
 
       renameConversation: (id, title) =>
@@ -1945,6 +1968,10 @@ export const useStore = create<AppState>()(
           preview: { url: "", open: false },
           activeRun: null,
           section: "chat",
+          // Meter readings belong to conversations, not profiles: drop them so the target
+          // profile never shows the previous profile's numbers. Each opened thread
+          // reloads its own logged usage from the database via loadConversationIfNeeded.
+          contextUsage: {},
         });
         return null;
       },
@@ -2052,11 +2079,17 @@ export const useStore = create<AppState>()(
         const conversations = s.conversations.filter(
           (c) => (c.profileId ?? DEFAULT_PROFILE_ID) !== id,
         );
+        // Drop meter readings of the removed conversations with them.
+        const keptIds = new Set(conversations.map((c) => c.id));
+        const contextUsage = Object.fromEntries(
+          Object.entries(s.contextUsage).filter(([cid]) => keptIds.has(cid)),
+        );
         if (!isActive) {
           set({
             conversations,
             profileStates: { ...s.profileStates, [id]: { ...fresh, currentId: null } },
             profileSessions: { ...s.profileSessions, [id]: [] },
+            contextUsage,
           });
           return null;
         }
@@ -2084,6 +2117,7 @@ export const useStore = create<AppState>()(
           preview: { url: "", open: false },
           activeRun: null,
           section: "chat",
+          contextUsage,
           profileStates: { ...s.profileStates, [id]: { ...cloneJson(fresh), currentId: null } },
           profileSessions: { ...s.profileSessions, [id]: [] },
         });
@@ -2558,5 +2592,11 @@ export const useStore = create<AppState>()(
             },
           };
         }),
+
+      // ---- Main-agent context meter --------------------------------------------
+      setContextUsage: (convId, usage) =>
+        set((s) => ({
+          contextUsage: { ...s.contextUsage, [convId]: usage },
+        })),
     }),
 );
