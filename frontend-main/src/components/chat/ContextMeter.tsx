@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Gauge } from "lucide-react";
+import { FileText, Gauge } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { cn } from "@/utils/cn";
 import {
@@ -7,6 +7,7 @@ import {
   formatTokenCompact,
   formatTokenCount,
 } from "@/lib/contextMeter";
+import { RawContextModal } from "@/components/chat/RawContextModal";
 
 /**
  * Main-agent context meter: a header button + popup showing the current conversation's
@@ -24,18 +25,22 @@ import {
  */
 export function ContextMeter() {
   const [open, setOpen] = useState(false);
+  const [rawOpen, setRawOpen] = useState(false);
+  const currentId = useStore((s) => s.currentId);
 
   // Close on Escape (the overlay click also closes). No subscriptions here beyond the
   // store selectors below — opening/closing mounts/unmounts the popup with no extra
   // listeners, timers, or fetches, so repeated toggling cannot leak or duplicate work.
+  // While the raw-context modal is open it owns Escape (it is a portal above this
+  // popup), so this listener stands down to avoid closing both layers at once.
   useEffect(() => {
-    if (!open) return;
+    if (!open || rawOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open ]);
+  }, [open, rawOpen]);
 
   return (
     <div className="relative">
@@ -63,10 +68,20 @@ export function ContextMeter() {
             className="absolute right-0 top-12 z-50 w-72 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg)] pop-in"
             style={{ boxShadow: "var(--shadow-pop)" }}
           >
-            <ContextMeterBody />
+            <ContextMeterBody
+              currentId={currentId}
+              onViewRaw={() => setRawOpen(true)}
+            />
           </div>
         </>
       )}
+
+      <RawContextModal
+        open={rawOpen}
+        onClose={() => setRawOpen(false)}
+        sessionId={currentId}
+        agent="main"
+      />
     </div>
   );
 }
@@ -105,8 +120,13 @@ function MeterDot() {
   );
 }
 
-function ContextMeterBody() {
-  const currentId = useStore((s) => s.currentId);
+function ContextMeterBody({
+  currentId,
+  onViewRaw,
+}: {
+  currentId: string | null;
+  onViewRaw: () => void;
+}) {
   const usage = useStore((s) => (currentId ? s.contextUsage[currentId] : undefined));
   const streaming = useStore((s) => s.streaming);
   const models = useStore((s) => s.models);
@@ -139,6 +159,7 @@ function ContextMeterBody() {
           Usage comes from the main agent's request logs. Providers that stay silent report
           nothing rather than an estimate.
         </p>
+        <ViewRawContextButton onViewRaw={onViewRaw} disabled={!currentId} />
       </div>
     );
   }
@@ -211,7 +232,35 @@ function ContextMeterBody() {
         Current context size of the latest request — not a lifetime total. Updates with each
         main-agent reply.
       </p>
+
+      <ViewRawContextButton onViewRaw={onViewRaw} disabled={!currentId} />
     </div>
+  );
+}
+
+/**
+ * Entry point to the raw-context viewer. Rendered in both popup states (usage known
+ * or not) so the transcript + system prompt stay inspectable even before the first
+ * usage report. Main Agent only — the parent meter never mounts for other agents.
+ */
+function ViewRawContextButton({
+  onViewRaw,
+  disabled,
+}: {
+  onViewRaw: () => void;
+  disabled: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onViewRaw}
+      disabled={disabled}
+      title="View the main agent's current context in raw format"
+      className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--chip)] px-3 py-2 text-xs font-medium text-[var(--fg)] transition-colors hover:bg-[var(--chip-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      <FileText className="h-3.5 w-3.5" strokeWidth={1.8} />
+      View raw context
+    </button>
   );
 }
 

@@ -200,6 +200,13 @@ export const API_ROUTES = {
     path: "/api/sessions/:id/fork",
     description: "Fork a session into a full 100% copy (transcript, events, snapshot) under a new id.",
   },
+  sessionContext: {
+    name: "session.context",
+    method: "GET",
+    path: "/api/sessions/:id/context",
+    description:
+      "Load one session's Main Agent raw context (resolved system prompt + provider-format transcript). Main agent only; other agents return 400.",
+  },
   memoryAgentRuns: {
     name: "memoryAgent.runs",
     method: "GET",

@@ -5,6 +5,10 @@ import {
   isSafeSessionId,
   createChatSessionId,
 } from "../database/index.js";
+import type { AppConfig } from "../config.js";
+import type { SessionStore, StoredMessage } from "../services/sessionStore.js";
+import { buildSystemPrompt } from "../agents/systemprompt.js";
+import type { MainAgentPromptManager } from "../agents/mainagentprompt/index.js";
 
 /**
  * State + session APIs backing the frontend's persistence. The browser keeps NOTHING
@@ -54,7 +58,14 @@ export function buildStateRouter(db: GptLoopDatabase): Router {
   return router;
 }
 
-export function buildSessionsRouter(db: GptLoopDatabase): Router {
+export function buildSessionsRouter(
+  db: GptLoopDatabase,
+  deps?: {
+    store?: SessionStore;
+    config?: AppConfig;
+    mainAgentPrompts?: MainAgentPromptManager;
+  },
+): Router {
   const router = Router();
 
   /** Create a new session with a server-generated 20-character id. */
@@ -67,6 +78,99 @@ export function buildSessionsRouter(db: GptLoopDatabase): Router {
 
   router.get("/", (_req: Request, res: Response) => {
     res.json({ ok: true, sessions: db.sessions.list() });
+  });
+
+  /**
+   * Raw context for one session's Main Agent: the resolved system prompt plus the
+   * provider-format transcript (system + history + tools, untruncated) that the next
+   * Main Agent request is built from. Served unformatted so the UI can display it raw.
+   *
+   * Query: `?agent=main` (default `main`). Only the Main Agent is supported at this
+   * stage — any other scope returns 400 so the endpoint stays modular and other
+   * agents can be added later without changing the route shape.
+   *
+   * Source preference: the live in-memory transcript when the session is active
+   * (freshest during a running turn), else the persisted SQLite transcript, else an
+   * empty context. The system prompt resolves to the active custom Main Agent prompt
+   * when one is set, else the built-in prompt (neutral baseline: per-turn connector /
+   * MCP / channel hints are turn-specific and not included). Never throws.
+   */
+  router.get("/:id/context", (req: Request, res: Response) => {
+    const id = String(req.params.id);
+    if (!isSafeSessionId(id)) {
+      res.status(400).json({ error: "Invalid session id." });
+      return;
+    }
+    const rawAgent = Array.isArray(req.query.agent) ? req.query.agent[0] : req.query.agent;
+    const agent = typeof rawAgent === "string" && rawAgent.trim().length > 0 ? rawAgent.trim().toLowerCase() : "main";
+    // Modular scope gate: main-only today, extensible to custom/team/ceo later.
+    if (agent !== "main") {
+      res.status(400).json({ error: `Only the main agent is supported at this stage (got "${agent}").` });
+      return;
+    }
+
+    const liveMessages = (() => {
+      try {
+        const live = deps?.store?.get(id)?.messages;
+        return Array.isArray(live) ? live : [];
+      } catch {
+        return [];
+      }
+    })();
+    const persistedExists = (() => {
+      try {
+        return Boolean(db.sessions.get(id));
+      } catch {
+        return false;
+      }
+    })();
+    if (!persistedExists && liveMessages.length === 0) {
+      res.status(404).json({ error: "Session not found." });
+      return;
+    }
+
+    let messages: StoredMessage[];
+    let source: "live" | "persisted" | "empty";
+    if (liveMessages.length > 0) {
+      messages = liveMessages.map((m) => ({ ...m }));
+      source = "live";
+    } else {
+      let persisted: StoredMessage[] = [];
+      try {
+        persisted = db.messages.list(id);
+      } catch {
+        persisted = [];
+      }
+      messages = persisted;
+      source = persisted.length > 0 ? "persisted" : "empty";
+    }
+
+    let systemPrompt: string | null = null;
+    let systemPromptSource: "custom" | "builtin" = "builtin";
+    try {
+      const active = deps?.mainAgentPrompts?.getActivePromptText() ?? null;
+      if (typeof active === "string" && active.trim().length > 0) {
+        systemPrompt = active;
+        systemPromptSource = "custom";
+      } else {
+        systemPrompt = buildSystemPrompt(deps?.config?.workspaceRoot ?? "", {});
+      }
+    } catch {
+      systemPrompt = null;
+    }
+
+    res.json({
+      ok: true,
+      agent: "main",
+      sessionId: id,
+      systemPrompt,
+      systemPromptSource,
+      messages,
+      source,
+      messageCount: messages.length,
+      usage: latestMainContextUsage(db, id),
+      fetchedAt: Date.now(),
+    });
   });
 
   /** Full session detail: metadata, UI snapshot, and the provider-format transcript. */

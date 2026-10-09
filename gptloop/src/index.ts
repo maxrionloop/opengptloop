@@ -213,7 +213,7 @@ function main(): void {
   app.use("/api/workspace", buildWorkspaceRouter());
   app.use("/api/scrape", buildScrapeRouter(config));
   app.use("/api/state", buildStateRouter(db));
-  app.use("/api/sessions", buildSessionsRouter(db));
+  app.use("/api/sessions", buildSessionsRouter(db, { store, config, mainAgentPrompts }));
   app.use("/api/memory-agent", buildMemoryAgentRouter(memoryAgent));
   app.use("/api/connectors", buildConnectorsRouter(connectors, config));
   app.use("/api/mcp", buildMcpRouter(mcp));
