@@ -91,7 +91,7 @@ export function Composer({ onSend, onStop }: { onSend: (text: string) => void; o
       ? Boolean(settings.model)
       : Boolean(settings.apiKeys[settings.provider] && settings.model);
 
-  // Main-agent context-limit requirement (mirrors the blocking context popup):
+  // Main-agent context-limit requirement (mirrors the manual entry in Settings):
   // a model is selected but no limit is known, so new turns stay blocked until a
   // manual limit is saved. Other agents never mount the meter and are unaffected.
   const limitRequired =
@@ -119,8 +119,8 @@ export function Composer({ onSend, onStop }: { onSend: (text: string) => void; o
       return;
     }
     if (limitRequired) {
-      // Keep the draft: land on chat so the blocking popup explains what to do.
-      setSection("chat");
+      // Keep the draft: open Settings so the manual entry explains what to do.
+      setSettingsOpen(true);
       return;
     }
     setSection("chat");
@@ -204,7 +204,7 @@ export function Composer({ onSend, onStop }: { onSend: (text: string) => void; o
         )}
         {ready && limitRequired && (
           <button
-            onClick={() => setSection("chat")}
+            onClick={() => setSettingsOpen(true)}
             className="mb-2 w-full rounded-[var(--radius-md)] border px-3 py-2 text-xs transition-colors"
             style={{
               borderColor: "color-mix(in oklab, var(--warning) 32%, transparent)",
@@ -212,7 +212,7 @@ export function Composer({ onSend, onStop }: { onSend: (text: string) => void; o
               color: "var(--warning)",
             }}
           >
-            Enter the context limit for “{settings.model}” in the context popup to start
+            Enter the context limit for “{settings.model}” in Settings to start
             chatting.
           </button>
         )}

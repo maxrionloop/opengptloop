@@ -4,6 +4,12 @@ import { useStore } from "@/store/useStore";
 import { fetchModels, fetchProviders } from "@/lib/api";
 import { validateComposioKey } from "@/lib/connectors";
 import {
+  catalogContextLimit,
+  formatTokenCount,
+  getManualContextLimit,
+  parseManualContextLimit,
+} from "@/lib/contextMeter";
+import {
   FALLBACK_PROVIDERS,
   LMSTUDIO_DEFAULT_BASE_URL,
   OLLAMA_DEFAULT_BASE_URL,
@@ -165,6 +171,7 @@ export function SettingsModal() {
                     Edit or add models
                   </button>
                 )}
+                <ManualContextLimitField provider={settings.provider} model={settings.model} />
               </div>
             ) : (
               <>
@@ -220,6 +227,7 @@ export function SettingsModal() {
                 {settings.model && (
                   <TextInput value={settings.model} onChange={(e) => setSettings({ model: e.target.value })} placeholder="Or type a model id" className="font-mono text-xs" />
                 )}
+                <ManualContextLimitField provider={settings.provider} model={settings.model} />
                 {!isCustom && <ModelMetadataCard />}
               </>
             )}
@@ -576,6 +584,102 @@ function formatPrice(n: number | null | undefined): string | null {
   return `$${n.toFixed(2)}`;
 }
 
+/**
+ * Manual context-limit entry, shown only when the provider catalog publishes no
+ * `context_window` for the selected model. The value is stored per
+ * provider+model pair and saved automatically once valid — `128000`, `128,000`,
+ * `128k` (thousands) and `2m` (millions) are all accepted. Clearing the field
+ * removes the manual entry. Required before chatting as the main agent.
+ * Remounted per model via `key`, so the draft never leaks across models.
+ */
+function ManualContextLimitField({ provider, model }: { provider: string; model: string }) {
+  const models = useStore((s) => s.models);
+  const modelsLoading = useStore((s) => s.modelsLoading);
+  const manualLimits = useStore((s) => s.settings.manualContextLimits);
+
+  if (modelsLoading) return null;
+  if (!model.trim()) return null;
+  // The catalog already knows this model — no manual entry needed.
+  if (catalogContextLimit(models, provider, model) !== null) return null;
+  return (
+    <ManualContextLimitInput
+      key={`${provider.trim()}::${model.trim()}`}
+      provider={provider}
+      model={model}
+      manualLimits={manualLimits ?? {}}
+    />
+  );
+}
+
+function ManualContextLimitInput({
+  provider,
+  model,
+  manualLimits,
+}: {
+  provider: string;
+  model: string;
+  manualLimits: Record<string, number>;
+}) {
+  const setManualContextLimit = useStore((s) => s.setManualContextLimit);
+  const clearManualContextLimit = useStore((s) => s.clearManualContextLimit);
+  const stored = getManualContextLimit(manualLimits, provider, model);
+  const [value, setValue] = useState(stored != null ? stored.toLocaleString("en-US") : "");
+  const [touched, setTouched] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const apply = (next: string) => {
+    setValue(next);
+    if (next.replace(/[,\s_]+/g, "").trim().length === 0) {
+      clearManualContextLimit(provider, model);
+      setError(null);
+      return;
+    }
+    const parsed = parseManualContextLimit(next);
+    if (parsed.ok) {
+      setManualContextLimit(provider, model, parsed.value);
+      setError(null);
+    } else if (touched) {
+      setError(parsed.error);
+    }
+  };
+
+  const blur = () => {
+    setTouched(true);
+    if (value.replace(/[,\s_]+/g, "").trim().length === 0) {
+      setError(null);
+      return;
+    }
+    const parsed = parseManualContextLimit(value);
+    setError(parsed.ok ? null : parsed.error);
+  };
+
+  return (
+    <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--chip)] p-3">
+      <Field label="Context limit (manual)" hint="tokens · k = thousands, m = millions">
+        <TextInput
+          value={value}
+          onChange={(e) => apply(e.target.value)}
+          onBlur={blur}
+          placeholder="e.g. 128000, 128k or 2m"
+          inputMode="numeric"
+          aria-label="Context limit in tokens"
+          className="font-mono text-xs"
+        />
+      </Field>
+      {error && <p className="m-0 mt-1.5 text-[11px] text-[var(--danger)]">{error}</p>}
+      {!error && stored != null && (
+        <p className="m-0 mt-1.5 text-[11px] text-[var(--muted)]">
+          Using {formatTokenCount(stored)} (manual).
+        </p>
+      )}
+      <p className="m-0 mt-1.5 text-[10px] leading-relaxed text-[var(--subtle)]">
+        The provider publishes no limit for this model — find it in the provider&apos;s
+        model docs. Required before chatting as the main agent; saved automatically.
+      </p>
+    </div>
+  );
+}
+
 function ModelMetadataCard() {
   const models = useStore((s) => s.models);
   const settings = useStore((s) => s.settings);
@@ -652,8 +756,8 @@ function ModelMetadataCard() {
       )}
       {!context && !hasPricing && (
         <p className="m-0 mt-1 text-[11px] text-[var(--subtle)]">
-          This provider publishes no context limit or pricing — enter the limit manually
-          in the context popup (required before chatting as the main agent).
+          This provider publishes no context limit or pricing — set the limit manually
+          above (required before chatting as the main agent).
         </p>
       )}
     </div>

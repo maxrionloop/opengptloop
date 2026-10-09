@@ -271,9 +271,9 @@ export function useChatStream(onFilesChanged?: () => void) {
 
       const store = useStore.getState();
       // Main-agent context-limit gate: without an effective limit (provider
-      // catalog or manual entry) the meter cannot show a percentage, so new
-      // turns stay blocked. Land on chat so the blocking context popup — which
-      // forces itself open until a manual limit is saved — explains why.
+      // catalog or the manual entry in Settings) the meter cannot show a
+      // percentage, so new turns stay blocked. Open Settings so the manual
+      // entry — shown next to the model picker — explains what to do.
       // Other agents never mount the meter and are unaffected.
       if (
         isMainAgentActive({
@@ -292,7 +292,7 @@ export function useChatStream(onFilesChanged?: () => void) {
           manualLimits: store.settings.manualContextLimits,
         })
       ) {
-        store.setSection("chat");
+        store.setSettingsOpen(true);
         return;
       }
 
