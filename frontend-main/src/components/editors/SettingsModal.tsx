@@ -661,7 +661,10 @@ function ManualContextLimitInput({
           onChange={(e) => apply(e.target.value)}
           onBlur={blur}
           placeholder="e.g. 128000, 128k or 2m"
-          inputMode="numeric"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
           aria-label="Context limit in tokens"
           className="font-mono text-xs"
         />
