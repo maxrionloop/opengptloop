@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Settings, Paperclip, Brain, History, Boxes, Crown, MoreVertical, GitBranch, Copy, Pencil, MessageCircle, Search } from "lucide-react";
+import { Plus, Settings, Paperclip, Brain, History, Boxes, Crown, MoreVertical, GitBranch, Copy, Pencil, MessageCircle, Search, RefreshCcw } from "lucide-react";
 import { useStore, type Section } from "@/store/useStore";
 import { DEFAULT_PROFILE_ID } from "@/lib/userProfiles";
 import { isMainAgentActive } from "@/lib/contextMeter";
@@ -55,6 +55,7 @@ export function TopBar() {
   const setFilesOpen = useStore((s) => s.setFilesOpen);
   const setMemoryAgentOpen = useStore((s) => s.setMemoryAgentOpen);
   const setMemoryAgentSessionsOpen = useStore((s) => s.setMemoryAgentSessionsOpen);
+  const setSummaryHandoffOpen = useStore((s) => s.setSummaryHandoffOpen);
   const memoryAgentCounts = useStore((s) => s.memoryAgentCounts);
   const knowledge = useStore((s) => s.knowledge);
   const subAgents = useStore((s) => s.subAgents);
@@ -195,6 +196,11 @@ export function TopBar() {
           <Search className="h-[18px] w-[18px]" strokeWidth={1.7} />
         </TopIcon>
         {showContextMeter && <ContextMeter />}
+        {showContextMeter && (
+          <TopIcon title="Context summary" onClick={() => setSummaryHandoffOpen(true)}>
+            <RefreshCcw className="h-[18px] w-[18px]" strokeWidth={1.7} />
+          </TopIcon>
+        )}
         <TopIcon
           title="Memory agent"
           onClick={() => setMemoryAgentOpen(true)}

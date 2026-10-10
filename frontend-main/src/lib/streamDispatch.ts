@@ -306,6 +306,111 @@ export function dispatchStreamEvent(event: string, data: SSEEventData, ctx: Disp
       break;
     }
 
+    // ---- Automatic context summarization handoff ----
+    // Authoritative backend lifecycle; the UI never shows success before
+    // SUMMARY_VALIDATED + CONTEXT_REPLACED + RESUMED. Chunks accumulate in
+    // order; the validated summary commits separately; closing the popup never
+    // cancels the job; replay is incremental via the resume cursor.
+    case "summary_execution_started": {
+      const handoffId = typeof data.handoff_id === "string" ? data.handoff_id : "";
+      if (handoffId) s.startSummaryHandoff(convId, handoffId, "pausing");
+      break;
+    }
+    case "main_agent_pause_initiated": {
+      const handoffId = typeof data.handoff_id === "string" ? data.handoff_id : "";
+      if (handoffId) s.updateSummaryHandoff(convId, handoffId, { status: "pausing" });
+      break;
+    }
+    case "main_agent_paused": {
+      const handoffId = typeof data.handoff_id === "string" ? data.handoff_id : "";
+      if (handoffId) s.updateSummaryHandoff(convId, handoffId, { status: "paused" });
+      break;
+    }
+    case "summary_output_chunk": {
+      const handoffId = typeof data.handoff_id === "string" ? data.handoff_id : "";
+      const chunk = typeof data.value === "string" ? data.value : "";
+      if (handoffId && chunk) {
+        s.updateSummaryHandoff(convId, handoffId, { status: "summarizing" });
+        s.appendSummaryChunk(convId, handoffId, chunk);
+      }
+      break;
+    }
+    case "summary_generation_ended":
+    case "summary_agent_run_completed":
+      break;
+    case "final_summary_received": {
+      const handoffId = typeof data.handoff_id === "string" ? data.handoff_id : "";
+      if (handoffId) s.updateSummaryHandoff(convId, handoffId, { status: "summarizing" });
+      break;
+    }
+    case "final_summary_validated": {
+      // Final validated summary text is not carried in the event (avoid large
+      // duplicate payloads); the streaming text accumulated so far is the
+      // validated content. Status flips only here — never on stream close.
+      const handoffId = typeof data.handoff_id === "string" ? data.handoff_id : "";
+      if (handoffId) {
+        const existing = useStore.getState().summaryHandoffs[convId];
+        const text = existing && existing.handoffId === handoffId ? existing.streamingText : "";
+        s.updateSummaryHandoff(convId, handoffId, {
+          status: "validated",
+          finalSummary: text,
+          summaryChars: typeof data.chars === "number" ? data.chars : text.length,
+        });
+        const updated = useStore.getState().summaryHandoffs[convId];
+        if (updated && updated.handoffId === handoffId) s.upsertSummaryHistory(convId, { ...updated });
+      }
+      break;
+    }
+    case "context_replacement_started":
+      break;
+    case "main_agent_context_replaced": {
+      const handoffId = typeof data.handoff_id === "string" ? data.handoff_id : "";
+      if (handoffId) {
+        s.updateSummaryHandoff(convId, handoffId, { status: "replaced" });
+        const updated = useStore.getState().summaryHandoffs[convId];
+        if (updated && updated.handoffId === handoffId) s.upsertSummaryHistory(convId, { ...updated });
+      }
+      break;
+    }
+    case "main_agent_execution_resumed": {
+      const handoffId = typeof data.handoff_id === "string" ? data.handoff_id : "";
+      if (handoffId) {
+        s.updateSummaryHandoff(convId, handoffId, { status: "resumed" });
+        const updated = useStore.getState().summaryHandoffs[convId];
+        if (updated && updated.handoffId === handoffId) s.upsertSummaryHistory(convId, { ...updated });
+      }
+      break;
+    }
+    case "summary_execution_failed": {
+      const handoffId = typeof data.handoff_id === "string" ? data.handoff_id : "";
+      if (handoffId) {
+        const state = typeof data.state === "string" ? data.state : "";
+        const status =
+          state === "SUMMARY_INCOMPLETE" ? "incomplete" : state === "CANCELLED" ? "failed" : "failed";
+        s.updateSummaryHandoff(convId, handoffId, {
+          status,
+          error: typeof data.message === "string" ? data.message : "Summarization failed.",
+          code: typeof data.code === "string" ? data.code : null,
+        });
+        const updated = useStore.getState().summaryHandoffs[convId];
+        if (updated && updated.handoffId === handoffId) s.upsertSummaryHistory(convId, { ...updated });
+      }
+      break;
+    }
+    case "recovery_required": {
+      const handoffId = typeof data.handoff_id === "string" ? data.handoff_id : "";
+      if (handoffId) {
+        s.updateSummaryHandoff(convId, handoffId, {
+          status: "recovery",
+          error: "Handoff needs recovery. Original context was preserved.",
+          code: typeof data.code === "string" ? data.code : null,
+        });
+        const updated = useStore.getState().summaryHandoffs[convId];
+        if (updated && updated.handoffId === handoffId) s.upsertSummaryHistory(convId, { ...updated });
+      }
+      break;
+    }
+
     case "knowledge_updated":
       if (Array.isArray(data.knowledgeFiles)) s.setKnowledge(data.knowledgeFiles as KnowledgeFile[]);
       break;

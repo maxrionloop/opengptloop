@@ -987,6 +987,14 @@ export interface StreamRequest {
    * with a Custom Agent or team). Absent → the Main Agent uses its built-in system prompt.
    */
   system_prompt_override?: string;
+  /**
+   * Effective context-window limit (tokens) for the selected model, resolved from
+   * provider catalog metadata or manual entry. Used with provider-reported
+   * prompt_tokens for automatic summarization handoff. Absent = handoff disabled.
+   */
+  context_limit?: number;
+  /** Utilization fraction (0..1) that triggers summarization this turn (server default 90%). */
+  summary_threshold?: number;
 }
 
 /** SSE event payloads emitted by the gptloop agent. */
@@ -1122,6 +1130,45 @@ export interface SSEEventData {
   addressing?: string;
   /** Full channel list mirrored by channels_updated. */
   channels?: unknown[];
+
+  // ---- Automatic context summarization handoff fields ----
+  /** Handoff id owning a summarization job (all summary_* events carry it). */
+  handoff_id?: string;
+  /** Validated summary length in chars (final_summary_validated). */
+  chars?: number;
+  /** Validated summary length for context replacement (main_agent_context_replaced). */
+  summary_chars?: number;
+}
+
+/**
+ * Lifecycle status of one automatic context-summarization handoff for a
+ * conversation. Mirrors the backend HandoffState; the UI never shows success
+ * before SUMMARY_VALIDATED + CONTEXT_REPLACED + RESUMED.
+ */
+export type SummaryHandoffStatus =
+  | "idle"
+  | "pausing"
+  | "paused"
+  | "summarizing"
+  | "validated"
+  | "replaced"
+  | "resumed"
+  | "failed"
+  | "incomplete"
+  | "recovery";
+
+/** Ephemeral live view of a summarization handoff, rebuilt from its SSE stream. */
+export interface SummaryHandoffInfo {
+  handoffId: string;
+  status: SummaryHandoffStatus;
+  /** Accumulated summary output chunks in order (not the validated summary). */
+  streamingText: string;
+  /** Validated final summary (only after final_summary_validated). */
+  finalSummary: string | null;
+  summaryChars: number | null;
+  error: string | null;
+  code: string | null;
+  updatedAt: number;
 }
 
 /**

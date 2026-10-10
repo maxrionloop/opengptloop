@@ -33,6 +33,8 @@ import type {
   Skill,
   SubAgent,
   SubAgentRun,
+  SummaryHandoffInfo,
+  SummaryHandoffStatus,
   TeamAgentBlock,
   TeamAgentRole,
   TeamAgentSegment,
@@ -231,6 +233,15 @@ interface AppState {
   // Scoped for future agents: keyed per conversation today, shaped so per-agent entries can
   // be added later without changing the pipeline.
   contextUsage: Record<string, MainContextUsage>;
+
+  // Automatic context summarization handoff (ephemeral, rebuilt from summary_* SSE
+  // events — live or replayed). Keyed by conversation id; each entry tracks the
+  // latest handoff for that thread. Closing the popup never cancels the backend job.
+  summaryHandoffs: Record<string, SummaryHandoffInfo>;
+  summaryHandoffOpen: boolean;
+  /** Past handoff runs per conversation (latest last), mirrored from terminal events + history API. */
+  summaryHistory: Record<string, SummaryHandoffInfo[]>;
+  summaryHistoryOpen: boolean;
 
   // Hydration from the backend SQLite database
   hydrateFromBackend: (payload: BackendBootPayload) => void;
@@ -585,6 +596,24 @@ interface AppState {
   // Main-agent context meter (latest `context_usage` log per conversation)
   /** Record the latest main-agent context usage for a conversation (from a validated log event). */
   setContextUsage: (convId: string, usage: MainContextUsage) => void;
+
+  // Automatic context summarization handoff (latest summary_* events per conversation)
+  /** Create or reset the handoff view for a new job (idempotent per handoff id). */
+  startSummaryHandoff: (convId: string, handoffId: string, status: SummaryHandoffStatus) => void;
+  /** Append one streaming chunk in order (never used for completion). */
+  appendSummaryChunk: (convId: string, handoffId: string, chunk: string) => void;
+  /** Update status/validated summary/error for a handoff (authoritative backend state). */
+  updateSummaryHandoff: (
+    convId: string,
+    handoffId: string,
+    patch: Partial<Omit<SummaryHandoffInfo, "handoffId">> & { status?: SummaryHandoffStatus },
+  ) => void;
+  setSummaryHandoffOpen: (v: boolean) => void;
+  /** Append/replace one history entry for a conversation (deduplicated by handoff id). */
+  upsertSummaryHistory: (convId: string, entry: SummaryHandoffInfo) => void;
+  /** Replace a conversation's history wholesale (from the history API). */
+  setSummaryHistory: (convId: string, entries: SummaryHandoffInfo[]) => void;
+  setSummaryHistoryOpen: (v: boolean) => void;
 }
 
 const defaultSettings: Settings = {
@@ -867,6 +896,10 @@ export const useStore = create<AppState>()(
       memoryAgentCounts: { queued: 0, running: 0, completed: 0, failed: 0, total: 0 },
       memoryAgentLive: {},
       contextUsage: {},
+      summaryHandoffs: {},
+      summaryHandoffOpen: false,
+      summaryHistory: {},
+      summaryHistoryOpen: false,
 
       hydrateFromBackend: (payload) => {
         const state = payload.state ?? {};
@@ -1189,7 +1222,11 @@ export const useStore = create<AppState>()(
           // Drop the meter reading with the thread so a recycled id can never show stale usage.
           const contextUsage = { ...s.contextUsage };
           delete contextUsage[id];
-          return { conversations, currentId, activeRun, contextUsage };
+          const summaryHandoffs = { ...s.summaryHandoffs };
+          delete summaryHandoffs[id];
+          const summaryHistory = { ...s.summaryHistory };
+          delete summaryHistory[id];
+          return { conversations, currentId, activeRun, contextUsage, summaryHandoffs, summaryHistory };
         }),
 
       renameConversation: (id, title) =>
@@ -2605,5 +2642,112 @@ export const useStore = create<AppState>()(
         set((s) => ({
           contextUsage: { ...s.contextUsage, [convId]: usage },
         })),
+
+      // ---- Automatic context summarization handoff -----------------------------
+      startSummaryHandoff: (convId, handoffId, status) =>
+        set((s) => {
+          const existing = s.summaryHandoffs[convId];
+          if (existing && existing.handoffId === handoffId) {
+            // Same job re-announced (reconnect replay): keep accumulated chunks.
+            if (existing.status === status) return {};
+            return {
+              summaryHandoffs: {
+                ...s.summaryHandoffs,
+                [convId]: { ...existing, status, updatedAt: Date.now() },
+              },
+            };
+          }
+          return {
+            summaryHandoffs: {
+              ...s.summaryHandoffs,
+              [convId]: {
+                handoffId,
+                status,
+                streamingText: "",
+                finalSummary: null,
+                summaryChars: null,
+                error: null,
+                code: null,
+                updatedAt: Date.now(),
+              },
+            },
+          };
+        }),
+      appendSummaryChunk: (convId, handoffId, chunk) =>
+        set((s) => {
+          const existing = s.summaryHandoffs[convId];
+          if (!existing || existing.handoffId !== handoffId) {
+            return {
+              summaryHandoffs: {
+                ...s.summaryHandoffs,
+                [convId]: {
+                  handoffId,
+                  status: "summarizing",
+                  streamingText: chunk,
+                  finalSummary: null,
+                  summaryChars: null,
+                  error: null,
+                  code: null,
+                  updatedAt: Date.now(),
+                },
+              },
+            };
+          }
+          // Once validated, chunks are frozen — late duplicates cannot corrupt it.
+          if (existing.finalSummary !== null) return {};
+          return {
+            summaryHandoffs: {
+              ...s.summaryHandoffs,
+              [convId]: {
+                ...existing,
+                streamingText: existing.streamingText + chunk,
+                updatedAt: Date.now(),
+              },
+            },
+          };
+        }),
+      updateSummaryHandoff: (convId, handoffId, patch) =>
+        set((s) => {
+          const existing = s.summaryHandoffs[convId];
+          if (!existing || existing.handoffId !== handoffId) {
+            return {
+              summaryHandoffs: {
+                ...s.summaryHandoffs,
+                [convId]: {
+                  handoffId,
+                  status: patch.status ?? "summarizing",
+                  streamingText: "",
+                  finalSummary: patch.finalSummary ?? null,
+                  summaryChars: patch.summaryChars ?? null,
+                  error: patch.error ?? null,
+                  code: patch.code ?? null,
+                  updatedAt: Date.now(),
+                },
+              },
+            };
+          }
+          return {
+            summaryHandoffs: {
+              ...s.summaryHandoffs,
+              [convId]: { ...existing, ...patch, updatedAt: Date.now() },
+            },
+          };
+        }),
+      setSummaryHandoffOpen: (v) => set({ summaryHandoffOpen: v }),
+      upsertSummaryHistory: (convId, entry) =>
+        set((s) => {
+          const list = s.summaryHistory[convId] ?? [];
+          const idx = list.findIndex((e) => e.handoffId === entry.handoffId);
+          const next =
+            idx === -1
+              ? [...list.slice(-19), entry]
+              : list.map((e, i) => (i === idx ? { ...e, ...entry } : e));
+          return { summaryHistory: { ...s.summaryHistory, [convId]: next } };
+        }),
+      setSummaryHistory: (convId, entries) =>
+        set((s) => ({
+          summaryHistory: { ...s.summaryHistory, [convId]: entries.slice(-20) },
+        })),
+      setSummaryHistoryOpen: (v) => set({ summaryHistoryOpen: v }),
     }),
 );

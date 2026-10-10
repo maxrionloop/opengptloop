@@ -103,6 +103,22 @@ function parseChatMode(body: StreamBody): boolean {
   return false;
 }
 
+/** Coerce an untrusted context limit into a positive token count, or null (handoff disabled). */
+function sanitizeContextLimit(value: unknown): number | null {
+  const n =
+    typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : NaN;
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.floor(n);
+}
+
+/** Coerce an untrusted per-turn summary threshold into 0..1, or undefined (server default). */
+function sanitizeSummaryThreshold(value: unknown): number | undefined {
+  const n =
+    typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : NaN;
+  if (!Number.isFinite(n) || n <= 0 || n > 1) return undefined;
+  return n;
+}
+
 interface StreamBody {
   chat_id?: string;
   user_message?: string;
@@ -190,6 +206,18 @@ interface StreamBody {
    */
   chat_mode?: unknown;
   agent_mode?: unknown;
+  /**
+   * Effective context-window limit (tokens) for the selected model, resolved by
+   * the client from provider catalog metadata or manual entry. Used with the
+   * provider-reported prompt_tokens to compute utilization for automatic
+   * summarization handoff. Absent = handoff disabled (safe).
+   */
+  context_limit?: unknown;
+  /**
+   * Utilization fraction (0..1) that triggers summarization this turn.
+   * Defaults to the server summaryThreshold (90%).
+   */
+  summary_threshold?: unknown;
 }
 
 /**
@@ -746,6 +774,8 @@ export function buildChatRouter(
         composioApiKey,
         connectors: connectorRefs,
         mcpServers: resolveMcpServers(body),
+        contextLimit: sanitizeContextLimit(body.context_limit),
+        summaryThreshold: sanitizeSummaryThreshold(body.summary_threshold),
       };
 
       // Custom Agent mode: when the active agent is a user-created top-level Custom Agent, run this

@@ -45,6 +45,11 @@ import {
 } from "./mcp/index.js";
 import { isMcpManagementTool } from "./tools/mcpManagement.js";
 import { isConnectorManagementTool } from "./tools/connectorManagement.js";
+import {
+  executeHandoff,
+  markResumed,
+  shouldTriggerSummarization,
+} from "./summarization/index.js";
 
 export interface RunAgentRequest {
   chatId: string;
@@ -149,6 +154,18 @@ export interface RunAgentRequest {
    * Secrets stay server-side — the wire carries ids only.
    */
   mcpServers?: McpServerSelection[];
+  /**
+   * Effective context-window limit (tokens) for the selected model, resolved by
+   * the client from provider catalog metadata or manual entry. Used with the
+   * provider-reported prompt_tokens to compute utilization for automatic
+   * summarization handoff. Absent = handoff disabled (safe, never triggers).
+   */
+  contextLimit?: number | null;
+  /**
+   * Utilization fraction (0..1) that triggers summarization handoff this turn.
+   * Defaults to the server summaryThreshold (90%). Per-turn override.
+   */
+  summaryThreshold?: number;
 }
 
 /** Lightweight identity of the Custom Agent handling a turn (see agents/customagent/configuration). */
@@ -473,6 +490,15 @@ export class AgentRunner {
       const visibleAnswer: string[] = [];
       const visibleReasoning: string[] = [];
       let iteration = 0;
+      // Automatic summarization handoffs may run MULTIPLE times per turn and
+      // across turns in one session: each time utilization reaches the
+      // threshold a new handoff job owns the pause→resume cycle. Only one job
+      // is ever active (the loop awaits it); a failed job blocks further
+      // auto-triggers this turn to avoid an indefinite retry loop, while a
+      // successful replacement resets usage tracking so growth can trigger again.
+      let handoffFailedThisTurn = false;
+      let completedHandoffs = 0;
+      let lastPromptTokens: number | undefined;
 
       // The agent runs with NO iteration cap. `limit: null` signals "unlimited" to any UI listener.
       send("iteration", { current: 0, limit: null });
@@ -562,6 +588,9 @@ export class AgentRunner {
             total_tokens: requestUsage.total_tokens,
             iteration,
           });
+          if (typeof requestUsage.prompt_tokens === "number") {
+            lastPromptTokens = requestUsage.prompt_tokens;
+          }
         }
 
         const hasToolCalls = toolCalls.some((c) => c.function.name) || finishReason === "tool_calls";
@@ -719,6 +748,57 @@ export class AgentRunner {
           // contiguous tool messages immediately following the assistant tool_calls.
           for (const imageMessage of imageMessages) {
             session.messages.push(imageMessage);
+          }
+
+          // Automatic context handoff: the current iteration's tools have fully
+          // completed (no in-flight result is discarded), so this is the safe
+          // pause point before the next LLM generation. May run multiple times
+          // per session whenever utilization reaches the threshold again.
+          if (!handoffFailedThisTurn) {
+            const contextLimit =
+              typeof request.contextLimit === "number" ? request.contextLimit : null;
+            const threshold = request.summaryThreshold ?? this.config.summaryThreshold ?? 0.9;
+            if (shouldTriggerSummarization(lastPromptTokens, contextLimit, { threshold })) {
+              const handoffOutcome = await executeHandoff({
+                chatId: request.chatId,
+                messages: session.messages,
+                systemPrompt,
+                memoryActive: (memoryRuntime?.files.length ?? 0) > 0,
+                knowledgeActive: (knowledgeRuntime?.files.length ?? 0) > 0,
+                provider,
+                model: request.model,
+                apiKey: request.apiKey,
+                baseUrl: request.baseUrl,
+                temperature: request.temperature,
+                effort: request.effort,
+                signal,
+                send,
+              });
+              if (handoffOutcome.ok && handoffOutcome.replacement) {
+                // Atomic replacement: the active LLM history now contains only
+                // the approved continuation inputs. Old history is dereferenced
+                // and cannot be reloaded by context builders.
+                session.messages = handoffOutcome.replacement;
+                markResumed(handoffOutcome.handoff, send);
+                completedHandoffs += 1;
+                // Fresh usage is required before another handoff: the stale
+                // high reading must not retrigger before the next LLM call.
+                lastPromptTokens = undefined;
+              } else {
+                // Failure preserves the original context for recovery. Never
+                // resume with a missing summary; block further auto-triggers
+                // this turn so a persistently high reading cannot loop forever.
+                // The next user turn may trigger again with fresh context.
+                handoffFailedThisTurn = true;
+                send("recovery_required", {
+                  chat_id: request.chatId,
+                  handoff_id: handoffOutcome.handoff.handoffId,
+                  state: handoffOutcome.state,
+                  code: handoffOutcome.code ?? "handoff_failed",
+                  completed_handoffs: completedHandoffs,
+                });
+              }
+            }
           }
 
           // Observation delivered — loop again so the model can reason about the results.

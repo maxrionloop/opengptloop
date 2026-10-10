@@ -51,6 +51,11 @@ export interface AppConfig {
   memoryAgentEnabled: boolean;
   /** Server default for after how many completed user tasks the memory agent builds memory. */
   memoryAgentInterval: number;
+  /**
+   * Context-utilization fraction (0..1) that triggers automatic summarization
+   * handoff. Default 0.9 (90%). Overridable via SUMMARY_THRESHOLD env.
+   */
+  summaryThreshold?: number;
 }
 
 function parseCorsOrigins(raw: string | undefined): string[] | "*" {
@@ -95,6 +100,12 @@ function parseMemoryAgentInterval(raw: string | undefined): number {
   return Math.min(50, Math.max(1, Math.floor(n)));
 }
 
+function parseSummaryThreshold(raw: string | undefined): number {
+  const n = raw !== undefined && raw.trim() !== "" ? Number(raw) : NaN;
+  if (!Number.isFinite(n) || n <= 0 || n > 1) return 0.9;
+  return n;
+}
+
 export const config: AppConfig = {
   port: Number(process.env.PORT ?? 8787),
   workspaceRoot: resolveWorkspaceRoot(),
@@ -114,6 +125,9 @@ export const config: AppConfig = {
   textOnlyModelPatterns: parsePatterns(process.env.TEXT_ONLY_MODEL_PATTERNS),
   memoryAgentEnabled: parseMemoryAgentEnabled(process.env.MEMORY_AGENT_ENABLED),
   memoryAgentInterval: parseMemoryAgentInterval(process.env.MEMORY_AGENT_INTERVAL),
+  summaryThreshold: parseSummaryThreshold(
+    process.env.SUMMARY_THRESHOLD ?? process.env.CONTEXT_SUMMARY_THRESHOLD,
+  ),
 };
 
 /** Ensure the workspace directory exists so file tools never hit permission/ENOENT errors. */

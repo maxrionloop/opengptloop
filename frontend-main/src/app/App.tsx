@@ -24,6 +24,7 @@ import { FilesPanel } from "@/components/overlays/FilesPanel";
 import { PreviewPanel } from "@/components/overlays/PreviewPanel";
 import { MemoryAgentPanel } from "@/components/overlays/MemoryAgentPanel";
 import { MemoryAgentSessionsPanel } from "@/components/overlays/MemoryAgentSessionsPanel";
+import { SummaryHandoffPanel } from "@/components/chat/SummaryHandoffPanel";
 import { TeamMonitorPanel } from "@/components/overlays/TeamMonitorPanel";
 import { GlobalSearchPanel } from "@/components/overlays/GlobalSearchPanel";
 import { useStore } from "@/store/useStore";
@@ -188,6 +189,7 @@ export function App() {
       <PreviewPanel />
       <MemoryAgentPanel />
       <MemoryAgentSessionsPanel />
+      <SummaryHandoffPanel />
       <TeamMonitorPanel />
     </div>
   );

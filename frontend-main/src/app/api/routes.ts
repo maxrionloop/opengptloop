@@ -489,6 +489,12 @@ export const API_ROUTES = {
     path: "/api/channels/:id/chats/:userKey/new-chat",
     description: "Start a fresh chat for an external user.",
   },
+  summariesHistory: {
+    name: "summaries.history",
+    method: "GET",
+    path: "/api/summaries/history/:chatId",
+    description: "List past automatic context-summarization runs in a session.",
+  },
 } as const satisfies Record<string, ApiRoute>;
 
 export type ApiRouteName = keyof typeof API_ROUTES;

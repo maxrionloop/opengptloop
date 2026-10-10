@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { abortChat } from "@/lib/api";
 import { runChatStream, type StreamPhase, type StreamResult } from "@/lib/chatStream";
-import { isContextLimitRequired, isMainAgentActive } from "@/lib/contextMeter";
+import { isContextLimitRequired, isMainAgentActive, resolveContextLimit } from "@/lib/contextMeter";
 import { StreamBatcher } from "@/lib/streamBatcher";
 import { dispatchStreamEvent } from "@/lib/streamDispatch";
 import { attachLatestMemoryAgentRun } from "@/lib/memoryAgent";
@@ -161,7 +161,6 @@ function buildStartRequest(convId: string, text: string): StreamRequest {
     base_url: settings.baseUrl || undefined,
     custom_provider:
       isCustom && customProvider ? toCustomProviderConfig(customProvider, settings.model) : undefined,
-    // The agent runs with no iteration cap; max_iterations is intentionally omitted (backend ignores it).
     temperature: typeof settings.temperature === "number" ? settings.temperature : undefined,
     effort: settings.effort?.trim() || undefined,
     tavily_api_key: settings.tavilyApiKey || undefined,
@@ -193,6 +192,15 @@ function buildStartRequest(convId: string, text: string): StreamRequest {
     ceo_agent: backendCeo ?? undefined,
     custom_agent: backendCustomAgent,
     system_prompt_override: systemPromptOverride,
+    // Effective context-window limit for automatic summarization handoff:
+    // provider catalog wins, else manual entry. Absent = backend handoff disabled.
+    context_limit:
+      resolveContextLimit(
+        store.models,
+        settings.provider,
+        settings.model,
+        settings.manualContextLimits,
+      ).limit ?? undefined,
   };
 }
 

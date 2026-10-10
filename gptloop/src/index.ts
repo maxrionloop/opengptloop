@@ -25,6 +25,7 @@ import { buildMainAgentPromptsRouter } from "./api/mainagentprompts.js";
 import { buildPromptLibraryRouter } from "./api/promptlibrary.js";
 import { buildSchedulesRouter } from "./api/schedules.js";
 import { buildChannelsRouter } from "./api/channels.js";
+import { buildSummaryRouter } from "./api/summaries.js";
 import { ScheduleStore } from "./cron/store.js";
 import { ScheduleRunner } from "./cron/runner.js";
 import { ScheduleScheduler } from "./cron/scheduler.js";
@@ -219,6 +220,7 @@ function main(): void {
   app.use("/api/mcp", buildMcpRouter(mcp));
   app.use("/api/schedules", buildSchedulesRouter(scheduleStore, scheduler, db, customAgents));
   app.use("/api/channels", buildChannelsRouter(channels, customAgents));
+  app.use("/api/summaries", buildSummaryRouter());
 
   const server = app.listen(config.port, () => {
     // eslint-disable-next-line no-console
