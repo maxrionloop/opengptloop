@@ -201,6 +201,41 @@ export class MultiAgentRunner {
       session.updatedAt = Date.now();
     }
   }
+
+  /**
+   * Raw context for one team agent (leader/member) in a chat: its persistent
+   * conversation + the system prompt it last ran with. Returns null when the
+   * chat has no team session or the agent id is unknown. Powers the context
+   * popup's per-agent raw view (team section, runned agents only).
+   */
+  agentContext(
+    chatId: string,
+    agentId: string,
+  ): { systemPrompt: string; messages: import("../../services/sessionStore.js").StoredMessage[] } | null {
+    try {
+      const session = this.store.get(chatId);
+      if (!session) return null;
+      const ctx = session.contexts.get(agentId.trim().toLowerCase());
+      if (!ctx) return null;
+      return {
+        systemPrompt: ctx.systemPrompt,
+        messages: ctx.messages.map((m) => ({ ...m })),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Agent ids with a persisted team context in a chat (for raw-view discovery). */
+  agentIds(chatId: string): string[] {
+    try {
+      const session = this.store.get(chatId);
+      if (!session) return [];
+      return [...session.contexts.values()].map((c) => c.id);
+    } catch {
+      return [];
+    }
+  }
 }
 
 function messageOf(error: unknown): string {

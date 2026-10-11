@@ -127,6 +127,19 @@ export class ScheduleRunner {
   constructor(private readonly deps: ScheduleRunnerDeps) {}
 
   /**
+   * Latest captured `context_usage` per schedule (from the most recent finished run).
+   * Powers the Schedules dashboard meter + raw-context view. In-memory only:
+   * a restart clears it (raw schedule prompt stays available, usage shows as
+   * unavailable until the next run) — same posture as channels.
+   */
+  private readonly lastUsage = new Map<string, Record<string, unknown>>();
+
+  /** Latest captured context usage for a schedule, if any run has reported it. */
+  lastContextUsage(scheduleId: string): Record<string, unknown> | null {
+    return this.lastUsage.get(scheduleId) ?? null;
+  }
+
+  /**
    * Execute one run of `schedule` to completion and record the outcome.
    * Never throws — failures are recorded on the run row and the schedule.
    */
@@ -161,7 +174,13 @@ export class ScheduleRunner {
 
     // Collect the streamed outcome alongside execution (message_complete
     // carries the final answer; error events carry provider failures).
-    const collector = collectOutcome(buffer);
+    const collector = collectOutcome(buffer, (usage) => {
+      try {
+        this.lastUsage.set(schedule.id, usage);
+      } catch {
+        // Meter capture must never break the run.
+      }
+    });
     let outcome: ExecuteOutcome;
     try {
       const ctx = this.resolveContext(schedule);
@@ -402,6 +421,7 @@ export class ScheduleRunner {
 /** Collect the final answer / terminal state from a run's event buffer. */
 async function collectOutcome(
   buffer: SessionEventBuffer,
+  onUsage?: (usage: Record<string, unknown>) => void,
 ): Promise<{ ok: boolean; output: string; error?: string }> {
   let output = "";
   let ok = true;
@@ -411,6 +431,17 @@ async function collectOutcome(
       const data = event.data as Record<string, unknown>;
       if (event.event === "message_complete" && typeof data.content === "string") {
         output = data.content;
+      } else if (event.event === "context_usage") {
+        // Capture the latest top-level usage for the schedule meter. Sub/team
+        // scopes are ignored here (schedule runs are single-agent turns).
+        try {
+          const scope = typeof data.agent === "string" ? data.agent.trim().toLowerCase() : "";
+          if (scope === "main" || scope === "custom" || scope === "chat") {
+            onUsage?.({ ...data });
+          }
+        } catch {
+          // Meter capture must never break the run.
+        }
       } else if (event.event === "error" && typeof data.message === "string") {
         ok = false;
         error = data.message;

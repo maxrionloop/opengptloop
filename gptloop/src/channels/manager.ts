@@ -121,6 +121,15 @@ export class ChannelManager {
     return this.deps.db;
   }
 
+  /** Latest captured context usage for a channel chat (null when no turn has reported yet). */
+  lastChatContextUsage(chatId: string): Record<string, unknown> | null {
+    try {
+      return this.runner.lastContextUsage(chatId);
+    } catch {
+      return null;
+    }
+  }
+
   // ---- Dashboard surface ------------------------------------------------------
 
   listPublic(): ChannelConnectionPublic[] {

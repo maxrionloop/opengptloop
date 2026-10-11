@@ -2,6 +2,8 @@ import { Router, type Request, type Response } from "express";
 import type { ChannelManager } from "../channels/index.js";
 import type { CustomAgentManager } from "../agents/customagent/index.js";
 import { isSafeSessionId } from "../database/index.js";
+import { buildSystemPrompt } from "../agents/systemprompt.js";
+import { buildChannelSystemSection } from "../agents/tools/sendResponses.js";
 
 /**
  * Channels API — messaging-channel adapters (Telegram / Discord / Slack).
@@ -131,6 +133,79 @@ export function buildChannelsRouter(
         has_tools: Array.isArray(m.tool_calls) && m.tool_calls.length > 0,
       }));
     res.json({ ok: true, chat_id: chatId, messages });
+  });
+
+  /**
+   * Raw context + meter for one channel chat: the provider-format transcript
+   * (untruncated, from channel_messages) plus the resolved system prompt the
+   * channel turn runs with (Default or the chat's Custom Agent + channel rules),
+   * and the latest captured `context_usage` for the meter (null until a turn
+   * reports). Powers the Channels dashboard context popup (limit + raw view).
+   * Never throws for transcript reads.
+   */
+  router.get("/:id/chats/:chatId/context", (req: Request, res: Response) => {
+    const chatId = String(req.params.chatId);
+    if (!isSafeSessionId(chatId)) {
+      err(res, 400, "Invalid chat id.");
+      return;
+    }
+    const db = manager.db;
+    const chat = db.channelChats.get(chatId);
+    if (!chat || chat.channelId !== String(req.params.id)) {
+      err(res, 404, "Chat not found.");
+      return;
+    }
+    const connection = manager.store.get(chat.channelId);
+    let messages: unknown[] = [];
+    try {
+      messages = db.channelMessages.list(chatId).map((m) => ({ ...m }));
+    } catch {
+      messages = [];
+    }
+    // Resolve the system prompt the same way the runner does: Custom Agent's
+    // own prompt when the chat serves one, else the built-in Main Agent prompt —
+    // plus the channel rules section.
+    let systemPrompt: string | null = null;
+    let systemPromptSource: "custom" | "builtin" = "builtin";
+    try {
+      const custom = chat.agentId ? customAgents.get(chat.agentId) ?? null : null;
+      if (custom && custom.systemPrompt.trim().length > 0) {
+        systemPrompt = custom.systemPrompt;
+        systemPromptSource = "custom";
+      } else {
+        systemPrompt = buildSystemPrompt(process.cwd(), {});
+      }
+      if (connection) {
+        const section = buildChannelSystemSection({
+          kind: connection.kind,
+          channelName: connection.name,
+          userLabel: chat.userLabel,
+        });
+        systemPrompt = systemPrompt ? `${systemPrompt}\n\n${section}` : section;
+      }
+    } catch {
+      // keep null — raw transcript still served
+    }
+    let usage: Record<string, unknown> | null = null;
+    try {
+      usage = manager.lastChatContextUsage(chatId);
+    } catch {
+      usage = null;
+    }
+    res.json({
+      ok: true,
+      chat_id: chatId,
+      channel_id: chat.channelId,
+      agent_id: chat.agentId,
+      agent_name: agentName(customAgents, chat.agentId),
+      systemPrompt,
+      systemPromptSource,
+      messages,
+      source: messages.length > 0 ? "persisted" : "empty",
+      messageCount: messages.length,
+      usage,
+      fetchedAt: Date.now(),
+    });
   });
 
   /** Switch the agent serving one existing chat. Body: { agentId: string | null }. */

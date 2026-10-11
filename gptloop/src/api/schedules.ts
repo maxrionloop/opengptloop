@@ -12,6 +12,7 @@ import { toRecurrence } from "../cron/store.js";
 import { isSafeSessionId } from "../database/index.js";
 import type { GptLoopDatabase } from "../database/index.js";
 import type { CustomAgentManager } from "../agents/customagent/index.js";
+import { buildSystemPrompt } from "../agents/systemprompt.js";
 
 /**
  * Schedules API — CRUD + execution control for the persistent cron system.
@@ -215,6 +216,67 @@ export function buildSchedulesRouter(
       return;
     }
     res.json({ ok: true, run });
+  });
+
+  /**
+   * Raw context + meter for one schedule: the task prompt as the user message
+   * plus the resolved system prompt the scheduled run executes with (Default or
+   * the schedule's Custom Agent), and the latest captured `context_usage` for
+   * the meter (null until a run reports). Schedule runs use ephemeral sessions,
+   * so the transcript is the schedule prompt itself — the raw view shows exactly
+   * what the agent receives. Powers the Schedules history context popup
+   * (limit + raw view). Never throws.
+   */
+  router.get("/:id/context", (req: Request, res: Response) => {
+    const id = String(req.params.id);
+    if (!isSafeSessionId(id)) {
+      err(res, 400, "Invalid schedule id.");
+      return;
+    }
+    const schedule = store.get(id);
+    if (!schedule) {
+      err(res, 404, "Schedule not found.");
+      return;
+    }
+    let systemPrompt: string | null = null;
+    let systemPromptSource: "custom" | "builtin" = "builtin";
+    try {
+      if (schedule.agentType === "custom" && schedule.customAgentId) {
+        const custom = customAgents.get(schedule.customAgentId) ?? null;
+        if (custom && custom.systemPrompt.trim().length > 0) {
+          systemPrompt = custom.systemPrompt;
+          systemPromptSource = "custom";
+        } else {
+          systemPrompt = buildSystemPrompt(process.cwd(), {});
+        }
+      } else {
+        systemPrompt = buildSystemPrompt(process.cwd(), {});
+      }
+    } catch {
+      systemPrompt = null;
+    }
+    const messages = [{ role: "user", content: schedule.prompt }];
+    let usage: Record<string, unknown> | null = null;
+    try {
+      usage = scheduler.lastContextUsage(id);
+    } catch {
+      usage = null;
+    }
+    res.json({
+      ok: true,
+      schedule_id: schedule.id,
+      schedule_name: schedule.name,
+      agent_type: schedule.agentType,
+      provider: schedule.provider,
+      model: schedule.model,
+      systemPrompt,
+      systemPromptSource,
+      messages,
+      source: "persisted",
+      messageCount: messages.length,
+      usage,
+      fetchedAt: Date.now(),
+    });
   });
 
   return router;

@@ -54,6 +54,15 @@ export interface TeamAgentLoopParams {
   /** Emit an SSE event already stamped with this agent's id/role. */
   send: (event: string, data: Record<string, unknown>) => void;
   signal?: AbortSignal;
+  /**
+   * Usage scope tag for the context meter: "team" for ordinary team runs,
+   * "ceo" for CEO-system runs (CEO + leaders + members under a CEO).
+   * Defaults to "team". The `send` wrapper already stamps `agent_id`/`role`,
+   * so the frontend can attribute usage to the exact leader/member/CEO.
+   */
+  usageScope?: "team" | "ceo";
+  /** Provider id snapshot for display (when known). */
+  providerId?: string;
 }
 
 /**
@@ -78,6 +87,7 @@ export async function runTeamAgentLoop(params: TeamAgentLoopParams): Promise<Tea
       const reasoningParts: string[] = [];
       let toolCalls: ToolCall[] = [];
       let finishReason: string | null = null;
+      let requestUsage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null = null;
 
       try {
         const stream = provider.streamChatCompletion({
@@ -104,11 +114,27 @@ export async function runTeamAgentLoop(params: TeamAgentLoopParams): Promise<Tea
           }
           if (delta.toolCalls) toolCalls = mergeToolCalls(toolCalls, delta.toolCalls);
           if (delta.finishReason) finishReason = delta.finishReason;
+          const usage = sanitizeTeamUsage(delta.usage);
+          if (usage) requestUsage = usage;
         }
       } catch (error) {
         if (signal?.aborted) return { ok: false, aborted: true, output: "" };
         const message = `Provider error: ${messageOf(error)}`;
         return { ok: false, aborted: false, output: "", error: message };
+      }
+
+      // Context meter signal for this team/CEO agent run. `send` is already
+      // stamped with `agent_id`/`role` by the orchestrator, so the frontend can
+      // attribute this usage to the exact leader/member/CEO.
+      if (requestUsage) {
+        send("context_usage", {
+          agent: params.usageScope ?? "team",
+          model: params.model,
+          ...(params.providerId ? { provider: params.providerId } : {}),
+          prompt_tokens: requestUsage.prompt_tokens,
+          completion_tokens: requestUsage.completion_tokens,
+          total_tokens: requestUsage.total_tokens,
+        });
       }
 
       const namedCalls = toolCalls.filter((c) => c.function.name);
@@ -220,6 +246,28 @@ function buildProviderMessages(
 
 function normalize(text: string): string {
   return text.replace(/\r\n/g, "\n");
+}
+
+/**
+ * Sanitize a provider-reported usage payload for team/CEO agent runs.
+ * Returns cleaned usage when at least one count is present, else null.
+ * Never throws.
+ */
+function sanitizeTeamUsage(
+  raw: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null | undefined,
+): { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const num = (v: unknown): number | undefined => {
+    const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined;
+  };
+  const prompt_tokens = num((raw as Record<string, unknown>).prompt_tokens);
+  const completion_tokens = num((raw as Record<string, unknown>).completion_tokens);
+  const total_tokens = num((raw as Record<string, unknown>).total_tokens);
+  if (prompt_tokens === undefined && completion_tokens === undefined && total_tokens === undefined) {
+    return null;
+  }
+  return { prompt_tokens, completion_tokens, total_tokens };
 }
 
 function messageOf(error: unknown): string {

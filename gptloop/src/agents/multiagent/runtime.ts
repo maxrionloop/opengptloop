@@ -443,6 +443,8 @@ export class TeamOrchestrator {
       baseUrl: this.deps.baseUrl,
       temperature: this.deps.temperature,
       effort: this.deps.effort,
+      usageScope: "team" as const,
+      providerId: this.deps.providerId,
     };
 
     if (actor.context.role === "leader") {

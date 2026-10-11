@@ -3,6 +3,7 @@ import {
   CalendarClock,
   Check,
   Copy,
+  Gauge,
   History,
   Loader2,
   Pencil,
@@ -15,6 +16,17 @@ import {
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { MAIN_AGENT_ID } from "@/lib/customAgents";
+import {
+  catalogContextLimit,
+  contextPercent,
+  formatTokenCompact,
+  formatTokenCount,
+  resolveContextLimit,
+} from "@/lib/contextMeter";
+import {
+  fetchScheduleRawContext,
+  type ScheduleRawContext,
+} from "@/lib/rawContext";
 import {
   SCHEDULE_KINDS,
   WEEKDAY_LABELS,
@@ -280,6 +292,7 @@ function ScheduleCard({
   const style = STATUS_STYLE[schedule.status];
   const agentLabel =
     schedule.agentType === "custom" ? "Custom agent" : "Default agent";
+  const [contextOpen, setContextOpen] = useState(false);
   return (
     <li>
       <article
@@ -354,6 +367,9 @@ function ScheduleCard({
           <Button variant="ghost" className="px-2 py-1.5 text-xs" onClick={onHistory}>
             <History className="h-3.5 w-3.5" /> History
           </Button>
+          <Button variant="ghost" className="px-2 py-1.5 text-xs" onClick={() => setContextOpen(true)}>
+            <Gauge className="h-3.5 w-3.5" /> Context
+          </Button>
           <Button variant="ghost" className="px-2 py-1.5 text-xs" onClick={onEdit}>
             <Pencil className="h-3.5 w-3.5" /> Edit
           </Button>
@@ -370,6 +386,7 @@ function ScheduleCard({
           </Button>
         </div>
       </article>
+      {contextOpen && <ScheduleContextModal schedule={schedule} onClose={() => setContextOpen(false)} />}
     </li>
   );
 }
@@ -1065,6 +1082,202 @@ function AgentPicker({
           </ul>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Schedule context popup: limit (provider catalog wins, else the custom
+ * user-added manual limit) + latest run usage tokens + raw task prompt/system prompt.
+ * Usage is null until a run reports — the raw schedule prompt stays viewable regardless.
+ */
+function ScheduleContextModal({ schedule, onClose }: { schedule: Schedule; onClose: () => void }) {
+  const models = useStore((s) => s.models);
+  const modelsLoading = useStore((s) => s.modelsLoading);
+  const settings = useStore((s) => s.settings);
+  const [data, setData] = useState<ScheduleRawContext | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    fetchScheduleRawContext(schedule.id)
+      .then((ctx) => {
+        if (!cancelled) setData(ctx);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [schedule.id]);
+
+  return (
+    <Modal open onClose={onClose} title={`Context — ${schedule.name}`} size="lg">
+      <ScheduleContextBody
+        data={data}
+        loading={loading}
+        error={error}
+        copied={copied}
+        setCopied={setCopied}
+        models={models}
+        modelsLoading={modelsLoading}
+        settings={settings}
+      />
+    </Modal>
+  );
+}
+
+function ScheduleContextBody({
+  data,
+  loading,
+  error,
+  copied,
+  setCopied,
+  models,
+  modelsLoading,
+  settings,
+}: {
+  data: ScheduleRawContext | null;
+  loading: boolean;
+  error: string | null;
+  copied: boolean;
+  setCopied: (v: boolean) => void;
+  models: { provider: string; id: string; context_window?: number | null }[];
+  modelsLoading: boolean;
+  settings: { provider: string; model: string; manualContextLimits?: Record<string, number> };
+}) {
+  const { limit, source } = resolveContextLimit(
+    models,
+    settings.provider,
+    settings.model,
+    settings.manualContextLimits,
+  );
+  const catalogLimit = catalogContextLimit(models, settings.provider, settings.model);
+  const needsManual =
+    settings.model.trim().length > 0 && !modelsLoading && catalogLimit === null;
+
+  const promptTokens = useMemo(() => {
+    try {
+      const u = data?.usage as Record<string, unknown> | null | undefined;
+      const n = typeof u?.prompt_tokens === "number" ? u.prompt_tokens : Number(u?.prompt_tokens);
+      return Number.isFinite(n) && (n as number) >= 0 ? Math.floor(n as number) : null;
+    } catch {
+      return null;
+    }
+  }, [data]);
+
+  const pct = promptTokens !== null ? contextPercent(promptTokens, limit) : null;
+  const rawText = useMemo(() => {
+    if (!data) return "";
+    try {
+      return JSON.stringify(
+        {
+          scheduleId: data.scheduleId,
+          scheduleName: data.scheduleName,
+          source: data.source,
+          systemPromptSource: data.systemPromptSource,
+          systemPrompt: data.systemPrompt,
+          messageCount: data.messageCount,
+          messages: data.messages,
+          usage: data.usage ?? null,
+        },
+        null,
+        2,
+      );
+    } catch {
+      return "{}";
+    }
+  }, [data]);
+
+  const copy = async () => {
+    if (!rawText) return;
+    try {
+      await navigator.clipboard.writeText(rawText);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  if (loading) {
+    return <p className="m-0 p-5 text-sm text-[var(--muted)]">Loading this schedule's context…</p>;
+  }
+  if (error) {
+    return <p className="m-0 p-5 text-sm text-[var(--danger)]">{error}</p>;
+  }
+  if (!data) {
+    return <p className="m-0 p-5 text-sm text-[var(--muted)]">No context available.</p>;
+  }
+  return (
+    <div className="space-y-3 p-5">
+      <div className="flex items-center gap-2">
+        <Gauge className="h-4 w-4 text-[var(--secondary)]" />
+        <h3 className="m-0 text-sm font-semibold">Context usage</h3>
+      </div>
+      {promptTokens !== null ? (
+        <>
+          <p className="m-0 text-2xl font-semibold tabular-nums">
+            {formatTokenCount(promptTokens)} <span className="text-sm font-normal text-[var(--muted)]">tokens</span>
+          </p>
+          {pct !== null && limit != null ? (
+            <>
+              <p className="m-0 text-xs tabular-nums text-[var(--muted)]">
+                of {formatTokenCount(limit)} ({pct}%){source === "manual" ? " · manual" : ""}
+              </p>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--chip)]">
+                <div
+                  className={cn(
+                    "h-full rounded-full",
+                    pct >= 90 ? "bg-[var(--danger)]" : pct >= 70 ? "bg-[var(--warning)]" : "bg-[var(--secondary)]",
+                  )}
+                  style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
+                />
+              </div>
+            </>
+          ) : needsManual ? (
+            <p className="m-0 text-xs text-[var(--warning)]">
+              No context limit published for this model — enter it in Settings to show a percentage.
+            </p>
+          ) : (
+            <p className="m-0 text-xs text-[var(--subtle)]">
+              {formatTokenCompact(promptTokens)} tokens · limit unknown — showing tokens only.
+            </p>
+          )}
+        </>
+      ) : (
+        <p className="m-0 text-xs leading-relaxed text-[var(--muted)]">
+          No usage reported yet — it appears after this schedule's next run. The raw task prompt below
+          is still viewable.
+        </p>
+      )}
+      <pre className="max-h-[46vh] overflow-auto whitespace-pre-wrap break-words rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--chip)] p-3 font-mono text-[11px] leading-relaxed">
+        {rawText}
+      </pre>
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" onClick={() => void copy()}>
+          {copied ? (
+            <>
+              <Check className="h-4 w-4" /> Copied
+            </>
+          ) : (
+            <>
+              <Copy className="h-4 w-4" /> Copy raw JSON
+            </>
+          )}
+        </Button>
+      </div>
+      <p className="m-0 text-[11px] text-[var(--subtle)]">
+        Raw scheduled inputs (system prompt + task prompt + latest usage), exactly as stored.
+      </p>
     </div>
   );
 }

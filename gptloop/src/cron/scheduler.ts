@@ -64,6 +64,15 @@ export class ScheduleScheduler {
     return this.inFlight.size;
   }
 
+  /** Latest captured context usage for a schedule (null when no run has reported yet). */
+  lastContextUsage(scheduleId: string): Record<string, unknown> | null {
+    try {
+      return this.deps.runner.lastContextUsage(scheduleId);
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * Load all active schedules and start the background loop. Resets stale
    * running flags, repairs stale next-run times, and catch-ups overdue

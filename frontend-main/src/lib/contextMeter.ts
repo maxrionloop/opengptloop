@@ -6,6 +6,9 @@ import { MAIN_AGENT_ID } from "@/lib/customAgents";
 
 /** Scope tag carried by `context_usage` log events (see backend agents/agent.ts). */
 export const MAIN_AGENT_SCOPE = "main" as const;
+/** All meter scopes the popup understands (main/custom/chat + per-agent scopes). */
+export const CONTEXT_SCOPES = ["main", "custom", "chat", "sub_agent", "team", "ceo"] as const;
+export type ContextScope = (typeof CONTEXT_SCOPES)[number];
 
 /**
  * Minimal store shape needed to decide whether the built-in Main Agent is the agent
@@ -50,16 +53,19 @@ function cleanCount(value: unknown): number | undefined {
 
 /**
  * Validate + normalize a raw `context_usage` log-event payload into store-ready usage.
- * Returns null for anything that must not be displayed: wrong scope (custom/sub/team
- * agents), missing prompt count with no fallback, or malformed counts. Never throws.
+ * Returns null for anything that must not be displayed: wrong scope (unknown agents),
+ * missing prompt count with no fallback, or malformed counts. Never throws.
  * Separation point between token-data extraction and popup presentation.
+ *
+ * Back-compat: with no `scope` argument this only accepts the main scope (existing
+ * callers unchanged). Pass a scope to accept exactly that scope instead.
  */
-export function normalizeContextUsageEvent(data: SSEEventData): Omit<MainContextUsage, "updatedAt"> | null {
+export function normalizeContextUsageEvent(data: SSEEventData, scope: string = MAIN_AGENT_SCOPE): Omit<MainContextUsage, "updatedAt"> | null {
   try {
-    const scope = typeof data.agent === "string" ? data.agent.trim().toLowerCase() : "";
-    // Only the main agent's log feeds the meter. Other scopes ("custom", ...) are valid
-    // log data for future agents — ignored here, never shown as main-agent usage.
-    if (scope !== MAIN_AGENT_SCOPE) return null;
+    const eventScope = typeof data.agent === "string" ? data.agent.trim().toLowerCase() : "";
+    // Only the requested scope feeds its meter section. Other scopes are valid log
+    // data for their own sections — ignored here, never shown as this scope's usage.
+    if (eventScope !== scope.trim().toLowerCase()) return null;
     const promptTokens = cleanCount(data.prompt_tokens);
     // Without a prompt count there is no current-context size to show. Completion-only
     // payloads are not a substitute (they measure output, not context).
@@ -77,6 +83,55 @@ export function normalizeContextUsageEvent(data: SSEEventData): Omit<MainContext
     }
     const iteration = cleanCount(data.iteration);
     if (iteration !== undefined) out.iteration = iteration;
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Normalize a sub-agent `context_usage` event into a meter entry with its runned
+ * session identity (`sub_session_id` + display name). Null when the payload is not
+ * a usable sub-agent usage (wrong scope, missing ids/counts). Never throws.
+ */
+export function normalizeSubAgentUsageEvent(
+  data: SSEEventData,
+): (Omit<MainContextUsage, "updatedAt"> & { subSessionId: string; subAgentName?: string }) | null {
+  try {
+    const base = normalizeContextUsageEvent(data, "sub_agent");
+    if (!base) return null;
+    const subSessionId = typeof data.sub_session_id === "string" ? data.sub_session_id.trim() : "";
+    if (!subSessionId) return null;
+    const out = base as Omit<MainContextUsage, "updatedAt"> & { subSessionId: string; subAgentName?: string };
+    out.subSessionId = subSessionId;
+    if (typeof data.sub_agent === "string" && data.sub_agent.trim().length > 0) {
+      out.subAgentName = data.sub_agent.trim().slice(0, 120);
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Normalize a team/CEO `context_usage` event into a meter entry with its agent
+ * identity (`agent_id` + role). `scope` must be "team" or "ceo". Null when unusable.
+ * Never throws.
+ */
+export function normalizeTeamUsageEvent(
+  data: SSEEventData,
+  scope: "team" | "ceo",
+): (Omit<MainContextUsage, "updatedAt"> & { agentId: string; role?: string }) | null {
+  try {
+    const base = normalizeContextUsageEvent(data, scope);
+    if (!base) return null;
+    const agentId = typeof data.agent_id === "string" ? data.agent_id.trim() : "";
+    if (!agentId) return null;
+    const out = base as Omit<MainContextUsage, "updatedAt"> & { agentId: string; role?: string };
+    out.agentId = agentId;
+    if (typeof data.role === "string" && data.role.trim().length > 0) {
+      out.role = data.role.trim().slice(0, 40);
+    }
     return out;
   } catch {
     return null;

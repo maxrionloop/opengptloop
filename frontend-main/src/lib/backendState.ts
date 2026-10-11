@@ -38,6 +38,18 @@ export interface BackendSessionDetail {
    * the client's `normalizeContextUsageEvent` validates it exactly like a live event.
    */
   contextUsage?: unknown;
+  /**
+   * All scopes' latest usages (main/custom/chat + per sub-agent/team/CEO agent) for the
+   * context popup. Only runned agents appear. Additive — old payloads omit it.
+   */
+  contextUsages?: {
+    main?: unknown;
+    custom?: unknown;
+    chat?: unknown;
+    sub_agents?: Record<string, unknown>;
+    team?: Record<string, unknown>;
+    ceo?: Record<string, unknown>;
+  };
 }
 
 /** Load the entire application state from the backend database (boot hydration). */

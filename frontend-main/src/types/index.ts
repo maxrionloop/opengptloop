@@ -1101,7 +1101,7 @@ export interface SSEEventData {
   to?: string;
   kind?: TeamMessageKind;
 
-  // ---- context_usage fields (main-agent context meter) ----
+  // ---- context_usage fields (multi-scope context meter) ----
   /**
    * context_usage: per-request token usage reported by the provider for the current
    * request. `prompt_tokens` is the current context size of that request (system +
@@ -1111,13 +1111,19 @@ export interface SSEEventData {
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
-  /** context_usage: top-level agent scope tag ("main" | "custom"); other agents never emit this event. */
+  /**
+   * context_usage: agent scope tag ("main" | "custom" | "chat" | "sub_agent" |
+   * "team" | "ceo"). The meter routes each scope to its own section; unknown scopes
+   * are ignored (never shown as another agent's usage).
+   */
   // NOTE: `agent` above is reused as the scope tag for context_usage (event name disambiguates).
   /** context_usage: provider id + model id serving the request (for display only). */
   provider?: string;
   model?: string;
   /** context_usage: the agent-loop iteration that produced this usage. */
   iteration?: number;
+  /** context_usage (sub_agent scope): display name of the sub-agent that ran. */
+  sub_agent?: string;
 
   // ---- Communication-channel fields ----
   /** channel_connection_request / channel tool results: the channel kind (telegram/discord/slack). */
@@ -1172,11 +1178,12 @@ export interface SummaryHandoffInfo {
 }
 
 /**
- * The main agent's current context-token usage for one conversation, derived from the
- * latest `context_usage` log event (see SSEEventData). `promptTokens` is the current
- * context size of the latest provider request — NOT a cumulative total across requests.
- * A missing record (no entry for the conversation) means "unavailable", which the UI
- * must distinguish from a legitimate zero-token count.
+ * One agent's current context-token usage for a conversation, derived from the
+ * latest `context_usage` log event of its scope (see SSEEventData). `promptTokens`
+ * is the current context size of the latest provider request — NOT a cumulative
+ * total. A missing record means "unavailable" (never ran / provider silent),
+ * distinct from a legitimate zero-token count. Shared by main/custom/chat and by
+ * every per-agent entry (sub-agents, team, CEO, channels, schedules).
  */
 export interface MainContextUsage {
   /** Current context size (prompt tokens of the latest request). Always a finite >= 0 number. */
@@ -1192,6 +1199,21 @@ export interface MainContextUsage {
   iteration?: number;
   /** Epoch ms when this usage was recorded. */
   updatedAt: number;
+}
+
+/** Alias for per-agent meter entries (sub-agents, team members, CEO, channels, schedules). */
+export type AgentContextUsage = MainContextUsage;
+
+/** One runned sub-agent's meter entry: usage + identity for the raw view. */
+export interface SubAgentContextEntry extends AgentContextUsage {
+  subSessionId: string;
+  subAgentName?: string;
+}
+
+/** One team/CEO agent's meter entry: usage + identity/role for the raw view. */
+export interface TeamAgentContextEntry extends AgentContextUsage {
+  agentId: string;
+  role?: string;
 }
 
 /** Lifecycle states of a background memory-agent run. */

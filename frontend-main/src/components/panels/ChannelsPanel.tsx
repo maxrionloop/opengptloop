@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Check,
   ChevronDown,
+  Copy,
+  Gauge,
   Loader2,
   MessagesSquare,
   Pencil,
@@ -35,6 +37,17 @@ import {
 } from "@/lib/channels";
 import { MAIN_AGENT_ID } from "@/lib/customAgents";
 import { Modal } from "@/components/ui/Modal";
+import {
+  catalogContextLimit,
+  contextPercent,
+  formatTokenCompact,
+  formatTokenCount,
+  resolveContextLimit,
+} from "@/lib/contextMeter";
+import {
+  fetchChannelRawContext,
+  type ChannelRawContext,
+} from "@/lib/rawContext";
 import {
   Button,
   EmptyState,
@@ -612,6 +625,7 @@ function ChannelDashboard({ channelId }: { channelId: string }) {
 function ChatHistory({ channelId, chat }: { channelId: string; chat: ChannelChat }) {
   const [messages, setMessages] = useState<ChannelChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
+  const [contextOpen, setContextOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -639,34 +653,267 @@ function ChatHistory({ channelId, chat }: { channelId: string; chat: ChannelChat
   const visible = messages.filter(
     (m) => (m.role === "user" || m.role === "assistant") && (m.text.trim() || m.has_tools),
   );
-  if (visible.length === 0) {
-    return (
-      <p className="m-0 border-t border-[var(--border)] bg-[var(--chip)] px-3 py-3 text-[11px] text-[var(--muted)]">
-        No messages yet.
-      </p>
-    );
-  }
 
   return (
-    <ul className="m-0 max-h-72 list-none space-y-2 overflow-y-auto border-t border-[var(--border)] bg-[var(--chip)] p-2.5">
-      {visible.map((m) => (
-        <li
-          key={m.seq}
-          className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}
+    <div className="border-t border-[var(--border)] bg-[var(--chip)]">
+      <div className="flex items-center gap-2 px-3 py-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--subtle)]">
+          History · {visible.length} message{visible.length === 1 ? "" : "s"}
+        </span>
+        <button
+          type="button"
+          onClick={() => setContextOpen(true)}
+          title="View this chat's context limit and raw context"
+          className="ml-auto inline-flex items-center gap-1 rounded-full bg-[var(--bg)] px-2 py-1 text-[10px] font-medium text-[var(--muted)] transition-colors hover:text-[var(--fg)]"
         >
-          <div
-            className={cn(
-              "max-w-[90%] whitespace-pre-wrap break-words rounded-[var(--radius-md)] px-2.5 py-1.5 text-[11px] leading-relaxed",
-              m.role === "user"
-                ? "bg-[var(--secondary)] text-[var(--secondary-fg)]"
-                : "border border-[var(--border)] bg-[var(--bg)] text-[var(--fg)]",
-            )}
-          >
-            {m.text.trim() || (m.has_tools ? "(tool activity)" : "…")}
-          </div>
-        </li>
-      ))}
-    </ul>
+          <Gauge className="h-3 w-3" /> Context
+        </button>
+      </div>
+      {contextOpen && (
+        <ChannelContextModal channelId={channelId} chat={chat} onClose={() => setContextOpen(false)} />
+      )}
+      {visible.length === 0 ? (
+        <p className="m-0 px-3 py-3 text-[11px] text-[var(--muted)]">No messages yet.</p>
+      ) : (
+        <ul className="m-0 max-h-72 list-none space-y-2 overflow-y-auto p-2.5 pt-0">
+          {visible.map((m) => (
+            <li
+              key={m.seq}
+              className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}
+            >
+              <div
+                className={cn(
+                  "max-w-[90%] whitespace-pre-wrap break-words rounded-[var(--radius-md)] px-2.5 py-1.5 text-[11px] leading-relaxed",
+                  m.role === "user"
+                    ? "bg-[var(--secondary)] text-[var(--secondary-fg)]"
+                    : "border border-[var(--border)] bg-[var(--bg)] text-[var(--fg)]",
+                )}
+              >
+                {m.text.trim() || (m.has_tools ? "(tool activity)" : "…")}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Channel chat context popup: limit (provider catalog wins, else the custom
+ * user-added manual limit) + latest usage tokens + raw transcript/system prompt.
+ * Usage is null until a turn reports (provider silent or no run yet) — the raw
+ * transcript stays viewable regardless.
+ */
+function ChannelContextModal({
+  channelId,
+  chat,
+  onClose,
+}: {
+  channelId: string;
+  chat: ChannelChat;
+  onClose: () => void;
+}) {
+  const models = useStore((s) => s.models);
+  const modelsLoading = useStore((s) => s.modelsLoading);
+  const settings = useStore((s) => s.settings);
+  const [data, setData] = useState<ChannelRawContext | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    fetchChannelRawContext(channelId, chat.chat_id)
+      .then((ctx) => {
+        if (!cancelled) setData(ctx);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [channelId, chat.chat_id]);
+
+  return (
+    <Modal open onClose={onClose} title={`Context — ${chat.user_label || chat.user_key}`} size="lg">
+      <ChannelContextBody
+        data={data}
+        loading={loading}
+        error={error}
+        copied={copied}
+        setCopied={setCopied}
+        models={models}
+        modelsLoading={modelsLoading}
+        settings={settings}
+      />
+    </Modal>
+  );
+}
+
+function ChannelContextBody({
+  data,
+  loading,
+  error,
+  copied,
+  setCopied,
+  models,
+  modelsLoading,
+  settings,
+}: {
+  data: ChannelRawContext | null;
+  loading: boolean;
+  error: string | null;
+  copied: boolean;
+  setCopied: (v: boolean) => void;
+  models: { provider: string; id: string; context_window?: number | null }[];
+  modelsLoading: boolean;
+  settings: { provider: string; model: string; manualContextLimits?: Record<string, number> };
+}) {
+  const { limit, source } = resolveContextLimit(
+    models,
+    settings.provider,
+    settings.model,
+    settings.manualContextLimits,
+  );
+  const catalogLimit = catalogContextLimit(models, settings.provider, settings.model);
+  const needsManual =
+    settings.model.trim().length > 0 && !modelsLoading && catalogLimit === null;
+
+  const promptTokens = useMemo(() => {
+    try {
+      const u = data?.usage as Record<string, unknown> | null | undefined;
+      const n = typeof u?.prompt_tokens === "number" ? u.prompt_tokens : Number(u?.prompt_tokens);
+      return Number.isFinite(n) && (n as number) >= 0 ? Math.floor(n as number) : null;
+    } catch {
+      return null;
+    }
+  }, [data]);
+
+  const pct = promptTokens !== null ? contextPercent(promptTokens, limit) : null;
+  const rawText = useMemo(() => {
+    if (!data) return "";
+    try {
+      return JSON.stringify(
+        {
+          chatId: data.chatId,
+          channelId: data.channelId,
+          agent: data.agentName,
+          source: data.source,
+          systemPromptSource: data.systemPromptSource,
+          systemPrompt: data.systemPrompt,
+          messageCount: data.messageCount,
+          messages: data.messages,
+          usage: data.usage ?? null,
+        },
+        null,
+        2,
+      );
+    } catch {
+      return "{}";
+    }
+  }, [data]);
+
+  const copy = async () => {
+    if (!rawText) return;
+    try {
+      await navigator.clipboard.writeText(rawText);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  if (loading) {
+    return <p className="m-0 p-5 text-sm text-[var(--muted)]">Loading this chat's context…</p>;
+  }
+  if (error) {
+    return <p className="m-0 p-5 text-sm text-[var(--danger)]">{error}</p>;
+  }
+  if (!data) {
+    return <p className="m-0 p-5 text-sm text-[var(--muted)]">No context available.</p>;
+  }
+  return (
+    <div className="space-y-3 p-5">
+      <div className="flex items-center gap-2">
+        <Gauge className="h-4 w-4 text-[var(--secondary)]" />
+        <h3 className="m-0 text-sm font-semibold">Context usage</h3>
+        <span className="ml-auto max-w-[10rem] truncate rounded-full bg-[var(--chip)] px-2.5 py-0.5 text-[10px] text-[var(--muted)]">
+          {data.agentName}
+        </span>
+      </div>
+      {promptTokens !== null ? (
+        <>
+          <p className="m-0 text-2xl font-semibold tabular-nums">
+            {formatTokenCount(promptTokens)} <span className="text-sm font-normal text-[var(--muted)]">tokens</span>
+          </p>
+          {pct !== null && limit != null ? (
+            <>
+              <p className="m-0 text-xs tabular-nums text-[var(--muted)]">
+                of {formatTokenCount(limit)} ({pct}%){source === "manual" ? " · manual" : ""}
+              </p>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--chip)]">
+                <div
+                  className={cn(
+                    "h-full rounded-full",
+                    pct >= 90 ? "bg-[var(--danger)]" : pct >= 70 ? "bg-[var(--warning)]" : "bg-[var(--secondary)]",
+                  )}
+                  style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
+                />
+              </div>
+            </>
+          ) : needsManual ? (
+            <p className="m-0 text-xs text-[var(--warning)]">
+              No context limit published for this model — enter it in Settings to show a percentage.
+            </p>
+          ) : (
+            <p className="m-0 text-xs text-[var(--subtle)]">
+              {formatTokenCompact(promptTokens)} tokens · limit unknown — showing tokens only.
+            </p>
+          )}
+        </>
+      ) : (
+        <p className="m-0 text-xs leading-relaxed text-[var(--muted)]">
+          No usage reported yet — it appears after this chat's next reply. The raw transcript below
+          is still viewable.
+        </p>
+      )}
+      <div className="flex flex-wrap gap-1.5 text-[11px]">
+        <span className="rounded-full bg-[var(--chip)] px-2.5 py-0.5 text-[var(--muted)]">Source: {data.source}</span>
+        <span className="rounded-full bg-[var(--chip)] px-2.5 py-0.5 text-[var(--muted)]">
+          {data.messageCount} message{data.messageCount === 1 ? "" : "s"}
+        </span>
+        <span className="rounded-full bg-[var(--chip)] px-2.5 py-0.5 text-[var(--muted)]">
+          System prompt: {data.systemPromptSource}
+        </span>
+      </div>
+      <pre className="max-h-[46vh] overflow-auto whitespace-pre-wrap break-words rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--chip)] p-3 font-mono text-[11px] leading-relaxed">
+        {rawText}
+      </pre>
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" onClick={() => void copy()}>
+          {copied ? (
+            <>
+              <Check className="h-4 w-4" /> Copied
+            </>
+          ) : (
+            <>
+              <Copy className="h-4 w-4" /> Copy raw JSON
+            </>
+          )}
+        </Button>
+      </div>
+      <p className="m-0 text-[11px] text-[var(--subtle)]">
+        Raw provider-format inputs (system prompt + transcript + latest usage), exactly as stored.
+      </p>
+    </div>
   );
 }
 

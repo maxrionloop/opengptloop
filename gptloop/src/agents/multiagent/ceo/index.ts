@@ -203,6 +203,41 @@ export class CeoAgentRunner {
       session.updatedAt = Date.now();
     }
   }
+
+  /**
+   * Raw context for one CEO-system agent (CEO/leader/member) in a chat: its
+   * persistent conversation + the system prompt it last ran with. Returns null
+   * when unknown. Powers the context popup's CEO section (runned agents only).
+   */
+  agentContext(
+    chatId: string,
+    agentId: string,
+  ): { systemPrompt: string; messages: import("../../../services/sessionStore.js").StoredMessage[]; role: string } | null {
+    try {
+      const session = this.store.get(chatId);
+      if (!session) return null;
+      const ctx = session.contexts.get(agentId.trim().toLowerCase());
+      if (!ctx) return null;
+      return {
+        systemPrompt: ctx.systemPrompt,
+        messages: ctx.messages.map((m) => ({ ...m })),
+        role: ctx.role,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Agent ids with a persisted CEO-system context in a chat (for raw-view discovery). */
+  agentIds(chatId: string): string[] {
+    try {
+      const session = this.store.get(chatId);
+      if (!session) return [];
+      return [...session.contexts.values()].map((c) => c.id);
+    } catch {
+      return [];
+    }
+  }
 }
 
 function messageOf(error: unknown): string {

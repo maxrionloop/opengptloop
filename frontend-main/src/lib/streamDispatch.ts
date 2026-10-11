@@ -1,7 +1,11 @@
 import { useStore } from "@/store/useStore";
 import { uid } from "@/utils/id";
 import { watchMemoryAgentRun } from "@/lib/memoryAgent";
-import { normalizeContextUsageEvent } from "@/lib/contextMeter";
+import {
+  normalizeContextUsageEvent,
+  normalizeSubAgentUsageEvent,
+  normalizeTeamUsageEvent,
+} from "@/lib/contextMeter";
 import { normalizeMcpServers } from "@/lib/mcp";
 import { normalizeChannel } from "@/lib/channels";
 import { normalizeConnectors } from "@/lib/connectors";
@@ -295,13 +299,41 @@ export function dispatchStreamEvent(event: string, data: SSEEventData, ctx: Disp
       break;
 
     case "context_usage": {
-      // Main-agent context-token log from the backend event pipeline (live or replayed).
-      // Validated + scoped by normalizeContextUsageEvent: non-main scopes and malformed
-      // payloads return null and are ignored, so the meter never shows another agent's
-      // usage or a fabricated number. Latest event per conversation wins.
-      const usage = normalizeContextUsageEvent(data);
-      if (usage) {
-        s.setContextUsage(convId, { ...usage, updatedAt: Date.now() });
+      // Multi-scope context-token logs from the backend event pipeline (live or
+      // replayed). Each scope feeds its own meter section; unknown/malformed payloads
+      // are ignored so one agent's usage is never shown as another's. Latest event
+      // per conversation (or per runned sub/team/CEO agent) wins.
+      const scope = typeof data.agent === "string" ? data.agent.trim().toLowerCase() : "";
+      if (scope === "sub_agent") {
+        const entry = normalizeSubAgentUsageEvent(data);
+        if (entry) {
+          s.setSubAgentUsage(convId, { ...entry, updatedAt: Date.now() });
+        }
+      } else if (scope === "team") {
+        const entry = normalizeTeamUsageEvent(data, "team");
+        if (entry) {
+          s.setTeamUsage(convId, { ...entry, updatedAt: Date.now() });
+        }
+      } else if (scope === "ceo") {
+        const entry = normalizeTeamUsageEvent(data, "ceo");
+        if (entry) {
+          s.setCeoUsage(convId, { ...entry, updatedAt: Date.now() });
+        }
+      } else if (scope === "custom") {
+        const usage = normalizeContextUsageEvent(data, "custom");
+        if (usage) {
+          s.setCustomContextUsage(convId, { ...usage, updatedAt: Date.now() });
+        }
+      } else if (scope === "chat") {
+        const usage = normalizeContextUsageEvent(data, "chat");
+        if (usage) {
+          s.setChatContextUsage(convId, { ...usage, updatedAt: Date.now() });
+        }
+      } else {
+        const usage = normalizeContextUsageEvent(data, "main");
+        if (usage) {
+          s.setContextUsage(convId, { ...usage, updatedAt: Date.now() });
+        }
       }
       break;
     }

@@ -1,6 +1,10 @@
 import { useStore } from "@/store/useStore";
 import type { Conversation, SSEEventData } from "@/types";
-import { normalizeContextUsageEvent } from "@/lib/contextMeter";
+import {
+  normalizeContextUsageEvent,
+  normalizeSubAgentUsageEvent,
+  normalizeTeamUsageEvent,
+} from "@/lib/contextMeter";
 import {
   beaconSessionSnapshot,
   beaconStateKey,
@@ -128,15 +132,60 @@ export async function loadConversationIfNeeded(id: string): Promise<Conversation
 
   useStore.getState().replaceConversation(conv);
 
-  // Restore the meter from the persisted event log: the database's latest main-agent
-  // `context_usage` entry for this session (served on the detail payload). Only fills
-  // in when this client holds nothing — live stream events arriving later always win,
-  // so a fresh turn can never be clobbered by an older logged value. Validated through
-  // the same normalizer as live events (non-main scopes and malformed payloads ignored).
+  // Restore the meters from the persisted event log: every scope's latest usage for
+  // this session (served on the detail payload). Only fills in when this client holds
+  // nothing — live stream events arriving later always win, so a fresh turn can never
+  // be clobbered by an older logged value. Validated through the same normalizers as
+  // live events (wrong scopes and malformed payloads ignored).
   try {
     const store = useStore.getState();
-    if (!store.contextUsage[id] && detail.contextUsage && typeof detail.contextUsage === "object") {
-      const usage = normalizeContextUsageEvent(detail.contextUsage as SSEEventData);
+    if (detail.contextUsages && typeof detail.contextUsages === "object") {
+      const usages = detail.contextUsages as Record<string, unknown>;
+      if (!store.contextUsage[id] && usages.main && typeof usages.main === "object") {
+        const usage = normalizeContextUsageEvent(usages.main as SSEEventData, "main");
+        if (usage) store.setContextUsage(id, { ...usage, updatedAt: Date.now() });
+      }
+      if (!store.customContextUsage[id] && usages.custom && typeof usages.custom === "object") {
+        const usage = normalizeContextUsageEvent(usages.custom as SSEEventData, "custom");
+        if (usage) store.setCustomContextUsage(id, { ...usage, updatedAt: Date.now() });
+      }
+      if (!store.chatContextUsage[id] && usages.chat && typeof usages.chat === "object") {
+        const usage = normalizeContextUsageEvent(usages.chat as SSEEventData, "chat");
+        if (usage) store.setChatContextUsage(id, { ...usage, updatedAt: Date.now() });
+      }
+      if (usages.sub_agents && typeof usages.sub_agents === "object") {
+        const existingSub = store.subAgentUsage[id] ?? {};
+        for (const raw of Object.values(usages.sub_agents as Record<string, unknown>)) {
+          if (!raw || typeof raw !== "object") continue;
+          const entry = normalizeSubAgentUsageEvent(raw as SSEEventData);
+          if (entry && !existingSub[entry.subSessionId]) {
+            store.setSubAgentUsage(id, { ...entry, updatedAt: Date.now() });
+          }
+        }
+      }
+      if (usages.team && typeof usages.team === "object") {
+        const existingTeam = store.teamUsage[id] ?? {};
+        for (const raw of Object.values(usages.team as Record<string, unknown>)) {
+          if (!raw || typeof raw !== "object") continue;
+          const entry = normalizeTeamUsageEvent(raw as SSEEventData, "team");
+          if (entry && !existingTeam[entry.agentId]) {
+            store.setTeamUsage(id, { ...entry, updatedAt: Date.now() });
+          }
+        }
+      }
+      if (usages.ceo && typeof usages.ceo === "object") {
+        const existingCeo = store.ceoUsage[id] ?? {};
+        for (const raw of Object.values(usages.ceo as Record<string, unknown>)) {
+          if (!raw || typeof raw !== "object") continue;
+          const entry = normalizeTeamUsageEvent(raw as SSEEventData, "ceo");
+          if (entry && !existingCeo[entry.agentId]) {
+            store.setCeoUsage(id, { ...entry, updatedAt: Date.now() });
+          }
+        }
+      }
+    } else if (!store.contextUsage[id] && detail.contextUsage && typeof detail.contextUsage === "object") {
+      // Back-compat: old payloads carry only the main scope.
+      const usage = normalizeContextUsageEvent(detail.contextUsage as SSEEventData, "main");
       if (usage) store.setContextUsage(id, { ...usage, updatedAt: Date.now() });
     }
   } catch {

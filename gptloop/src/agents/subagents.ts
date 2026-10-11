@@ -922,6 +922,7 @@ class SubAgentRunner {
         const answerParts: string[] = [];
         const reasoningParts: string[] = [];
         let toolCalls: ToolCall[] = [];
+        let requestUsage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null = null;
 
         try {
           const stream = provider.streamChatCompletion({
@@ -949,6 +950,8 @@ class SubAgentRunner {
             if (delta.toolCalls) {
               toolCalls = mergeToolCalls(toolCalls, delta.toolCalls);
             }
+            const usage = sanitizeSubAgentUsage(delta.usage);
+            if (usage) requestUsage = usage;
           }
         } catch (error) {
           if (signal?.aborted) {
@@ -958,6 +961,21 @@ class SubAgentRunner {
           const message = `Sub-agent provider error: ${messageOf(error)}`;
           send("sub_agent_done", { id: parentId, ok: false, output: "", error: message });
           return { ok: false, aborted: false, output: "", error: message };
+        }
+
+        // Context meter signal for this sub-agent run. `send` is already stamped
+        // with `sub_session_id` (and `parent_tool_id` for batch runs) by the caller,
+        // so the frontend can attribute this usage to the exact runned sub-agent
+        // session. Tagged `agent: "sub_agent"` to scope it separately from main.
+        if (requestUsage) {
+          send("context_usage", {
+            agent: "sub_agent",
+            sub_agent: definition.name,
+            model: this.deps.model,
+            prompt_tokens: requestUsage.prompt_tokens,
+            completion_tokens: requestUsage.completion_tokens,
+            total_tokens: requestUsage.total_tokens,
+          });
         }
 
         const namedCalls = toolCalls.filter((c) => c.function.name);
@@ -1306,6 +1324,28 @@ function buildProviderMessages(
 
 function normalize(text: string): string {
   return text.replace(/\r\n/g, "\n");
+}
+
+/**
+ * Sanitize a provider-reported usage payload for sub-agent runs.
+ * Returns cleaned usage when at least one count is present, else null.
+ * Never throws.
+ */
+function sanitizeSubAgentUsage(
+  raw: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null | undefined,
+): { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const num = (v: unknown): number | undefined => {
+    const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined;
+  };
+  const prompt_tokens = num((raw as Record<string, unknown>).prompt_tokens);
+  const completion_tokens = num((raw as Record<string, unknown>).completion_tokens);
+  const total_tokens = num((raw as Record<string, unknown>).total_tokens);
+  if (prompt_tokens === undefined && completion_tokens === undefined && total_tokens === undefined) {
+    return null;
+  }
+  return { prompt_tokens, completion_tokens, total_tokens };
 }
 
 function messageOf(error: unknown): string {

@@ -42,6 +42,8 @@ export interface RunCeoAgentArgs {
   baseUrl?: string;
   temperature?: number;
   effort?: string;
+  /** Provider id snapshot for display (when known). */
+  providerId?: string;
 }
 
 export async function runCeoAgent(args: RunCeoAgentArgs): Promise<TeamAgentRunResult> {
@@ -67,5 +69,7 @@ export async function runCeoAgent(args: RunCeoAgentArgs): Promise<TeamAgentRunRe
     mcp: args.mcp,
     send: args.send,
     signal: args.signal,
+    usageScope: "ceo",
+    providerId: args.providerId,
   });
 }

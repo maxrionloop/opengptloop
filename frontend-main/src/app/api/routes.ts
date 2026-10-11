@@ -429,6 +429,12 @@ export const API_ROUTES = {
     path: "/api/schedules/:id/runs/:runId",
     description: "Load one execution's logs (output, status, timestamps).",
   },
+  schedulesContext: {
+    name: "schedules.context",
+    method: "GET",
+    path: "/api/schedules/:id/context",
+    description: "Load one schedule's raw context (task prompt + system prompt + latest usage).",
+  },
   channelsList: {
     name: "channels.list",
     method: "GET",
@@ -476,6 +482,12 @@ export const API_ROUTES = {
     method: "GET",
     path: "/api/channels/:id/chats/:chatId/messages",
     description: "Load one channel chat's transcript.",
+  },
+  channelsChatContext: {
+    name: "channels.chat.context",
+    method: "GET",
+    path: "/api/channels/:id/chats/:chatId/context",
+    description: "Load one channel chat's raw context (transcript + system prompt + latest usage).",
   },
   channelsChatAgent: {
     name: "channels.chat.agent",

@@ -20,6 +20,9 @@ import type {
   MainAgentPrompt,
   McpServer,
   MainContextUsage,
+  AgentContextUsage,
+  SubAgentContextEntry,
+  TeamAgentContextEntry,
   MemoryAgentLiveRun,
   MemoryAgentRunCounts,
   MemoryAgentRunMeta,
@@ -226,13 +229,18 @@ interface AppState {
   /** Streamed live state per run id (rebuilt from the SSE stream, live or replayed). */
   memoryAgentLive: Record<string, MemoryAgentLiveRun>;
 
-  // Main-agent context meter (ephemeral, rebuilt from the `context_usage` log events in the
+  // Context meters (ephemeral, rebuilt from the `context_usage` log events in the
   // turn's SSE stream — live or replayed from the database event log). Keyed by conversation
   // id so switching threads never shows a stale value from another chat. A missing entry
-  // means "unavailable" (never sent / provider silent), distinct from a zero-token count.
-  // Scoped for future agents: keyed per conversation today, shaped so per-agent entries can
-  // be added later without changing the pipeline.
+  // means "unavailable" (never ran / provider silent), distinct from a zero-token count.
+  // One map per scope: main/custom/chat hold the latest top-level usage; sub/team/ceo
+  // hold per-agent entries keyed by runned session/agent id (only runned agents appear).
   contextUsage: Record<string, MainContextUsage>;
+  customContextUsage: Record<string, AgentContextUsage>;
+  chatContextUsage: Record<string, AgentContextUsage>;
+  subAgentUsage: Record<string, Record<string, SubAgentContextEntry>>;
+  teamUsage: Record<string, Record<string, TeamAgentContextEntry>>;
+  ceoUsage: Record<string, Record<string, TeamAgentContextEntry>>;
 
   // Automatic context summarization handoff (ephemeral, rebuilt from summary_* SSE
   // events — live or replayed). Keyed by conversation id; each entry tracks the
@@ -596,6 +604,16 @@ interface AppState {
   // Main-agent context meter (latest `context_usage` log per conversation)
   /** Record the latest main-agent context usage for a conversation (from a validated log event). */
   setContextUsage: (convId: string, usage: MainContextUsage) => void;
+  /** Record the latest custom-agent context usage for a conversation. */
+  setCustomContextUsage: (convId: string, usage: AgentContextUsage) => void;
+  /** Record the latest chat-mode context usage for a conversation. */
+  setChatContextUsage: (convId: string, usage: AgentContextUsage) => void;
+  /** Record one runned sub-agent's latest usage (keyed by sub-session id). */
+  setSubAgentUsage: (convId: string, entry: SubAgentContextEntry) => void;
+  /** Record one team agent's (leader/member) latest usage (keyed by agent id). */
+  setTeamUsage: (convId: string, entry: TeamAgentContextEntry) => void;
+  /** Record one CEO-system agent's (CEO/leader/member) latest usage (keyed by agent id). */
+  setCeoUsage: (convId: string, entry: TeamAgentContextEntry) => void;
 
   // Automatic context summarization handoff (latest summary_* events per conversation)
   /** Create or reset the handoff view for a new job (idempotent per handoff id). */
@@ -896,6 +914,11 @@ export const useStore = create<AppState>()(
       memoryAgentCounts: { queued: 0, running: 0, completed: 0, failed: 0, total: 0 },
       memoryAgentLive: {},
       contextUsage: {},
+      customContextUsage: {},
+      chatContextUsage: {},
+      subAgentUsage: {},
+      teamUsage: {},
+      ceoUsage: {},
       summaryHandoffs: {},
       summaryHandoffOpen: false,
       summaryHistory: {},
@@ -1196,6 +1219,22 @@ export const useStore = create<AppState>()(
         // with no log history, so it correctly starts empty.)
         const inherited = get().contextUsage[source.id];
         if (inherited) get().setContextUsage(id, { ...inherited });
+        const inheritedCustom = get().customContextUsage[source.id];
+        if (inheritedCustom) get().setCustomContextUsage(id, { ...inheritedCustom });
+        const inheritedChat = get().chatContextUsage[source.id];
+        if (inheritedChat) get().setChatContextUsage(id, { ...inheritedChat });
+        const inheritedSub = get().subAgentUsage[source.id];
+        if (inheritedSub) {
+          for (const entry of Object.values(inheritedSub)) get().setSubAgentUsage(id, { ...entry });
+        }
+        const inheritedTeam = get().teamUsage[source.id];
+        if (inheritedTeam) {
+          for (const entry of Object.values(inheritedTeam)) get().setTeamUsage(id, { ...entry });
+        }
+        const inheritedCeo = get().ceoUsage[source.id];
+        if (inheritedCeo) {
+          for (const entry of Object.values(inheritedCeo)) get().setCeoUsage(id, { ...entry });
+        }
         return id;
       },
 
@@ -1219,14 +1258,24 @@ export const useStore = create<AppState>()(
           const conversations = s.conversations.filter((c) => c.id !== id);
           const currentId = s.currentId === id ? (conversations[0]?.id ?? null) : s.currentId;
           const activeRun = s.activeRun?.chatId === id ? null : s.activeRun;
-          // Drop the meter reading with the thread so a recycled id can never show stale usage.
+          // Drop the meter readings with the thread so a recycled id can never show stale usage.
           const contextUsage = { ...s.contextUsage };
           delete contextUsage[id];
+          const customContextUsage = { ...s.customContextUsage };
+          delete customContextUsage[id];
+          const chatContextUsage = { ...s.chatContextUsage };
+          delete chatContextUsage[id];
+          const subAgentUsage = { ...s.subAgentUsage };
+          delete subAgentUsage[id];
+          const teamUsage = { ...s.teamUsage };
+          delete teamUsage[id];
+          const ceoUsage = { ...s.ceoUsage };
+          delete ceoUsage[id];
           const summaryHandoffs = { ...s.summaryHandoffs };
           delete summaryHandoffs[id];
           const summaryHistory = { ...s.summaryHistory };
           delete summaryHistory[id];
-          return { conversations, currentId, activeRun, contextUsage, summaryHandoffs, summaryHistory };
+          return { conversations, currentId, activeRun, contextUsage, customContextUsage, chatContextUsage, subAgentUsage, teamUsage, ceoUsage, summaryHandoffs, summaryHistory };
         }),
 
       renameConversation: (id, title) =>
@@ -2000,6 +2049,11 @@ export const useStore = create<AppState>()(
           // profile never shows the previous profile's numbers. Each opened thread
           // reloads its own logged usage from the database via loadConversationIfNeeded.
           contextUsage: {},
+          customContextUsage: {},
+          chatContextUsage: {},
+          subAgentUsage: {},
+          teamUsage: {},
+          ceoUsage: {},
         });
         return null;
       },
@@ -2112,12 +2166,32 @@ export const useStore = create<AppState>()(
         const contextUsage = Object.fromEntries(
           Object.entries(s.contextUsage).filter(([cid]) => keptIds.has(cid)),
         );
+        const customContextUsage = Object.fromEntries(
+          Object.entries(s.customContextUsage).filter(([cid]) => keptIds.has(cid)),
+        );
+        const chatContextUsage = Object.fromEntries(
+          Object.entries(s.chatContextUsage).filter(([cid]) => keptIds.has(cid)),
+        );
+        const subAgentUsage = Object.fromEntries(
+          Object.entries(s.subAgentUsage).filter(([cid]) => keptIds.has(cid)),
+        );
+        const teamUsage = Object.fromEntries(
+          Object.entries(s.teamUsage).filter(([cid]) => keptIds.has(cid)),
+        );
+        const ceoUsage = Object.fromEntries(
+          Object.entries(s.ceoUsage).filter(([cid]) => keptIds.has(cid)),
+        );
         if (!isActive) {
           set({
             conversations,
             profileStates: { ...s.profileStates, [id]: { ...fresh, currentId: null } },
             profileSessions: { ...s.profileSessions, [id]: [] },
             contextUsage,
+            customContextUsage,
+            chatContextUsage,
+            subAgentUsage,
+            teamUsage,
+            ceoUsage,
           });
           return null;
         }
@@ -2146,6 +2220,11 @@ export const useStore = create<AppState>()(
           activeRun: null,
           section: "chat",
           contextUsage,
+          customContextUsage,
+          chatContextUsage,
+          subAgentUsage,
+          teamUsage,
+          ceoUsage,
           profileStates: { ...s.profileStates, [id]: { ...cloneJson(fresh), currentId: null } },
           profileSessions: { ...s.profileSessions, [id]: [] },
         });
@@ -2637,10 +2716,39 @@ export const useStore = create<AppState>()(
           };
         }),
 
-      // ---- Main-agent context meter --------------------------------------------
+      // ---- Context meters (all scopes) -----------------------------------------
       setContextUsage: (convId, usage) =>
         set((s) => ({
           contextUsage: { ...s.contextUsage, [convId]: usage },
+        })),
+      setCustomContextUsage: (convId, usage) =>
+        set((s) => ({
+          customContextUsage: { ...s.customContextUsage, [convId]: usage },
+        })),
+      setChatContextUsage: (convId, usage) =>
+        set((s) => ({
+          chatContextUsage: { ...s.chatContextUsage, [convId]: usage },
+        })),
+      setSubAgentUsage: (convId, entry) =>
+        set((s) => ({
+          subAgentUsage: {
+            ...s.subAgentUsage,
+            [convId]: { ...s.subAgentUsage[convId], [entry.subSessionId]: entry },
+          },
+        })),
+      setTeamUsage: (convId, entry) =>
+        set((s) => ({
+          teamUsage: {
+            ...s.teamUsage,
+            [convId]: { ...s.teamUsage[convId], [entry.agentId]: entry },
+          },
+        })),
+      setCeoUsage: (convId, entry) =>
+        set((s) => ({
+          ceoUsage: {
+            ...s.ceoUsage,
+            [convId]: { ...s.ceoUsage[convId], [entry.agentId]: entry },
+          },
         })),
 
       // ---- Automatic context summarization handoff -----------------------------

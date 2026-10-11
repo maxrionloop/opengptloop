@@ -475,6 +475,7 @@ export class CeoOrchestrator {
       baseUrl: this.deps.baseUrl,
       temperature: this.deps.temperature,
       effort: this.deps.effort,
+      providerId: this.deps.providerId,
     };
 
     if (actor.role === "ceo") {
@@ -487,6 +488,7 @@ export class CeoOrchestrator {
         sendMessageEnabled: this.deps.sendMessageToTeamEnabled,
         team,
         ceo: { name: this.ceoId },
+        usageScope: "ceo",
       });
     }
     const team = actor.team!;
@@ -499,6 +501,7 @@ export class CeoOrchestrator {
         description: actor.context.description,
         system_prompt: actor.context.systemPrompt,
       },
+      usageScope: "ceo",
     });
   }
 

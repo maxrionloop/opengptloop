@@ -82,12 +82,24 @@ export class ChannelTurnRunner {
   private readonly running = new Map<string, LiveTurn>();
   /** chatId -> pending submit_plan review (resolved by /@ok / /@no). */
   private readonly pendingPlans = new Map<string, { toolCallId: string }>();
+  /**
+   * Latest `context_usage` per channel chat (captured from the turn's event buffer).
+   * Powers the Channels dashboard meter + raw-context view. In-memory only:
+   * a restart clears it (raw transcript stays available, usage shows as unavailable
+   * until the next turn) — same resilience posture as the main agent's ephemeral meter.
+   */
+  private readonly lastUsage = new Map<string, Record<string, unknown>>();
 
   constructor(private readonly deps: ChannelRunnerDeps) {}
 
   /** True while a turn is executing for a chat (used by status replies + tests). */
   isRunning(chatId: string): boolean {
     return this.running.has(chatId);
+  }
+
+  /** Latest captured context usage for a channel chat, if any turn has reported it. */
+  lastContextUsage(chatId: string): Record<string, unknown> | null {
+    return this.lastUsage.get(chatId) ?? null;
   }
 
   /**
@@ -552,6 +564,20 @@ export class ChannelTurnRunner {
             break;
           case "tool_result":
             this.persistAgentAsset(data);
+            break;
+          case "context_usage":
+            // Capture the latest main/custom/chat usage for this channel chat's
+            // meter. Only the top-level agent scopes are relevant here (channel
+            // turns run as Default or Custom Agent); sub/team usages are tracked
+            // on the main chat session instead and ignored for channels.
+            try {
+              const scope = typeof data.agent === "string" ? data.agent.trim().toLowerCase() : "";
+              if (scope === "main" || scope === "custom" || scope === "chat") {
+                this.lastUsage.set(state.chatId, { ...data });
+              }
+            } catch {
+              // Meter capture must never break the turn.
+            }
             break;
           case "error":
             if (typeof data.message === "string" && data.message) {

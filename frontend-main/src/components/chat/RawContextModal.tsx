@@ -17,16 +17,24 @@ interface RawContextModalProps {
   /** Session whose context to display. Null = no thread selected. */
   sessionId: string | null;
   /**
-   * Agent scope to inspect. Main Agent only today — kept as a prop (rather than
-   * hardcoded) so the same modal serves other agents once the backend supports them.
+   * Agent scope to inspect. Kept as a prop so the same modal serves every agent
+   * (main/custom/chat/sub_agent/team/ceo).
    */
   agent?: RawContextAgent;
+  /** Sub-agent session id (required when agent is sub_agent). */
+  subSessionId?: string;
+  /** Team agent name (required when agent is team). */
+  teamAgent?: string;
+  /** CEO-system agent name (required when agent is ceo). */
+  ceoAgent?: string;
+  /** Stored custom agent id (optional when agent is custom). */
+  customAgentId?: string;
 }
 
 /**
  * Secondary modal showing one agent's current context in raw form.
  *
- * Mounted from the Context Meter popup (Main Agent only). Fetches the exact
+ * Mounted from the Context Meter popup (all scopes). Fetches the exact
  * provider-format inputs via `GET /api/sessions/:id/context` and renders them as
  * unformatted JSON in a scrollable `<pre>` — no markdown, no trimming, no
  * redaction — so the original content is preserved as accurately as possible.
@@ -37,6 +45,10 @@ export function RawContextModal({
   onClose,
   sessionId,
   agent = MAIN_RAW_CONTEXT_AGENT,
+  subSessionId,
+  teamAgent,
+  ceoAgent,
+  customAgentId,
 }: RawContextModalProps) {
   const [data, setData] = useState<MainRawContext | null>(null);
   const [loading, setLoading] = useState(false);
@@ -46,22 +58,32 @@ export function RawContextModal({
 
   const label = rawContextAgentLabel(agent);
 
-  const load = useCallback(async (id: string, scope: RawContextAgent, signal: AbortSignal) => {
-    setLoading(true);
-    setError(null);
-    setCopied(false);
-    try {
-      const ctx = await fetchMainRawContext(id, { agent: scope, signal });
-      if (signal.aborted) return;
-      setData(ctx);
-    } catch (e) {
-      if (signal.aborted) return;
-      setData(null);
-      setError(e instanceof Error ? e.message : "Could not load the raw context.");
-    } finally {
-      if (!signal.aborted) setLoading(false);
-    }
-  }, []);
+  const load = useCallback(
+    async (id: string, scope: RawContextAgent, signal: AbortSignal) => {
+      setLoading(true);
+      setError(null);
+      setCopied(false);
+      try {
+        const ctx = await fetchMainRawContext(id, {
+          agent: scope,
+          signal,
+          subSessionId,
+          teamAgent,
+          ceoAgent,
+          customAgentId,
+        });
+        if (signal.aborted) return;
+        setData(ctx);
+      } catch (e) {
+        if (signal.aborted) return;
+        setData(null);
+        setError(e instanceof Error ? e.message : "Could not load the raw context.");
+      } finally {
+        if (!signal.aborted) setLoading(false);
+      }
+    },
+    [subSessionId, teamAgent, ceoAgent, customAgentId],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -75,7 +97,7 @@ export function RawContextModal({
     const controller = new AbortController();
     void load(sessionId, agent, controller.signal);
     return () => controller.abort();
-  }, [open, sessionId, agent, attempt, load]);
+  }, [open, sessionId, agent, subSessionId, teamAgent, ceoAgent, customAgentId, attempt, load]);
 
   const rawText = useMemo(() => (data ? formatRawContextPayload(data) : ""), [data]);
 

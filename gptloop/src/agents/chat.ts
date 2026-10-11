@@ -248,6 +248,10 @@ export class ChatRunner {
         const reasoningParts: string[] = [];
         let toolCalls: ToolCall[] = [];
         let finishReason: string | null = null;
+        // Per-request token usage reported by the provider for THIS LLM call.
+        // `prompt_tokens` is the current context size — the meter signal.
+        // Mirrors the main agent loop (see agents/agent.ts).
+        let requestUsage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null = null;
 
         try {
           const stream = provider.streamChatCompletion({
@@ -280,6 +284,8 @@ export class ChatRunner {
             if (delta.finishReason) {
               finishReason = delta.finishReason;
             }
+            const usage = sanitizeChatUsage(delta.usage);
+            if (usage) requestUsage = usage;
           }
         } catch (error) {
           if (signal.aborted) {
@@ -289,6 +295,21 @@ export class ChatRunner {
           send("error", { code: "provider_api_error", message: `Provider API error: ${messageOf(error)}` });
           send("done", { ok: false });
           return;
+        }
+
+        // Record this request's context size in the turn's event log (same pipeline
+        // as the main agent). Tagged `agent: "chat"` so the meter can scope it to
+        // chat mode without confusing it with main/custom usage.
+        if (requestUsage) {
+          send("context_usage", {
+            agent: "chat",
+            provider: request.provider,
+            model: request.model,
+            prompt_tokens: requestUsage.prompt_tokens,
+            completion_tokens: requestUsage.completion_tokens,
+            total_tokens: requestUsage.total_tokens,
+            iteration,
+          });
         }
 
         const hasToolCalls = toolCalls.some((c) => c.function.name) || finishReason === "tool_calls";
@@ -503,6 +524,28 @@ function buildProviderMessages(
 
 function normalize(text: string): string {
   return text.replace(/\r\n/g, "\n");
+}
+
+/**
+ * Sanitize a provider-reported usage payload. Returns the cleaned usage when at least
+ * one non-negative finite token count is present, otherwise null (unavailable).
+ * Mirrors agents/agent.ts sanitizeUsage. Never throws.
+ */
+function sanitizeChatUsage(
+  raw: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null | undefined,
+): { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const num = (v: unknown): number | undefined => {
+    const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined;
+  };
+  const prompt_tokens = num((raw as Record<string, unknown>).prompt_tokens);
+  const completion_tokens = num((raw as Record<string, unknown>).completion_tokens);
+  const total_tokens = num((raw as Record<string, unknown>).total_tokens);
+  if (prompt_tokens === undefined && completion_tokens === undefined && total_tokens === undefined) {
+    return null;
+  }
+  return { prompt_tokens, completion_tokens, total_tokens };
 }
 
 function messageOf(error: unknown): string {

@@ -41,6 +41,10 @@ export interface RunHeadAgentArgs {
   baseUrl?: string;
   temperature?: number;
   effort?: string;
+  /** Usage scope for the context meter ("team" default, "ceo" inside CEO systems). */
+  usageScope?: "team" | "ceo";
+  /** Provider id snapshot for display (when known). */
+  providerId?: string;
 }
 
 export async function runHeadAgent(args: RunHeadAgentArgs): Promise<TeamAgentRunResult> {
@@ -71,5 +75,7 @@ export async function runHeadAgent(args: RunHeadAgentArgs): Promise<TeamAgentRun
     mcp: args.mcp,
     send: args.send,
     signal: args.signal,
+    usageScope: args.usageScope ?? (args.ceo ? "ceo" : "team"),
+    providerId: args.providerId,
   });
 }
