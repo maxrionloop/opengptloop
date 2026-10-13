@@ -85,6 +85,17 @@ export interface RunTeamRequest {
    * Undefined/empty = every enabled server. Secrets stay server-side.
    */
   mcpServers?: McpServerSelection[];
+  /**
+   * Effective context-window limit (tokens) for the selected model. Used with
+   * provider-reported prompt_tokens for automatic sub-agent summarization
+   * handoff. Absent = handoff disabled (safe).
+   */
+  contextLimit?: number | null;
+  /**
+   * Utilization fraction (0..1) that triggers sub-agent summarization.
+   * Defaults to the server summaryThreshold (90%).
+   */
+  summaryThreshold?: number;
 }
 
 /**

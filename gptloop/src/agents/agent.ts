@@ -457,6 +457,10 @@ export class AgentRunner {
         // Snapshot the live conversation so a call_sub_agent with send_my_context=true can share
         // the surrounding context. Returns the current messages at the moment the sub-agent is called.
         getConversationContext: () => session.messages,
+        // Same effective context limit + threshold the main agent uses this turn, so
+        // sub-agents trigger the SAME automatic summarization at 90% and continue.
+        contextLimit: typeof request.contextLimit === "number" ? request.contextLimit : null,
+        summaryThreshold: request.summaryThreshold ?? this.config.summaryThreshold ?? 0.9,
       });
 
       // Skill runtime for this turn — enumerates the user's skills (list_skills) and materializes

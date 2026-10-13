@@ -185,6 +185,8 @@ export class CeoAgentRunner {
         channelManager: this.channelManager,
         send,
         signal,
+        contextLimit: typeof request.contextLimit === "number" ? request.contextLimit : null,
+        summaryThreshold: request.summaryThreshold ?? this.config.summaryThreshold ?? 0.9,
       });
 
       await orchestrator.run(request.userMessage, firstMessageContext);

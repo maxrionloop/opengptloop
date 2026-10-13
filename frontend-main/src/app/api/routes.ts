@@ -507,6 +507,12 @@ export const API_ROUTES = {
     path: "/api/summaries/history/:chatId",
     description: "List past automatic context-summarization runs in a session.",
   },
+  subAgentSummariesHistory: {
+    name: "summaries.subAgentHistory",
+    method: "GET",
+    path: "/api/summaries/sub-agent-history/:chatId",
+    description: "List past sub-agent context-summarization runs in a session.",
+  },
 } as const satisfies Record<string, ApiRoute>;
 
 export type ApiRouteName = keyof typeof API_ROUTES;

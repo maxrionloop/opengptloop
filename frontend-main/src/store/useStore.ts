@@ -36,6 +36,7 @@ import type {
   Skill,
   SubAgent,
   SubAgentRun,
+  SubAgentSummaryInfo,
   SummaryHandoffInfo,
   SummaryHandoffStatus,
   TeamAgentBlock,
@@ -250,6 +251,11 @@ interface AppState {
   /** Past handoff runs per conversation (latest last), mirrored from terminal events + history API. */
   summaryHistory: Record<string, SummaryHandoffInfo[]>;
   summaryHistoryOpen: boolean;
+  // Sub-agent context summarization handoffs (ephemeral, rebuilt from
+  // sub_agent_summary_* SSE events — live or replayed). Keyed by conversation id,
+  // then by handoff id, so concurrent summarizations of multiple sub-agents each
+  // keep their own live output. Closing the popup never cancels backend jobs.
+  subAgentSummaries: Record<string, Record<string, SubAgentSummaryInfo>>;
 
   // Hydration from the backend SQLite database
   hydrateFromBackend: (payload: BackendBootPayload) => void;
@@ -615,6 +621,16 @@ interface AppState {
   /** Record one CEO-system agent's (CEO/leader/member) latest usage (keyed by agent id). */
   setCeoUsage: (convId: string, entry: TeamAgentContextEntry) => void;
 
+  // Sub-agent context summarization handoffs (latest sub_agent_summary_* events per run)
+  /** Create or reset one sub-agent handoff view (idempotent per handoff id). */
+  startSubAgentSummary: (convId: string, info: { handoffId: string; subSessionId: string; subAgentName: string; status: SummaryHandoffStatus }) => void;
+  /** Append one streaming chunk in order for a sub-agent handoff (never used for completion). */
+  appendSubAgentSummaryChunk: (convId: string, handoffId: string, chunk: string) => void;
+  /** Update status/validated summary/error for a sub-agent handoff (authoritative backend state). */
+  updateSubAgentSummary: (convId: string, handoffId: string, patch: Partial<Omit<SubAgentSummaryInfo, "handoffId">> & { status?: SummaryHandoffStatus }) => void;
+  /** Replace a conversation's sub-agent summaries wholesale (from the history API). */
+  setSubAgentSummaries: (convId: string, entries: SubAgentSummaryInfo[]) => void;
+
   // Automatic context summarization handoff (latest summary_* events per conversation)
   /** Create or reset the handoff view for a new job (idempotent per handoff id). */
   startSummaryHandoff: (convId: string, handoffId: string, status: SummaryHandoffStatus) => void;
@@ -923,6 +939,7 @@ export const useStore = create<AppState>()(
       summaryHandoffOpen: false,
       summaryHistory: {},
       summaryHistoryOpen: false,
+      subAgentSummaries: {},
 
       hydrateFromBackend: (payload) => {
         const state = payload.state ?? {};
@@ -1275,7 +1292,9 @@ export const useStore = create<AppState>()(
           delete summaryHandoffs[id];
           const summaryHistory = { ...s.summaryHistory };
           delete summaryHistory[id];
-          return { conversations, currentId, activeRun, contextUsage, customContextUsage, chatContextUsage, subAgentUsage, teamUsage, ceoUsage, summaryHandoffs, summaryHistory };
+          const subAgentSummaries = { ...s.subAgentSummaries };
+          delete subAgentSummaries[id];
+          return { conversations, currentId, activeRun, contextUsage, customContextUsage, chatContextUsage, subAgentUsage, teamUsage, ceoUsage, summaryHandoffs, summaryHistory, subAgentSummaries };
         }),
 
       renameConversation: (id, title) =>
@@ -2054,6 +2073,7 @@ export const useStore = create<AppState>()(
           subAgentUsage: {},
           teamUsage: {},
           ceoUsage: {},
+          subAgentSummaries: {},
         });
         return null;
       },
@@ -2181,6 +2201,9 @@ export const useStore = create<AppState>()(
         const ceoUsage = Object.fromEntries(
           Object.entries(s.ceoUsage).filter(([cid]) => keptIds.has(cid)),
         );
+        const subAgentSummaries = Object.fromEntries(
+          Object.entries(s.subAgentSummaries).filter(([cid]) => keptIds.has(cid)),
+        );
         if (!isActive) {
           set({
             conversations,
@@ -2192,6 +2215,7 @@ export const useStore = create<AppState>()(
             subAgentUsage,
             teamUsage,
             ceoUsage,
+            subAgentSummaries,
           });
           return null;
         }
@@ -2225,6 +2249,7 @@ export const useStore = create<AppState>()(
           subAgentUsage,
           teamUsage,
           ceoUsage,
+          subAgentSummaries,
           profileStates: { ...s.profileStates, [id]: { ...cloneJson(fresh), currentId: null } },
           profileSessions: { ...s.profileSessions, [id]: [] },
         });
@@ -2840,6 +2865,127 @@ export const useStore = create<AppState>()(
               [convId]: { ...existing, ...patch, updatedAt: Date.now() },
             },
           };
+        }),
+      // ---- Sub-agent context summarization handoffs --------------------------
+      startSubAgentSummary: (convId, info) =>
+        set((s) => {
+          const perConv = s.subAgentSummaries[convId] ?? {};
+          const existing = perConv[info.handoffId];
+          if (existing) {
+            if (existing.status === info.status) return {};
+            return {
+              subAgentSummaries: {
+                ...s.subAgentSummaries,
+                [convId]: {
+                  ...perConv,
+                  [info.handoffId]: { ...existing, status: info.status, updatedAt: Date.now() },
+                },
+              },
+            };
+          }
+          return {
+            subAgentSummaries: {
+              ...s.subAgentSummaries,
+              [convId]: {
+                ...perConv,
+                [info.handoffId]: {
+                  handoffId: info.handoffId,
+                  subSessionId: info.subSessionId,
+                  subAgentName: info.subAgentName,
+                  status: info.status,
+                  streamingText: '',
+                  finalSummary: null,
+                  summaryChars: null,
+                  error: null,
+                  code: null,
+                  updatedAt: Date.now(),
+                },
+              },
+            },
+          };
+        }),
+      appendSubAgentSummaryChunk: (convId, handoffId, chunk) =>
+        set((s) => {
+          const perConv = s.subAgentSummaries[convId] ?? {};
+          const existing = perConv[handoffId];
+          if (!existing) {
+            return {
+              subAgentSummaries: {
+                ...s.subAgentSummaries,
+                [convId]: {
+                  ...perConv,
+                  [handoffId]: {
+                    handoffId,
+                    subSessionId: '',
+                    subAgentName: '',
+                    status: 'summarizing',
+                    streamingText: chunk,
+                    finalSummary: null,
+                    summaryChars: null,
+                    error: null,
+                    code: null,
+                    updatedAt: Date.now(),
+                  },
+                },
+              },
+            };
+          }
+          if (existing.finalSummary !== null) return {};
+          return {
+            subAgentSummaries: {
+              ...s.subAgentSummaries,
+              [convId]: {
+                ...perConv,
+                [handoffId]: {
+                  ...existing,
+                  streamingText: existing.streamingText + chunk,
+                  updatedAt: Date.now(),
+                },
+              },
+            },
+          };
+        }),
+      updateSubAgentSummary: (convId, handoffId, patch) =>
+        set((s) => {
+          const perConv = s.subAgentSummaries[convId] ?? {};
+          const existing = perConv[handoffId];
+          if (!existing) {
+            return {
+              subAgentSummaries: {
+                ...s.subAgentSummaries,
+                [convId]: {
+                  ...perConv,
+                  [handoffId]: {
+                    handoffId,
+                    subSessionId: (patch as { subSessionId?: string }).subSessionId ?? '',
+                    subAgentName: (patch as { subAgentName?: string }).subAgentName ?? '',
+                    status: patch.status ?? 'summarizing',
+                    streamingText: '',
+                    finalSummary: patch.finalSummary ?? null,
+                    summaryChars: patch.summaryChars ?? null,
+                    error: patch.error ?? null,
+                    code: patch.code ?? null,
+                    updatedAt: Date.now(),
+                  },
+                },
+              },
+            };
+          }
+          return {
+            subAgentSummaries: {
+              ...s.subAgentSummaries,
+              [convId]: {
+                ...perConv,
+                [handoffId]: { ...existing, ...patch, updatedAt: Date.now() },
+              },
+            },
+          };
+        }),
+      setSubAgentSummaries: (convId, entries) =>
+        set((s) => {
+          const perConv: Record<string, import('@/types').SubAgentSummaryInfo> = {};
+          for (const e of entries.slice(-50)) perConv[e.handoffId] = e;
+          return { subAgentSummaries: { ...s.subAgentSummaries, [convId]: perConv } };
         }),
       setSummaryHandoffOpen: (v) => set({ summaryHandoffOpen: v }),
       upsertSummaryHistory: (convId, entry) =>

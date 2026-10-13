@@ -443,6 +443,95 @@ export function dispatchStreamEvent(event: string, data: SSEEventData, ctx: Disp
       break;
     }
 
+    // ---- Sub-agent context summarization handoffs ----
+    // Same lifecycle as the main agent, but per sub-agent run (keyed by handoff id)
+    // so concurrent summarizations of multiple sub-agents each stream live output.
+    // Closing the popup never cancels backend jobs; replay is incremental.
+    case "sub_agent_summary_execution_started": {
+      const handoffId = typeof data.handoff_id === "string" ? data.handoff_id : "";
+      const subSessionId = typeof data.sub_session_id === "string" ? data.sub_session_id : "";
+      const subAgentName = typeof data.sub_agent === "string" ? data.sub_agent : "";
+      if (handoffId) s.startSubAgentSummary(convId, { handoffId, subSessionId, subAgentName, status: "pausing" });
+      break;
+    }
+    case "sub_agent_pause_initiated": {
+      const handoffId = typeof data.handoff_id === "string" ? data.handoff_id : "";
+      if (handoffId) s.updateSubAgentSummary(convId, handoffId, { status: "pausing" });
+      break;
+    }
+    case "sub_agent_paused": {
+      const handoffId = typeof data.handoff_id === "string" ? data.handoff_id : "";
+      if (handoffId) s.updateSubAgentSummary(convId, handoffId, { status: "paused" });
+      break;
+    }
+    case "sub_agent_summary_output_chunk": {
+      const handoffId = typeof data.handoff_id === "string" ? data.handoff_id : "";
+      const chunk = typeof data.value === "string" ? data.value : "";
+      if (handoffId && chunk) {
+        s.updateSubAgentSummary(convId, handoffId, { status: "summarizing" });
+        s.appendSubAgentSummaryChunk(convId, handoffId, chunk);
+      }
+      break;
+    }
+    case "sub_agent_summary_generation_ended":
+    case "sub_agent_summary_run_completed":
+      break;
+    case "sub_agent_final_summary_received": {
+      const handoffId = typeof data.handoff_id === "string" ? data.handoff_id : "";
+      if (handoffId) s.updateSubAgentSummary(convId, handoffId, { status: "summarizing" });
+      break;
+    }
+    case "sub_agent_final_summary_validated": {
+      const handoffId = typeof data.handoff_id === "string" ? data.handoff_id : "";
+      if (handoffId) {
+        const perConv = useStore.getState().subAgentSummaries[convId] ?? {};
+        const existing = perConv[handoffId];
+        const text = existing ? existing.streamingText : "";
+        s.updateSubAgentSummary(convId, handoffId, {
+          status: "validated",
+          finalSummary: text,
+          summaryChars: typeof data.chars === "number" ? data.chars : text.length,
+        });
+      }
+      break;
+    }
+    case "sub_agent_context_replacement_started":
+      break;
+    case "sub_agent_context_replaced": {
+      const handoffId = typeof data.handoff_id === "string" ? data.handoff_id : "";
+      if (handoffId) s.updateSubAgentSummary(convId, handoffId, { status: "replaced" });
+      break;
+    }
+    case "sub_agent_execution_resumed": {
+      const handoffId = typeof data.handoff_id === "string" ? data.handoff_id : "";
+      if (handoffId) s.updateSubAgentSummary(convId, handoffId, { status: "resumed" });
+      break;
+    }
+    case "sub_agent_summary_execution_failed": {
+      const handoffId = typeof data.handoff_id === "string" ? data.handoff_id : "";
+      if (handoffId) {
+        const state = typeof data.state === "string" ? data.state : "";
+        const status = state === "SUMMARY_INCOMPLETE" ? "incomplete" : state === "CANCELLED" ? "failed" : "failed";
+        s.updateSubAgentSummary(convId, handoffId, {
+          status,
+          error: typeof data.message === "string" ? data.message : "Sub-agent summarization failed.",
+          code: typeof data.code === "string" ? data.code : null,
+        });
+      }
+      break;
+    }
+    case "sub_agent_recovery_required": {
+      const handoffId = typeof data.handoff_id === "string" ? data.handoff_id : "";
+      if (handoffId) {
+        s.updateSubAgentSummary(convId, handoffId, {
+          status: "recovery",
+          error: "Sub-agent handoff needs recovery. Original context was preserved.",
+          code: typeof data.code === "string" ? data.code : null,
+        });
+      }
+      break;
+    }
+
     case "knowledge_updated":
       if (Array.isArray(data.knowledgeFiles)) s.setKnowledge(data.knowledgeFiles as KnowledgeFile[]);
       break;

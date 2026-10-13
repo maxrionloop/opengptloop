@@ -32,3 +32,16 @@ export {
   markResumed,
 } from "./handoff.js";
 export type { HandoffRecord } from "./handoff.js";
+export {
+  clearSubAgentHandoffHistory,
+  clearSubAgentHandoffJobs,
+  executeSubAgentHandoff,
+  getSubAgentHandoffHistory,
+  markSubAgentResumed,
+} from "./subAgentHandoff.js";
+export type {
+  SubAgentHandoffIds,
+  SubAgentHandoffOutcome,
+  SubAgentHandoffRecord,
+  SubAgentHandoffRunParams,
+} from "./subAgentHandoff.js";

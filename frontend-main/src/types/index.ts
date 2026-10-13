@@ -1178,6 +1178,29 @@ export interface SummaryHandoffInfo {
 }
 
 /**
+ * Ephemeral live view of one sub-agent context-summarization handoff, rebuilt
+ * from its sub_agent_summary_* SSE stream. Keyed by handoff id per conversation
+ * so concurrent summarizations of multiple sub-agents never collide — the popup
+ * lists all of them live. Mirrors SummaryHandoffInfo plus the owning run identity.
+ */
+export interface SubAgentSummaryInfo {
+  handoffId: string;
+  /** 10-character sub-agent session id this summarization belongs to. */
+  subSessionId: string;
+  /** Display name of the sub-agent being summarized. */
+  subAgentName: string;
+  status: SummaryHandoffStatus;
+  /** Accumulated summary output chunks in order (not the validated summary). */
+  streamingText: string;
+  /** Validated final summary (only after sub_agent_final_summary_validated). */
+  finalSummary: string | null;
+  summaryChars: number | null;
+  error: string | null;
+  code: string | null;
+  updatedAt: number;
+}
+
+/**
  * One agent's current context-token usage for a conversation, derived from the
  * latest `context_usage` log event of its scope (see SSEEventData). `promptTokens`
  * is the current context size of the latest provider request — NOT a cumulative

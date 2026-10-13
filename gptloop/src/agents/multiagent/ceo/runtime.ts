@@ -120,6 +120,13 @@ export interface CeoOrchestratorDeps {
   /** Raw SSE emitter onto the turn buffer. */
   send: (event: string, data: Record<string, unknown>) => void;
   signal: AbortSignal;
+  /**
+   * Effective context-window limit (tokens) for sub-agent summarization handoff.
+   * Absent = handoff disabled (safe).
+   */
+  contextLimit?: number | null;
+  /** Utilization fraction (0..1) that triggers sub-agent summarization (default 90%). */
+  summaryThreshold?: number;
 }
 
 /**
@@ -231,6 +238,8 @@ export class CeoOrchestrator {
       connectors: this.deps.connectors.active ? this.deps.connectors : undefined,
       mcp: this.deps.mcp?.active ? this.deps.mcp : undefined,
       getConversationContext: () => context.messages,
+      contextLimit: typeof this.deps.contextLimit === "number" ? this.deps.contextLimit : null,
+      summaryThreshold: this.deps.summaryThreshold ?? this.deps.config.summaryThreshold ?? 0.9,
     });
   }
 

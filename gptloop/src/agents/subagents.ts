@@ -25,6 +25,11 @@ import type { OpenAIToolSchema } from "./tools/registry.js";
 import { SUB_AGENT_RESTRICTED_TOOLS } from "./tools/subAgentRestrictedTools.js";
 import type { ConnectorRuntime } from "./connectors/runtime.js";
 import type { McpRuntime } from "./mcp/runtime.js";
+import {
+  executeSubAgentHandoff,
+  markSubAgentResumed,
+  shouldTriggerSummarization,
+} from "./summarization/index.js";
 
 /**
  * Tools a sub-agent may never use. This is the single canonical restricted set
@@ -73,6 +78,19 @@ export interface SubAgentRuntimeDeps {
    * the surrounding conversation. Returns the live message array; the runner copies/formats it.
    */
   getConversationContext?: () => StoredMessage[];
+  /**
+   * Effective context-window limit (tokens) for the model serving this turn, resolved by
+   * the client from provider catalog metadata or manual entry. Used with the
+   * provider-reported prompt_tokens to compute utilization for automatic
+   * sub-agent summarization handoff. Absent = handoff disabled (safe, never triggers).
+   * Same value the main agent uses — sub-agents run the same model.
+   */
+  contextLimit?: number | null;
+  /**
+   * Utilization fraction (0..1) that triggers sub-agent summarization handoff.
+   * Defaults to the server summaryThreshold (90%). Per-turn override, same as main agent.
+   */
+  summaryThreshold?: number;
 }
 
 /**
@@ -699,6 +717,7 @@ class SubAgentRunner {
       send,
       parentId,
       signal,
+      subSessionId: sessionId,
     });
 
     subAgentSessionStore.update(this.deps.chatId, sessionId, {
@@ -876,6 +895,7 @@ class SubAgentRunner {
       send,
       parentId,
       signal,
+      subSessionId,
     });
 
     subAgentSessionStore.update(this.deps.chatId, subSessionId, {
@@ -891,6 +911,14 @@ class SubAgentRunner {
    * (reuseSession). It drives the model against `history` (mutated in place so the caller can persist
    * the resulting transcript), executing tool calls and streaming `sub_agent_*` events via `send`,
    * until the model returns a final answer with no tool calls or the run is aborted.
+   *
+   * Automatic context summarization: when provider-reported prompt_tokens reach the
+   * configured threshold (default 90%) of the turn's context limit, the sub-agent is
+   * immediately stopped (no new generation/tools while summarizing — like the main
+   * agent), its history is summarized with the SAME summarization pipeline the main
+   * agent uses (chat data + tool calls/results in, system prompt + reasoning out),
+   * the ENTIRE history is cleared and replaced with the summary + system-prompt
+   * re-send + latest task input, and the loop continues working.
    */
   private async agenticLoop(args: {
     definition: SubAgentDefinition;
@@ -902,12 +930,20 @@ class SubAgentRunner {
     send: (event: string, data: Record<string, unknown>) => void;
     parentId: string;
     signal: AbortSignal | undefined;
+    /** 10-char session id owning this run (correlates summarization events + history). */
+    subSessionId: string;
   }): Promise<SubAgentLoopResult> {
-    const { definition, systemPrompt, history, allowed, toolSchemas, subToolCtx, send, parentId, signal } =
+    const { definition, systemPrompt, history, allowed, toolSchemas, subToolCtx, send, parentId, signal, subSessionId } =
       args;
     const { provider, tools } = this.deps;
 
     const answerAcrossTurns: string[] = [];
+    // Handoff bookkeeping mirrors the main agent: a successful replacement resets
+    // usage tracking so growth can trigger again; a failed job blocks further
+    // auto-triggers for this run to avoid an indefinite retry loop.
+    let lastPromptTokens: number | undefined;
+    let handoffFailedThisRun = false;
+    let completedHandoffs = 0;
 
     try {
       // Unbounded loop: the sub-agent has no iteration limit. It only stops when the model
@@ -976,6 +1012,9 @@ class SubAgentRunner {
             completion_tokens: requestUsage.completion_tokens,
             total_tokens: requestUsage.total_tokens,
           });
+          if (typeof requestUsage.prompt_tokens === "number") {
+            lastPromptTokens = requestUsage.prompt_tokens;
+          }
         }
 
         const namedCalls = toolCalls.filter((c) => c.function.name);
@@ -1060,6 +1099,64 @@ class SubAgentRunner {
           // Append vision inputs after all tool responses for contiguous tool messages.
           for (const imageMessage of imageMessages) {
             history.push(imageMessage);
+          }
+
+          // Automatic context handoff: the current iteration's tools have fully
+          // completed (no in-flight result is discarded), so this is the safe
+          // pause point before the next LLM generation — same as the main agent.
+          // May run multiple times per sub-agent run whenever utilization reaches
+          // the threshold again.
+          if (!handoffFailedThisRun) {
+            const contextLimit =
+              typeof this.deps.contextLimit === "number" ? this.deps.contextLimit : null;
+            const threshold =
+              typeof this.deps.summaryThreshold === "number"
+                ? this.deps.summaryThreshold
+                : (this.deps.config.summaryThreshold ?? 0.9);
+            if (shouldTriggerSummarization(lastPromptTokens, contextLimit, { threshold })) {
+              const handoffOutcome = await executeSubAgentHandoff({
+                chatId: this.deps.chatId,
+                subSessionId,
+                subAgentName: definition.name,
+                messages: history,
+                systemPrompt,
+                provider,
+                model: this.deps.model,
+                apiKey: this.deps.apiKey,
+                baseUrl: this.deps.baseUrl,
+                temperature: this.deps.temperature,
+                effort: this.deps.effort,
+                signal,
+                send,
+              });
+              if (handoffOutcome.ok && handoffOutcome.replacement) {
+                // Atomic replacement: clear the ENTIRE sub-agent context first, then
+                // commit only the approved continuation inputs (summary + latest task
+                // input). Splice in place so the session-store reference (registered
+                // at run start) stays in sync without a re-registration.
+                // The system prompt is NOT part of history — it is re-sent verbatim
+                // on the very next LLM request via buildProviderMessages, so the
+                // sub-agent never forgets its identity.
+                history.splice(0, history.length, ...handoffOutcome.replacement);
+                markSubAgentResumed(handoffOutcome.handoff, send);
+                completedHandoffs += 1;
+                // Fresh usage is required before another handoff: the stale high
+                // reading must not retrigger before the next LLM call.
+                lastPromptTokens = undefined;
+              } else {
+                // Failure preserves the original context for recovery. Never resume
+                // with a missing summary; block further auto-triggers for this run
+                // so a persistently high reading cannot loop forever.
+                handoffFailedThisRun = true;
+                send("sub_agent_recovery_required", {
+                  id: parentId,
+                  handoff_id: handoffOutcome.handoff.handoffId,
+                  state: handoffOutcome.state,
+                  code: handoffOutcome.code ?? "handoff_failed",
+                  completed_handoffs: completedHandoffs,
+                });
+              }
+            }
           }
 
           // Observation delivered — loop so the sub-agent can reason about the results.

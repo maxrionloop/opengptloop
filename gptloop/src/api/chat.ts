@@ -668,6 +668,8 @@ export function buildChatRouter(
           composioApiKey,
           connectors: connectorRefs,
           mcpServers: resolveMcpServers(body),
+          contextLimit: sanitizeContextLimit(body.context_limit),
+          summaryThreshold: sanitizeSummaryThreshold(body.summary_threshold),
         };
 
         void ceoAgent
@@ -720,6 +722,8 @@ export function buildChatRouter(
           composioApiKey,
           connectors: connectorRefs,
           mcpServers: resolveMcpServers(body),
+          contextLimit: sanitizeContextLimit(body.context_limit),
+          summaryThreshold: sanitizeSummaryThreshold(body.summary_threshold),
         };
 
         void multiAgent
