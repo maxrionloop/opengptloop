@@ -635,7 +635,12 @@ interface AppState {
 
   // Automatic context summarization handoff (latest summary_* events per conversation)
   /** Create or reset the handoff view for a new job (idempotent per handoff id). */
-  startSummaryHandoff: (convId: string, handoffId: string, status: SummaryHandoffStatus) => void;
+  startSummaryHandoff: (
+    convId: string,
+    handoffId: string,
+    status: SummaryHandoffStatus,
+    agent?: { agent?: "main" | "custom"; customAgentId?: string | null; customAgentName?: string | null },
+  ) => void;
   /** Append one streaming chunk in order (never used for completion). */
   appendSummaryChunk: (convId: string, handoffId: string, chunk: string) => void;
   /** Update status/validated summary/error for a handoff (authoritative backend state). */
@@ -2797,16 +2802,24 @@ export const useStore = create<AppState>()(
         })),
 
       // ---- Automatic context summarization handoff -----------------------------
-      startSummaryHandoff: (convId, handoffId, status) =>
+      startSummaryHandoff: (convId, handoffId, status, agent) =>
         set((s) => {
+          const agentTag = agent?.agent === "custom" ? "custom" : "main";
           const existing = s.summaryHandoffs[convId];
           if (existing && existing.handoffId === handoffId) {
             // Same job re-announced (reconnect replay): keep accumulated chunks.
-            if (existing.status === status) return {};
+            if (existing.status === status && (existing.agent ?? "main") === agentTag) return {};
             return {
               summaryHandoffs: {
                 ...s.summaryHandoffs,
-                [convId]: { ...existing, status, updatedAt: Date.now() },
+                [convId]: {
+                  ...existing,
+                  status,
+                  agent: agentTag,
+                  customAgentId: agent?.customAgentId ?? existing.customAgentId ?? null,
+                  customAgentName: agent?.customAgentName ?? existing.customAgentName ?? null,
+                  updatedAt: Date.now(),
+                },
               },
             };
           }
@@ -2822,6 +2835,9 @@ export const useStore = create<AppState>()(
                 error: null,
                 code: null,
                 updatedAt: Date.now(),
+                agent: agentTag,
+                customAgentId: agent?.customAgentId ?? null,
+                customAgentName: agent?.customAgentName ?? null,
               },
             },
           };

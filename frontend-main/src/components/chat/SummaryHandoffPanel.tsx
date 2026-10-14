@@ -9,8 +9,8 @@ import type { SubAgentSummaryInfo, SummaryHandoffInfo, SummaryHandoffStatus } fr
 /** Stable empty history — keeps the store selector referentially stable (no new array per render). */
 const EMPTY_HISTORY: SummaryHandoffInfo[] = [];
 
-function statusLabel(status: SummaryHandoffStatus, agent: "main" | "sub" = "main"): string {
-  const who = agent === "sub" ? "Sub agent" : "Main agent";
+function statusLabel(status: SummaryHandoffStatus, agent: "main" | "sub" | "custom" = "main"): string {
+  const who = agent === "sub" ? "Sub agent" : agent === "custom" ? "Custom agent" : "Main agent";
   switch (status) {
     case "idle":
       return "Idle";
@@ -37,7 +37,7 @@ function statusLabel(status: SummaryHandoffStatus, agent: "main" | "sub" = "main
   }
 }
 
-function StatusPill({ status, agent }: { status: SummaryHandoffStatus; agent?: "main" | "sub" }) {
+function StatusPill({ status, agent }: { status: SummaryHandoffStatus; agent?: "main" | "sub" | "custom" }) {
   const tone =
     status === "resumed"
       ? "bg-[var(--secondary)] text-[var(--secondary-fg)]"
@@ -132,6 +132,9 @@ export function SummaryHandoffPanel() {
           error: item.error,
           code: item.code,
           updatedAt: item.finished_at,
+          agent: item.agent === "custom" ? "custom" : "main",
+          customAgentId: item.custom_agent_id ?? null,
+          customAgentName: item.custom_agent_name ?? null,
         });
       }
       for (const entry of live) byId.set(entry.handoffId, entry);
@@ -180,6 +183,13 @@ export function SummaryHandoffPanel() {
   const streaming = status === "pausing" || status === "paused" || status === "summarizing";
   const success = status === "resumed";
   const failed = status === "failed" || status === "incomplete" || status === "recovery";
+  const handoffAgent = handoff?.agent === "custom" ? "custom" : "main";
+  const handoffAgentLabel =
+    handoffAgent === "custom" && handoff?.customAgentName
+      ? `Custom agent (${handoff.customAgentName})`
+      : handoffAgent === "custom"
+        ? "Custom agent"
+        : "Main agent";
   const orderedHistory = [...history].sort((a, b) => b.updatedAt - a.updatedAt);
   const orderedSubs = [...subEntries].sort((a, b) => b.updatedAt - a.updatedAt);
 
@@ -287,7 +297,7 @@ export function SummaryHandoffPanel() {
         </div>
       ) : !handoff && history.length === 0 ? (
         <div className="px-6 py-12 text-center text-sm text-[var(--muted)]">
-          No summarization run yet for this thread. When the main agent reaches 90% context usage it
+          No summarization run yet for this thread. When the main or custom agent reaches 90% context usage it
           pauses automatically, summarizes, replaces its context, and resumes — as many times as needed.
           {showSubTab && (
             <>
@@ -300,7 +310,8 @@ export function SummaryHandoffPanel() {
           {handoff && (
             <>
               <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
-                <StatusPill status={status} agent="main" />
+                <StatusPill status={status} agent={handoffAgent} />
+                <span className="font-medium text-[var(--fg)]">{handoffAgentLabel}</span>
                 <span className="font-mono">{handoff.handoffId}</span>
               </div>
 
@@ -335,7 +346,7 @@ export function SummaryHandoffPanel() {
               {success && (
                 <p className="m-0 flex items-center gap-1.5 text-xs text-[var(--muted)]">
                   <ShieldCheck className="h-3.5 w-3.5 text-[var(--secondary)]" />
-                  Main agent resumed only after the summary was validated and context replacement succeeded.
+                  {handoffAgentLabel} resumed only after the summary was validated and context replacement succeeded.
                 </p>
               )}
 
@@ -376,7 +387,14 @@ export function SummaryHandoffPanel() {
                       className="rounded-[var(--radius-md)] bg-[var(--chip)] p-2.5"
                     >
                       <div className="flex flex-wrap items-center gap-2">
-                        <StatusPill status={entry.status} agent="main" />
+                        <StatusPill status={entry.status} agent={entry.agent === "custom" ? "custom" : "main"} />
+                        <span className="text-[11px] font-medium text-[var(--fg)]">
+                          {entry.agent === "custom" && entry.customAgentName
+                            ? `Custom (${entry.customAgentName})`
+                            : entry.agent === "custom"
+                              ? "Custom"
+                              : "Main"}
+                        </span>
                         <span className="font-mono text-[11px] text-[var(--subtle)]">
                           {entry.handoffId}
                         </span>

@@ -791,12 +791,16 @@ export class AgentRunner {
               typeof request.contextLimit === "number" ? request.contextLimit : null;
             const threshold = request.summaryThreshold ?? this.config.summaryThreshold ?? 0.9;
             if (shouldTriggerSummarization(lastPromptTokens, contextLimit, { threshold })) {
+              const isCustomAgent = Boolean(request.customAgent);
               const handoffOutcome = await executeHandoff({
                 chatId: request.chatId,
                 messages: session.messages,
                 systemPrompt,
                 memoryActive: (memoryRuntime?.files.length ?? 0) > 0,
                 knowledgeActive: (knowledgeRuntime?.files.length ?? 0) > 0,
+                agent: isCustomAgent ? "custom" : "main",
+                customAgentId: isCustomAgent ? request.customAgent?.id : undefined,
+                customAgentName: isCustomAgent ? request.customAgent?.name : undefined,
                 provider,
                 model: request.model,
                 apiKey: request.apiKey,
@@ -828,6 +832,9 @@ export class AgentRunner {
                   state: handoffOutcome.state,
                   code: handoffOutcome.code ?? "handoff_failed",
                   completed_handoffs: completedHandoffs,
+                  agent: request.customAgent ? "custom" : "main",
+                  ...(request.customAgent?.id ? { custom_agent_id: request.customAgent.id } : {}),
+                  ...(request.customAgent?.name ? { custom_agent_name: request.customAgent.name } : {}),
                 });
               }
             }

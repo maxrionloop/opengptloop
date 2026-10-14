@@ -142,6 +142,25 @@ function persistCreatedSkill(s: Store, raw: Record<string, unknown>): void {
 }
 
 /**
+ * Agent tag carried by top-level summarization events ("main" default keeps older
+ * payloads valid). Custom agents compact through the same pipeline as the Main
+ * Agent; the tag lets the UI label the run correctly.
+ */
+function agentOf(data: SSEEventData): {
+  agent: "main" | "custom";
+  customAgentId?: string | null;
+  customAgentName?: string | null;
+} {
+  const raw = typeof data.agent === "string" ? data.agent.trim().toLowerCase() : "";
+  if (raw === "custom") {
+    const id = typeof data.custom_agent_id === "string" ? data.custom_agent_id : null;
+    const name = typeof data.custom_agent_name === "string" ? data.custom_agent_name : null;
+    return { agent: "custom", customAgentId: id, customAgentName: name };
+  }
+  return { agent: "main" };
+}
+
+/**
  * Apply a single SSE event to the store. Token/reasoning events go through the batcher
  * (rAF-coalesced); everything else is applied immediately after flushing the batcher so
  * ordering between streamed text and structured events is preserved.
@@ -346,17 +365,19 @@ export function dispatchStreamEvent(event: string, data: SSEEventData, ctx: Disp
     // cancels the job; replay is incremental via the resume cursor.
     case "summary_execution_started": {
       const handoffId = typeof data.handoff_id === "string" ? data.handoff_id : "";
-      if (handoffId) s.startSummaryHandoff(convId, handoffId, "pausing");
+      if (handoffId) s.startSummaryHandoff(convId, handoffId, "pausing", agentOf(data));
       break;
     }
-    case "main_agent_pause_initiated": {
+    case "main_agent_pause_initiated":
+    case "custom_agent_pause_initiated": {
       const handoffId = typeof data.handoff_id === "string" ? data.handoff_id : "";
-      if (handoffId) s.updateSummaryHandoff(convId, handoffId, { status: "pausing" });
+      if (handoffId) s.updateSummaryHandoff(convId, handoffId, { status: "pausing", ...agentOf(data) });
       break;
     }
-    case "main_agent_paused": {
+    case "main_agent_paused":
+    case "custom_agent_paused": {
       const handoffId = typeof data.handoff_id === "string" ? data.handoff_id : "";
-      if (handoffId) s.updateSummaryHandoff(convId, handoffId, { status: "paused" });
+      if (handoffId) s.updateSummaryHandoff(convId, handoffId, { status: "paused", ...agentOf(data) });
       break;
     }
     case "summary_output_chunk": {
@@ -388,6 +409,7 @@ export function dispatchStreamEvent(event: string, data: SSEEventData, ctx: Disp
           status: "validated",
           finalSummary: text,
           summaryChars: typeof data.chars === "number" ? data.chars : text.length,
+          ...agentOf(data),
         });
         const updated = useStore.getState().summaryHandoffs[convId];
         if (updated && updated.handoffId === handoffId) s.upsertSummaryHistory(convId, { ...updated });
@@ -396,19 +418,21 @@ export function dispatchStreamEvent(event: string, data: SSEEventData, ctx: Disp
     }
     case "context_replacement_started":
       break;
-    case "main_agent_context_replaced": {
+    case "main_agent_context_replaced":
+    case "custom_agent_context_replaced": {
       const handoffId = typeof data.handoff_id === "string" ? data.handoff_id : "";
       if (handoffId) {
-        s.updateSummaryHandoff(convId, handoffId, { status: "replaced" });
+        s.updateSummaryHandoff(convId, handoffId, { status: "replaced", ...agentOf(data) });
         const updated = useStore.getState().summaryHandoffs[convId];
         if (updated && updated.handoffId === handoffId) s.upsertSummaryHistory(convId, { ...updated });
       }
       break;
     }
-    case "main_agent_execution_resumed": {
+    case "main_agent_execution_resumed":
+    case "custom_agent_execution_resumed": {
       const handoffId = typeof data.handoff_id === "string" ? data.handoff_id : "";
       if (handoffId) {
-        s.updateSummaryHandoff(convId, handoffId, { status: "resumed" });
+        s.updateSummaryHandoff(convId, handoffId, { status: "resumed", ...agentOf(data) });
         const updated = useStore.getState().summaryHandoffs[convId];
         if (updated && updated.handoffId === handoffId) s.upsertSummaryHistory(convId, { ...updated });
       }
@@ -424,6 +448,7 @@ export function dispatchStreamEvent(event: string, data: SSEEventData, ctx: Disp
           status,
           error: typeof data.message === "string" ? data.message : "Summarization failed.",
           code: typeof data.code === "string" ? data.code : null,
+          ...agentOf(data),
         });
         const updated = useStore.getState().summaryHandoffs[convId];
         if (updated && updated.handoffId === handoffId) s.upsertSummaryHistory(convId, { ...updated });
@@ -437,6 +462,7 @@ export function dispatchStreamEvent(event: string, data: SSEEventData, ctx: Disp
           status: "recovery",
           error: "Handoff needs recovery. Original context was preserved.",
           code: typeof data.code === "string" ? data.code : null,
+          ...agentOf(data),
         });
         const updated = useStore.getState().summaryHandoffs[convId];
         if (updated && updated.handoffId === handoffId) s.upsertSummaryHistory(convId, { ...updated });

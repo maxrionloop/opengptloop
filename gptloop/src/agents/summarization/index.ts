@@ -3,6 +3,7 @@ export {
   MIN_SUMMARY_CHARS,
   isTerminalFailure,
   type ContinuationContext,
+  type HandoffAgent,
   type HandoffIds,
   type HandoffState,
   type SummarySnapshot,
@@ -28,6 +29,7 @@ export {
   clearHandoffHistory,
   clearHandoffJobs,
   executeHandoff,
+  getCustomHandoffHistory,
   getHandoffHistory,
   markResumed,
 } from "./handoff.js";

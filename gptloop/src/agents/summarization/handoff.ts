@@ -7,6 +7,7 @@ import { validateFinalSummary } from "./validation.js";
 import { runSummaryAgent } from "./runner.js";
 import type {
   ContinuationContext,
+  HandoffAgent,
   HandoffIds,
   HandoffState,
 } from "./types.js";
@@ -32,6 +33,16 @@ export interface HandoffRunParams {
   systemPrompt: string;
   memoryActive: boolean;
   knowledgeActive: boolean;
+  /**
+   * Top-level agent triggering the handoff ("main" for the built-in Main
+   * Agent, "custom" for a user-created Custom Agent). Custom agents compact
+   * exactly like the Main Agent through the same pipeline. Defaults to "main".
+   */
+  agent?: HandoffAgent;
+  /** Custom Agent id when `agent` is "custom". */
+  customAgentId?: string;
+  /** Custom Agent display name when `agent` is "custom". */
+  customAgentName?: string;
   provider: Provider;
   model: string;
   apiKey: string;
@@ -62,6 +73,12 @@ export interface HandoffRecord {
   handoffId: string;
   chatId: string;
   state: HandoffState;
+  /** Top-level agent that triggered the run ("main" for older records without a tag). */
+  agent: HandoffAgent;
+  /** Custom Agent id when `agent` is "custom". */
+  customAgentId: string | null;
+  /** Custom Agent display name when `agent` is "custom". */
+  customAgentName: string | null;
   summary: string | null;
   summaryChars: number | null;
   latestUserInput: string | null;
@@ -76,6 +93,11 @@ const historyByChat = new Map<string, HandoffRecord[]>();
 export function getHandoffHistory(chatId: string): HandoffRecord[] {
   const list = historyByChat.get(chatId || "");
   return list ? list.map((r) => ({ ...r })) : [];
+}
+
+/** Past CUSTOM-agent handoff runs for a chat, oldest first (bounded, in-memory). */
+export function getCustomHandoffHistory(chatId: string): HandoffRecord[] {
+  return getHandoffHistory(chatId).filter((r) => r.agent === "custom");
 }
 
 function recordHandoff(record: HandoffRecord): void {
@@ -132,20 +154,65 @@ function buildContinuationMessages(ctx: ContinuationContext): StoredMessage[] {
  * Never throws — failures resolve as ok:false with an observable failure state
  * and the caller's original context untouched.
  */
+/** Normalize the triggering agent ("main" default keeps older callers valid). */
+function handoffAgentOf(params: Pick<HandoffRunParams, "agent">): HandoffAgent {
+  return params.agent === "custom" ? "custom" : "main";
+}
+
+function customIdOf(params: Pick<HandoffRunParams, "customAgentId">): string | undefined {
+  const id = (params.customAgentId ?? "").trim();
+  return id.length > 0 ? id : undefined;
+}
+
+function customNameOf(params: Pick<HandoffRunParams, "customAgentName">): string | undefined {
+  const name = (params.customAgentName ?? "").trim();
+  return name.length > 0 ? name : undefined;
+}
+
 export async function executeHandoff(params: HandoffRunParams): Promise<HandoffOutcome> {
+  const agent = handoffAgentOf(params);
+  const customAgentId = agent === "custom" ? customIdOf(params) : undefined;
+  const customAgentName = agent === "custom" ? customNameOf(params) : undefined;
   const handoff: HandoffIds = {
     chatId: params.chatId,
     handoffId: newHandoffId(),
     turn: params.turn,
+    agent,
+    ...(customAgentId ? { customAgentId } : {}),
+    ...(customAgentName ? { customAgentName } : {}),
   };
-  const base = { chat_id: params.chatId, handoff_id: handoff.handoffId };
-  if (typeof params.turn === "number") (base as Record<string, unknown>).turn = params.turn;
+  const base: Record<string, unknown> = { chat_id: params.chatId, handoff_id: handoff.handoffId, agent };
+  if (typeof params.turn === "number") base.turn = params.turn;
+  if (customAgentId) base.custom_agent_id = customAgentId;
+  if (customAgentName) base.custom_agent_name = customAgentName;
 
   // RUNNING → PAUSING: establish the execution barrier (caller suspends its loop).
   setState(handoff.handoffId, "PAUSING");
   const startedAt = Date.now();
+  const recordTerminal = (
+    partial: Omit<HandoffRecord, "handoffId" | "chatId" | "agent" | "customAgentId" | "customAgentName" | "createdAt" | "finishedAt">,
+  ): void => {
+    recordHandoff({
+      handoffId: handoff.handoffId,
+      chatId: handoff.chatId,
+      agent,
+      customAgentId: customAgentId ?? null,
+      customAgentName: customAgentName ?? null,
+      createdAt: startedAt,
+      finishedAt: Date.now(),
+      ...partial,
+    });
+  };
+  /** Emit a top-level pause/resume lifecycle event, plus its custom-agent mirror when custom. */
+  const emitTopLevel = (event: string, data: Record<string, unknown>): void => {
+    emit(params.send, event, data);
+    if (agent === "custom") {
+      const mirror = event.replace(/^main_agent_/, "custom_agent_");
+      if (mirror !== event) emit(params.send, mirror, data);
+    }
+  };
   emit(params.send, "summary_execution_started", { ...base, state: "PAUSING" });
-  emit(params.send, "main_agent_pause_initiated", { ...base, state: "PAUSING" });
+  emitTopLevel("main_agent_pause_initiated", { ...base, state: "PAUSING" });
 
   if (params.signal?.aborted) {
     setState(handoff.handoffId, "CANCELLED");
@@ -155,17 +222,13 @@ export async function executeHandoff(params: HandoffRunParams): Promise<HandoffO
       code: "aborted",
       message: "Handoff cancelled before it started. Original context is preserved.",
     });
-    recordHandoff({
-      handoffId: handoff.handoffId,
-      chatId: handoff.chatId,
+    recordTerminal({
       state: "CANCELLED",
       summary: null,
       summaryChars: null,
       latestUserInput: null,
       code: "aborted",
       error: "Handoff cancelled before it started.",
-      createdAt: startedAt,
-      finishedAt: Date.now(),
     });
     return { ok: false, state: "CANCELLED", handoff, code: "aborted" };
   }
@@ -175,9 +238,9 @@ export async function executeHandoff(params: HandoffRunParams): Promise<HandoffO
   void originalCopy;
   const snapshot = buildSummarySnapshot(params.messages, handoff);
 
-  // PAUSED: main agent cannot generate, execute tools, or modify task state.
+  // PAUSED: top-level agent cannot generate, execute tools, or modify task state.
   setState(handoff.handoffId, "PAUSED");
-  emit(params.send, "main_agent_paused", { ...base, state: "PAUSED" });
+  emitTopLevel("main_agent_paused", { ...base, state: "PAUSED" });
 
   // SUMMARIZING with the exact required prompts + allowlisted input only.
   setState(handoff.handoffId, "SUMMARIZING");
@@ -195,17 +258,13 @@ export async function executeHandoff(params: HandoffRunParams): Promise<HandoffO
       code: "prompt_load_failed",
       message,
     });
-    recordHandoff({
-      handoffId: handoff.handoffId,
-      chatId: handoff.chatId,
+    recordTerminal({
       state: "SUMMARY_FAILED",
       summary: null,
       summaryChars: null,
       latestUserInput: snapshot.latestUserInput || null,
       code: "prompt_load_failed",
       error: message,
-      createdAt: startedAt,
-      finishedAt: Date.now(),
     });
     return { ok: false, state: "SUMMARY_FAILED", handoff, code: "prompt_load_failed" };
   }
@@ -254,17 +313,13 @@ export async function executeHandoff(params: HandoffRunParams): Promise<HandoffO
       code: "aborted",
       message: "Summary run was cancelled. Original context is preserved.",
     });
-    recordHandoff({
-      handoffId: handoff.handoffId,
-      chatId: handoff.chatId,
+    recordTerminal({
       state: "CANCELLED",
       summary: null,
       summaryChars: null,
       latestUserInput: snapshot.latestUserInput || null,
       code: "aborted",
       error: "Summary run was cancelled.",
-      createdAt: startedAt,
-      finishedAt: Date.now(),
     });
     return { ok: false, state: "CANCELLED", handoff, code: "aborted" };
   }
@@ -276,17 +331,13 @@ export async function executeHandoff(params: HandoffRunParams): Promise<HandoffO
       code: "provider_error",
       message: outcome.error ?? "Summary stream failed without a final result. Original context is preserved.",
     });
-    recordHandoff({
-      handoffId: handoff.handoffId,
-      chatId: handoff.chatId,
+    recordTerminal({
       state: "SUMMARY_FAILED",
       summary: null,
       summaryChars: null,
       latestUserInput: snapshot.latestUserInput || null,
       code: "provider_error",
       error: outcome.error ?? "Summary stream failed.",
-      createdAt: startedAt,
-      finishedAt: Date.now(),
     });
     return { ok: false, state: "SUMMARY_FAILED", handoff, code: "provider_error", error: outcome.error };
   }
@@ -306,17 +357,13 @@ export async function executeHandoff(params: HandoffRunParams): Promise<HandoffO
       code: validation.code ?? "summary_invalid",
       message: validation.message ?? "Summary was empty or invalid. Original context is preserved.",
     });
-    recordHandoff({
-      handoffId: handoff.handoffId,
-      chatId: handoff.chatId,
+    recordTerminal({
       state: "SUMMARY_INCOMPLETE",
       summary: null,
       summaryChars: null,
       latestUserInput: snapshot.latestUserInput || null,
       code: validation.code ?? "summary_invalid",
       error: validation.message ?? "Summary was empty or invalid.",
-      createdAt: startedAt,
-      finishedAt: Date.now(),
     });
     return {
       ok: false,
@@ -352,17 +399,13 @@ export async function executeHandoff(params: HandoffRunParams): Promise<HandoffO
       code: "replacement_empty",
       message: "Replacement context was empty. Original context is preserved.",
     });
-    recordHandoff({
-      handoffId: handoff.handoffId,
-      chatId: handoff.chatId,
+    recordTerminal({
       state: "HANDOFF_FAILED",
       summary: validation.summary,
       summaryChars: validation.summary.length,
       latestUserInput: snapshot.latestUserInput || null,
       code: "replacement_empty",
       error: "Replacement context was empty.",
-      createdAt: startedAt,
-      finishedAt: Date.now(),
     });
     return { ok: false, state: "HANDOFF_FAILED", handoff, code: "replacement_empty" };
   }
@@ -375,22 +418,18 @@ export async function executeHandoff(params: HandoffRunParams): Promise<HandoffO
     return { ok: false, state: getState(handoff.handoffId) ?? "HANDOFF_FAILED", handoff };
   }
   setState(handoff.handoffId, "CONTEXT_REPLACED");
-  emit(params.send, "main_agent_context_replaced", {
+  emitTopLevel("main_agent_context_replaced", {
     ...base,
     state: "CONTEXT_REPLACED",
     summary_chars: validation.summary.length,
   });
-  recordHandoff({
-    handoffId: handoff.handoffId,
-    chatId: handoff.chatId,
+  recordTerminal({
     state: "CONTEXT_REPLACED",
     summary: validation.summary,
     summaryChars: validation.summary.length,
     latestUserInput: snapshot.latestUserInput || null,
     code: null,
     error: null,
-    createdAt: startedAt,
-    finishedAt: Date.now(),
   });
 
   return {
@@ -413,12 +452,22 @@ export function markResumed(
   const list = historyByChat.get(handoff.chatId || "");
   const record = list?.find((r) => r.handoffId === handoff.handoffId);
   if (record) record.state = "RESUMED";
+  const agent = handoff.agent === "custom" ? "custom" : "main";
+  const payload: Record<string, unknown> = {
+    chat_id: handoff.chatId,
+    handoff_id: handoff.handoffId,
+    state: "RESUMED",
+    agent,
+  };
+  if (typeof handoff.customAgentId === "string" && handoff.customAgentId.trim()) {
+    payload.custom_agent_id = handoff.customAgentId.trim();
+  }
+  if (typeof handoff.customAgentName === "string" && handoff.customAgentName.trim()) {
+    payload.custom_agent_name = handoff.customAgentName.trim();
+  }
   try {
-    send?.("main_agent_execution_resumed", {
-      chat_id: handoff.chatId,
-      handoff_id: handoff.handoffId,
-      state: "RESUMED",
-    });
+    send?.("main_agent_execution_resumed", payload);
+    if (agent === "custom") send?.("custom_agent_execution_resumed", payload);
   } catch {
     // ignore
   }

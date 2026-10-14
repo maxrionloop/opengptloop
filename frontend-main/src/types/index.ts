@@ -1144,6 +1144,10 @@ export interface SSEEventData {
   chars?: number;
   /** Validated summary length for context replacement (main_agent_context_replaced). */
   summary_chars?: number;
+  /** Custom Agent id when a top-level handoff was triggered by a custom agent. */
+  custom_agent_id?: string;
+  /** Custom Agent display name when a top-level handoff was triggered by a custom agent. */
+  custom_agent_name?: string;
 }
 
 /**
@@ -1175,6 +1179,12 @@ export interface SummaryHandoffInfo {
   error: string | null;
   code: string | null;
   updatedAt: number;
+  /** Top-level agent that triggered the handoff ("main" default keeps older payloads valid). */
+  agent?: "main" | "custom";
+  /** Custom Agent id when `agent` is "custom". */
+  customAgentId?: string | null;
+  /** Custom Agent display name when `agent` is "custom". */
+  customAgentName?: string | null;
 }
 
 /**

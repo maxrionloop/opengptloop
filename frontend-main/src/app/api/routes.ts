@@ -507,6 +507,12 @@ export const API_ROUTES = {
     path: "/api/summaries/history/:chatId",
     description: "List past automatic context-summarization runs in a session.",
   },
+  customSummariesHistory: {
+    name: "summaries.customHistory",
+    method: "GET",
+    path: "/api/summaries/custom-history/:chatId",
+    description: "List past custom-agent context-summarization runs in a session.",
+  },
   subAgentSummariesHistory: {
     name: "summaries.subAgentHistory",
     method: "GET",

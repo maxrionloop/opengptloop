@@ -41,12 +41,25 @@ export const DEFAULT_SUMMARY_THRESHOLD = 0.9;
 /** Minimum usable summary length (chars) for validation. Guards empty/trivial output. */
 export const MIN_SUMMARY_CHARS = 20;
 
+/** Which top-level agent a handoff belongs to. Custom agents compact exactly like the Main Agent. */
+export type HandoffAgent = "main" | "custom";
+
 export interface HandoffIds {
   chatId: string;
   /** Stable handoff id for one pause→resume cycle (prevents duplicate jobs). */
   handoffId: string;
   /** Chat-session turn number the handoff belongs to (observability). */
   turn?: number;
+  /**
+   * Top-level agent that triggered the handoff ("main" for the built-in Main
+   * Agent, "custom" for a user-created Custom Agent). Defaults to "main" when
+   * omitted so older callers/history stay valid.
+   */
+  agent?: HandoffAgent;
+  /** Custom Agent id when `agent` is "custom". */
+  customAgentId?: string;
+  /** Custom Agent display name when `agent` is "custom". */
+  customAgentName?: string;
 }
 
 export interface UtilizationSample {
