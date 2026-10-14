@@ -317,6 +317,55 @@ export interface PromptLibraryRuntime {
 }
 
 /**
+ * A custom agent as surfaced by the custom-agent management tools. Only the
+ * identity fields are exposed (exact name + short description) — never the
+ * full system prompt or tool allow-list, so listing stays compact and safe
+ * for the model to consume.
+ */
+export interface CustomAgentInfo {
+  /** Stable unique id (16-character alphanumeric). */
+  id: string;
+  /** Exact agent name (used to delete the agent). */
+  name: string;
+  /** Short description of what the agent does. */
+  description: string;
+}
+
+/** Fields accepted by the custom-agent create operation (mirrors the tool's zod schema). */
+export interface CustomAgentCreateInput {
+  /** The name of the custom agent. */
+  name: string;
+  /** A short description of what the custom agent does. */
+  shortDescription: string;
+  /** Workspace-relative path to the Markdown file holding the system prompt. */
+  systemPromptFile: string;
+  /**
+   * Every tool name currently registered (used to grant the new agent its
+   * default tool allow-list). When omitted the agent is created with no tools.
+   */
+  availableToolNames?: string[];
+}
+
+/**
+ * Runtime bridge injected into the ToolContext for the top-level agent surfaces that may manage
+ * custom agents (the built-in Main Agent, Custom Agents, and every agent inside a multi-agent
+ * team or CEO system). It is backed by the SAME persistent CustomAgentManager the backend API
+ * (/api/custom-agents) and the frontend's app-state sync use, so an agent created or deleted by
+ * another agent shows up everywhere immediately (every mutation also emits a
+ * `custom_agents_updated` SSE event).
+ * Absent from the sub-agent, chat-mode, and memory-agent tool contexts, so those surfaces can
+ * never create, list, or delete custom agents.
+ */
+export interface CustomAgentsRuntime {
+  /** List every custom agent as exact name + short description (newest first). */
+  list(): ToolResult;
+  /** Create a custom agent from a workspace Markdown prompt file; emits `custom_agents_updated`. */
+  create(input: CustomAgentCreateInput, ctx: ToolContext): Promise<ToolResult>;
+  /** Delete a custom agent by its exact name; emits `custom_agents_updated` on success. */
+  removeByName(name: string, ctx: ToolContext): ToolResult;
+}
+
+/**
  * Role of an agent inside a multi-agent collaboration team. The single "leader" (head) delegates
  * tasks and reviews work; every other agent is a "member" specialist.
  */
@@ -661,6 +710,11 @@ export interface ToolContext {
    * sub-agents, chat mode, and the memory agent, which is why the prompt-library tools are
    * unavailable there. */
   promptLibrary?: PromptLibraryRuntime;
+  /** Custom-agents runtime — present ONLY for the top-level surfaces that may manage custom agents
+   * (Main Agent, Custom Agents, team agents, and the CEO system agents). Absent for sub-agents,
+   * chat mode, and the memory agent, which is why the custom-agent management tools are
+   * unavailable there. */
+  customAgents?: CustomAgentsRuntime;
   /** Schedule runtime — present for main-agent tool calls and forwarded to sub-agent tool calls so
    * an agent granted the schedule_* tools can manage the persistent cron system. Absent when the
    * backend schedule system is unavailable. */

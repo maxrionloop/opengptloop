@@ -108,6 +108,14 @@ function main(): void {
   multiAgent.setPromptLibrary(promptLibrary);
   ceoAgent.setPromptLibrary(promptLibrary);
 
+  // Attach the persistent custom-agent store to every agent surface that may manage it: the
+  // built-in Main Agent (and, through the same core runtime, every Custom Agent), the
+  // multi-agent team agents (head + members), and the CEO-system agents (CEO + leaders +
+  // members). Sub-agents, chat mode, and the background memory agent never receive it.
+  agent.setCustomAgents(customAgents);
+  multiAgent.setCustomAgents(customAgents);
+  ceoAgent.setCustomAgents(customAgents);
+
   // Schedules (persistent cron): the store persists schedules + history in the
   // SQLite database; the runner executes due schedules through the EXISTING
   // agent runtime; the scheduler loads every active schedule at boot and fires

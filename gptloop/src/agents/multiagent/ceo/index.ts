@@ -12,6 +12,7 @@ import { createSkillRuntime } from "../../skills.js";
 import { mergeDefaultSkills, resolveDefaultSkills } from "../../skills/index.js";
 import { createTodoRuntime } from "../../todos.js";
 import { createPromptLibraryRuntime } from "../../promptLibrary.js";
+import { createCustomAgentsRuntime } from "../../customAgents.js";
 import { resolveDefaultSubAgents } from "../../sub-agents/index.js";
 import { ConnectorRuntime } from "../../connectors/index.js";
 import { McpRuntime, type McpManager } from "../../mcp/index.js";
@@ -63,6 +64,7 @@ export class CeoAgentRunner {
   private scheduleScheduler?: import("../../../cron/scheduler.js").ScheduleScheduler;
   private channelManager?: import("../../../channels/manager.js").ChannelManager;
   private promptLibrary?: import("../../tools/types.js").PromptLibraryRuntime;
+  private customAgents?: import("../../tools/types.js").CustomAgentsRuntime;
 
   /**
    * Attach the persistent prompt library (called once at boot). When set, the CEO, every team
@@ -71,6 +73,18 @@ export class CeoAgentRunner {
    */
   setPromptLibrary(manager?: import("../../../prompt-library.js").PromptLibraryManager): void {
     this.promptLibrary = manager ? createPromptLibraryRuntime(manager) : undefined;
+  }
+
+  /**
+   * Attach the persistent custom-agent store (called once at boot). When set, the CEO, every
+   * team leader, and every team member granted the custom-agent management tools can create,
+   * list, and delete top-level custom agents; every mutation emits a `custom_agents_updated`
+   * event.
+   */
+  setCustomAgents(
+    manager?: import("../../customagent/index.js").CustomAgentManager,
+  ): void {
+    this.customAgents = manager ? createCustomAgentsRuntime(manager) : undefined;
   }
 
   /**
@@ -172,6 +186,7 @@ export class CeoAgentRunner {
         memory,
         knowledge,
         promptLibrary: this.promptLibrary,
+        customAgents: this.customAgents,
         skills,
         todos,
         subAgentDefinitions,

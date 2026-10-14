@@ -26,6 +26,7 @@ import { createTodoRuntime } from "./todos.js";
 import { createMemoryRuntime } from "./memory.js";
 import { createKnowledgeRuntime } from "./knowledge.js";
 import { createPromptLibraryRuntime } from "./promptLibrary.js";
+import { createCustomAgentsRuntime } from "./customAgents.js";
 import type { KnowledgeFile, MemoryFile, MemoryRuntime, TodoItem } from "./tools/types.js";
 import type { MemoryAgentService } from "./memoryagent/index.js";
 import { ALL_MULTI_AGENT_TOOL_NAMES } from "./tools/teamTools.js";
@@ -267,6 +268,22 @@ export class AgentRunner {
   private promptLibraryManager?: import("../prompt-library.js").PromptLibraryManager;
 
   /**
+   * Attach the persistent custom-agent store (called once at boot). When set, the
+   * custom-agent management tools (create_agent / list_available_agents / delete_agent)
+   * can create, list, and delete top-level custom agents for the Main Agent and every
+   * Custom Agent (both run through this core runtime). Every mutation emits a
+   * `custom_agents_updated` event so the frontend mirrors it immediately. When unset,
+   * the tools return a structured "unavailable" error and never touch storage.
+   */
+  setCustomAgents(
+    manager?: import("./customagent/index.js").CustomAgentManager,
+  ): void {
+    this.customAgentsManager = manager;
+  }
+
+  private customAgentsManager?: import("./customagent/index.js").CustomAgentManager;
+
+  /**
    * Execute a full autonomous turn: stream reasoning + tokens, run tools natively, and
    * loop (Thought -> Action -> Observation) until the model produces a final answer with
    * no further tool calls. The loop is UNBOUNDED — there is no iteration limit; the agent
@@ -316,6 +333,16 @@ export class AgentRunner {
       // chat mode, or the memory agent.
       const promptLibraryRuntime = this.promptLibraryManager
         ? createPromptLibraryRuntime(this.promptLibraryManager)
+        : undefined;
+
+      // Custom-agents runtime for this turn — a bridge over the persistent custom-agent store
+      // (the SQLite app_state document the frontend syncs) so the custom-agent management
+      // tools (create_agent / list_available_agents / delete_agent) can create, list, and
+      // delete top-level custom agents. Present for the Main Agent and every Custom Agent
+      // (same core runtime), and team/CEO agents — never for sub-agents, chat mode, or the
+      // memory agent.
+      const customAgentsRuntime = this.customAgentsManager
+        ? createCustomAgentsRuntime(this.customAgentsManager)
         : undefined;
 
       // "First user input" = no prior user turn exists in this session's history. On that first
@@ -657,6 +684,7 @@ export class AgentRunner {
               memory: memoryRuntime,
               knowledge: knowledgeRuntime,
               promptLibrary: promptLibraryRuntime,
+              customAgents: customAgentsRuntime,
               schedules: scheduleRuntime,
               toolCallId: toolCall.id ?? undefined,
               chatId: request.chatId,

@@ -101,6 +101,8 @@ export interface TeamOrchestratorDeps {
   knowledge: KnowledgeRuntime;
   /** The persistent prompt library — lets every team agent (head + members) manage saved prompts. */
   promptLibrary?: PromptLibraryRuntime;
+  /** The persistent custom-agents runtime — lets every team agent manage custom agents. */
+  customAgents?: import("../tools/types.js").CustomAgentsRuntime;
   skills: SkillRuntime;
   todos: TodoRuntime;
   subAgentDefinitions: Awaited<ReturnType<typeof resolveDefaultSubAgents>>;
@@ -485,6 +487,7 @@ export class TeamOrchestrator {
       memory: this.deps.memory,
       knowledge: this.deps.knowledge,
       promptLibrary: this.deps.promptLibrary,
+      customAgents: this.deps.customAgents,
       schedules: createScheduleRuntime({
         store: this.deps.scheduleStore,
         scheduler: this.deps.scheduleScheduler,

@@ -29,6 +29,8 @@
  *  - Prompt-library tools (only for main/custom/team/CEO agents):
  *      save_prompt_in_prompt_library, delete_prompt_from_prompt_library,
  *      list_available_prompts_in_prompt_library
+ *  - Agent-driven custom-agent management tools (only for main/custom/team/CEO agents):
+ *      create_agent, list_available_agents, delete_agent
  *
  * This list is the ONE source of truth. It is reused by:
  *  - subagents.ts (SUB_AGENT_EXCLUDED_TOOLS)         — runtime enforcement for every sub-agent run
@@ -87,6 +89,10 @@ export const SUB_AGENT_RESTRICTED_TOOLS: readonly string[] = [
   "save_prompt_in_prompt_library",
   "delete_prompt_from_prompt_library",
   "list_available_prompts_in_prompt_library",
+  // Agent-driven custom-agent management tools — only for main/custom/team/CEO agents.
+  "create_agent",
+  "list_available_agents",
+  "delete_agent",
 ];
 
 /** Fast membership test for the restricted set. */

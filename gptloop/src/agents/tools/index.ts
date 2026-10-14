@@ -53,6 +53,9 @@ import { deleteSubAgentTool } from "./delete_sub_agent.js";
 import { listSubAgentSessionsTool } from "./list_sub_agent_sessions.js";
 import { reuseSameSubAgentSessionTool } from "./reuse_same_sub_agent_session.js";
 import { deleteSkillTool } from "./delete_skill.js";
+import { createAgentTool } from "./create_agent.js";
+import { listAvailableAgentsTool } from "./list_available_agents.js";
+import { deleteAgentTool } from "./delete_agent.js";
 import { delegateTaskOrSendMessageTool } from "./delegate_task_or_send_message.js";
 import { getTeamMembersStatusTool } from "./get_team_members_status.js";
 import { sendMessageToTeamTool } from "./send_message_to_team.js";
@@ -105,6 +108,9 @@ export type {
   KnowledgeFile,
   KnowledgeRuntime,
   KnowledgeReadOptions,
+  CustomAgentInfo,
+  CustomAgentCreateInput,
+  CustomAgentsRuntime,
   ScheduleAgentIdentity,
   ScheduleCreateCadence,
   ScheduleCreateInput,
@@ -176,6 +182,14 @@ export { deleteSubAgentTool, DELETE_DEFAULT_SUB_AGENT_ERROR } from "./delete_sub
 export { listSubAgentSessionsTool } from "./list_sub_agent_sessions.js";
 export { reuseSameSubAgentSessionTool } from "./reuse_same_sub_agent_session.js";
 export { deleteSkillTool, DELETE_DEFAULT_SKILL_ERROR } from "./delete_skill.js";
+export { createAgentTool } from "./create_agent.js";
+export { listAvailableAgentsTool } from "./list_available_agents.js";
+export { deleteAgentTool } from "./delete_agent.js";
+export {
+  CUSTOM_AGENT_MANAGEMENT_TOOL_NAMES,
+  isCustomAgentManagementTool,
+  requireCustomAgents,
+} from "./customAgentManagement.js";
 export { delegateTaskOrSendMessageTool } from "./delegate_task_or_send_message.js";
 export { getTeamMembersStatusTool } from "./get_team_members_status.js";
 export { sendMessageToTeamTool } from "./send_message_to_team.js";
@@ -313,6 +327,9 @@ export function createToolRegistry(): ToolRegistry {
     listSubAgentSessionsTool,
     reuseSameSubAgentSessionTool,
     deleteSkillTool,
+    createAgentTool,
+    listAvailableAgentsTool,
+    deleteAgentTool,
     delegateTaskOrSendMessageTool,
     getTeamMembersStatusTool,
     sendMessageToTeamTool,
@@ -403,6 +420,9 @@ export const tools = {
   listSubAgentSessionsTool,
   reuseSameSubAgentSessionTool,
   deleteSkillTool,
+  createAgentTool,
+  listAvailableAgentsTool,
+  deleteAgentTool,
   delegateTaskOrSendMessageTool,
   getTeamMembersStatusTool,
   sendMessageToTeamTool,
