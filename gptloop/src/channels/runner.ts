@@ -17,6 +17,7 @@ import type { MemoryAgentService } from "../agents/memoryagent/index.js";
 import type { ChannelToolContext } from "../agents/tools/types.js";
 import { commandPrefix, parseChannelCommand } from "./commands.js";
 import { resolveChannelRunContext } from "./context.js";
+import { catalogContextLimit } from "../agents/contextLimits.js";
 import { ChannelStore } from "./store.js";
 import type {
   ChannelConnection,
@@ -343,6 +344,22 @@ export class ChannelTurnRunner {
       return;
     }
 
+    // Automatic summarization handoff needs the model's context window. The
+    // manual Settings entry (if any) is already in ctx; otherwise resolve the
+    // cached provider catalog once per turn so a long channel conversation
+    // compacts exactly like a web turn. Unknown stays null (handoff safely
+    // disabled) and never blocks the turn.
+    if (ctx.contextLimit === null) {
+      ctx.contextLimit = await catalogContextLimit({
+        providers: this.deps.providers,
+        provider: ctx.provider,
+        model: ctx.model,
+        apiKey: ctx.apiKey,
+        baseUrl: ctx.baseUrl,
+        customProvider: ctx.customProvider,
+      });
+    }
+
     // The agent runtime resolves the provider itself and reports resolution failures
     // as an "error" buffer event, which the watcher forwards to the channel.
     const channel: ChannelToolContext = {
@@ -409,6 +426,8 @@ export class ChannelTurnRunner {
       composioApiKey: ctx.composioApiKey,
       connectors: ctx.connectors,
       mcpServers: ctx.mcpServers,
+      contextLimit: ctx.contextLimit,
+      summaryThreshold: ctx.summaryThreshold,
     };
 
     this.running.set(chat.id, { startedAt: Date.now(), agentName });

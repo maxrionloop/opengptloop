@@ -36,6 +36,7 @@ import { normalizeMemoryFiles } from "../agents/memory.js";
 import { normalizeKnowledgeFiles } from "../agents/knowledge.js";
 import { normalizeTodos } from "../agents/todos.js";
 import { normalizeEffort } from "../agents/providers/reasoning.js";
+import { catalogContextLimit, manualContextLimit } from "../agents/contextLimits.js";
 import type {
   MemoryFile,
   KnowledgeFile,
@@ -121,6 +122,14 @@ interface ResolvedRunContext {
   knowledge: KnowledgeFile[];
   memoryAgentEnabled: boolean;
   memoryAgentInterval: number;
+  /**
+   * Effective context-window limit (tokens) for automatic summarization
+   * handoff. Manual Settings entry when present (sync); the runner upgrades
+   * a null to the cached provider catalog before execution. Null = disabled.
+   */
+  contextLimit: number | null;
+  /** Utilization fraction (0..1) triggering summarization (server default). */
+  summaryThreshold: number;
 }
 
 export class ScheduleRunner {
@@ -194,6 +203,22 @@ export class ScheduleRunner {
         throw new Error(
           `No API key is configured for provider "${ctx.provider}". Add one in Settings first.`,
         );
+      }
+
+      // Automatic summarization handoff needs the model's context window. The
+      // manual Settings entry (if any) is already in ctx; otherwise resolve
+      // the cached provider catalog once per run so a long scheduled task
+      // compacts exactly like a web turn. Unknown stays null (handoff safely
+      // disabled) and never fails the run.
+      if (ctx.contextLimit === null) {
+        ctx.contextLimit = await catalogContextLimit({
+          providers: this.deps.providers,
+          provider: ctx.provider,
+          model: ctx.model,
+          apiKey: ctx.apiKey,
+          baseUrl: ctx.baseUrl,
+          customProvider: ctx.customProvider,
+        });
       }
 
       const request = this.buildRequest(schedule, ctx);
@@ -276,6 +301,8 @@ export class ScheduleRunner {
       composioApiKey: ctx.composioApiKey,
       connectors: ctx.connectors,
       mcpServers: ctx.mcpServers,
+      contextLimit: ctx.contextLimit,
+      summaryThreshold: ctx.summaryThreshold,
     };
   }
 
@@ -380,6 +407,8 @@ export class ScheduleRunner {
       knowledge,
       memoryAgentEnabled,
       memoryAgentInterval,
+      contextLimit: manualContextLimit(settings.manualContextLimits, provider, model),
+      summaryThreshold: config.summaryThreshold ?? 0.9,
     };
   }
 

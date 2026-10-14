@@ -2,6 +2,7 @@ import type { AppConfig } from "../config.js";
 import type { GptLoopDatabase } from "../database/index.js";
 import type { MainAgentPromptManager } from "../agents/mainagentprompt/index.js";
 import { normalizeEffort } from "../agents/providers/reasoning.js";
+import { manualContextLimit } from "../agents/contextLimits.js";
 import { normalizeMemoryFiles } from "../agents/memory.js";
 import { normalizeKnowledgeFiles } from "../agents/knowledge.js";
 import { normalizeTodos } from "../agents/todos.js";
@@ -48,6 +49,18 @@ export interface ChannelRunContext {
   memoryAgentInterval: number;
   /** Active Main Agent custom prompt text (null = built-in prompt). */
   systemPromptOverride: string | null;
+  /**
+   * Effective context-window limit (tokens) for automatic summarization
+   * handoff. Resolved synchronously here from the user's manual Settings
+   * entry when present; the runner upgrades a null to the cached provider
+   * catalog before the turn starts. Null = handoff disabled (safe).
+   */
+  contextLimit: number | null;
+  /**
+   * Utilization fraction (0..1) triggering summarization. Server default,
+   * identical to web turns without a per-turn override.
+   */
+  summaryThreshold: number;
 }
 
 /**
@@ -135,6 +148,8 @@ export function resolveChannelRunContext(
     memoryAgentEnabled: parseMemoryAgentEnabled(settings.memoryAgentEnabled, config.memoryAgentEnabled),
     memoryAgentInterval: parseMemoryAgentInterval(settings.memoryAgentInterval, config.memoryAgentInterval),
     systemPromptOverride: mainAgentPrompts.getActivePromptText(),
+    contextLimit: manualContextLimit(settings.manualContextLimits, provider, model),
+    summaryThreshold: config.summaryThreshold ?? 0.9,
   };
 }
 
