@@ -26,6 +26,7 @@ import { buildPromptLibraryRouter } from "./api/promptlibrary.js";
 import { buildSchedulesRouter } from "./api/schedules.js";
 import { buildChannelsRouter } from "./api/channels.js";
 import { buildSummaryRouter } from "./api/summaries.js";
+import { buildPromptAgentRouter } from "./api/promptagent.js";
 import { ScheduleStore } from "./cron/store.js";
 import { ScheduleRunner } from "./cron/runner.js";
 import { ScheduleScheduler } from "./cron/scheduler.js";
@@ -36,6 +37,7 @@ import { CustomAgentManager, CustomAgentRunner } from "./agents/customagent/inde
 import { UserProfileManager } from "./agents/profiles/index.js";
 import { MainAgentPromptManager } from "./agents/mainagentprompt/index.js";
 import { PromptLibraryManager } from "./prompt-library.js";
+import { PromptAgentRunner } from "./agents/promptagent/index.js";
 import { ConnectorManager } from "./agents/connectors/index.js";
 import { McpManager } from "./agents/mcp/index.js";
 import { ChannelManager } from "./channels/index.js";
@@ -107,6 +109,11 @@ function main(): void {
   agent.setPromptLibrary(promptLibrary);
   multiAgent.setPromptLibrary(promptLibrary);
   ceoAgent.setPromptLibrary(promptLibrary);
+  // Prompt creation agent: a focused prompt-writing assistant with its own small
+  // tool surface (file tools + skills + prompt-library tools). It reuses the same
+  // persistent prompt library so "save to library" works everywhere.
+  const promptAgent = new PromptAgentRunner(providers, tools, config);
+  promptAgent.setPromptLibrary(promptLibrary);
 
   // Attach the persistent custom-agent store to every agent surface that may manage it: the
   // built-in Main Agent (and, through the same core runtime, every Custom Agent), the
@@ -229,6 +236,7 @@ function main(): void {
   app.use("/api/schedules", buildSchedulesRouter(scheduleStore, scheduler, db, customAgents));
   app.use("/api/channels", buildChannelsRouter(channels, customAgents));
   app.use("/api/summaries", buildSummaryRouter());
+  app.use("/api/prompt-agent", buildPromptAgentRouter(promptAgent, store, config));
 
   const server = app.listen(config.port, () => {
     // eslint-disable-next-line no-console

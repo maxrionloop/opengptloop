@@ -14,6 +14,7 @@ import { CustomAgentsPanel } from "@/components/panels/CustomAgentsPanel";
 import { MainAgentPromptsPanel } from "@/components/panels/MainAgentPromptsPanel";
 import { TaskModesPanel } from "@/components/panels/TaskModesPanel";
 import { PromptLibraryPanel } from "@/components/panels/PromptLibraryPanel";
+import { PromptAgentPanel } from "@/components/panels/PromptAgentPanel";
 import { SchedulesPanel } from "@/components/panels/SchedulesPanel";
 import { ConnectorsPanel } from "@/components/panels/ConnectorsPanel";
 import { McpPanel } from "@/components/panels/McpPanel";
@@ -170,6 +171,7 @@ export function App() {
               {section === "systemprompts" && <MainAgentPromptsPanel />}
               {section === "taskmodes" && <TaskModesPanel />}
               {section === "prompts" && <PromptLibraryPanel />}
+              {section === "promptagent" && <PromptAgentPanel />}
               {section === "schedules" && <SchedulesPanel />}
               {section === "connectors" && <ConnectorsPanel />}
               {section === "mcp" && <McpPanel />}
@@ -179,7 +181,7 @@ export function App() {
           )}
         </main>
 
-        <Composer onSend={send} onStop={stop} />
+        {section !== "promptagent" && <Composer onSend={send} onStop={stop} />}
       </div>
 
       <NetworkBanner />

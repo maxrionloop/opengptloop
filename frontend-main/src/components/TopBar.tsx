@@ -32,6 +32,8 @@ function contextLabel(section: Section, counts: Record<string, number>): string 
       return `${counts.taskmodes} mode${counts.taskmodes === 1 ? "" : "s"}`;
     case "prompts":
       return `${counts.prompts} prompt${counts.prompts === 1 ? "" : "s"}`;
+    case "promptagent":
+      return "Prompt studio";
     case "schedules":
       return `${counts.schedules} schedule${counts.schedules === 1 ? "" : "s"}`;
     case "connectors":

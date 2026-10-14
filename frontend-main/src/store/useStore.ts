@@ -99,6 +99,7 @@ export type Section =
   | "systemprompts"
   | "taskmodes"
   | "prompts"
+  | "promptagent"
   | "schedules"
   | "connectors"
   | "mcp"

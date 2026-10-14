@@ -501,6 +501,18 @@ export const API_ROUTES = {
     path: "/api/channels/:id/chats/:userKey/new-chat",
     description: "Start a fresh chat for an external user.",
   },
+  promptAgentStream: {
+    name: "promptAgent.stream",
+    method: "POST",
+    path: "/api/prompt-agent/stream",
+    description: "Start a prompt-agent turn (create/enhance) and stream SSE.",
+  },
+  promptAgentAbort: {
+    name: "promptAgent.abort",
+    method: "POST",
+    path: "/api/prompt-agent/abort/:chatId",
+    description: "Cancel the running prompt-agent turn for a session.",
+  },
   summariesHistory: {
     name: "summaries.history",
     method: "GET",
