@@ -17,7 +17,7 @@ import { useStore } from "@/store/useStore";
 import { fetchCustomAgentTools, fetchMainAgentSystemPrompt, type CustomAgentToolMeta } from "@/lib/customAgentTools";
 import { AVAILABLE_CONNECTORS, fetchConnectorTools } from "@/lib/connectors";
 import { fetchMcpEditorTools, humanizeMcpToolName } from "@/lib/mcp";
-import { MAIN_AGENT_ID } from "@/lib/customAgents";
+import { MAIN_AGENT_ID, fetchCustomAgents } from "@/lib/customAgents";
 import { Modal } from "@/components/ui/Modal";
 import { Button, EmptyState, Field, PanelHeader, TextArea, TextInput, Toggle } from "@/components/ui/primitives";
 import { cn } from "@/utils/cn";
@@ -92,9 +92,39 @@ export function CustomAgentsPanel() {
   const updateCustomAgent = useStore((s) => s.updateCustomAgent);
   const deleteCustomAgent = useStore((s) => s.deleteCustomAgent);
   const setActiveCustomAgent = useStore((s) => s.setActiveCustomAgent);
+  const setCustomAgents = useStore((s) => s.setCustomAgents);
 
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Backend is the source of truth (agents can be created/deleted by any agent
+  // mid-turn via the create_agent / delete_agent tools). Refresh on open so the
+  // panel converges immediately instead of showing a stale store copy.
+  const [agentsLoading, setAgentsLoading] = useState(false);
+  const [agentsError, setAgentsError] = useState<string | null>(null);
+
+  const reloadAgents = useCallback(
+    async (signal?: AbortSignal) => {
+      setAgentsLoading(true);
+      try {
+        const fresh = await fetchCustomAgents(signal);
+        if (signal?.aborted) return;
+        setCustomAgents(fresh);
+        setAgentsError(null);
+      } catch (e) {
+        if (signal?.aborted) return;
+        setAgentsError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!signal?.aborted) setAgentsLoading(false);
+      }
+    },
+    [setCustomAgents],
+  );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void reloadAgents(controller.signal);
+    return () => controller.abort();
+  }, [reloadAgents]);
 
   // The grantable tool catalog, fetched live from the backend (multi-agent tools already excluded
   // server-side). Falls back to an empty list with an error hint if the backend is unreachable.
@@ -219,12 +249,29 @@ export function CustomAgentsPanel() {
 
   return (
     <div className="mx-auto w-full max-w-2xl panel-in">
-      <PanelHeader kicker="Your own top-level agents" title="Custom agents" />
+      <div className="flex items-start justify-between gap-2">
+        <PanelHeader kicker="Your own top-level agents" title="Custom agents" />
+        <button
+          type="button"
+          onClick={() => void reloadAgents()}
+          disabled={agentsLoading}
+          className="mt-1 inline-flex shrink-0 items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--border)] px-2 py-1 text-[10px] text-[var(--muted)] hover:border-[var(--secondary)] disabled:opacity-50"
+          title="Refresh the custom agents from the backend"
+        >
+          <RefreshCw className={cn("h-3 w-3", agentsLoading && "animate-spin")} />
+          Refresh
+        </button>
+      </div>
       <p className="mb-4 text-sm leading-relaxed text-[var(--muted)]">
         A Custom Agent is your own top-level agent — a full Main Agent with its own name, description,
         system prompt, and selected tools. It is not a sub-agent: it runs independently with the same
         capabilities as the built-in Main Agent. Select one to chat with it.
       </p>
+      {agentsError && (
+        <p className="mb-3 text-xs text-[var(--danger)]" role="alert">
+          Couldn&apos;t refresh custom agents from the backend: {agentsError}
+        </p>
+      )}
 
       <div
         className="mb-4 flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--chip)] px-3 py-2 text-xs text-[var(--muted)]"

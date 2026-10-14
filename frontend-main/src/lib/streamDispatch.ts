@@ -10,6 +10,7 @@ import { normalizeMcpServers } from "@/lib/mcp";
 import { normalizeChannel } from "@/lib/channels";
 import { normalizeConnectors } from "@/lib/connectors";
 import { normalizePromptLibrary } from "@/lib/promptLibrary";
+import { normalizeCustomAgents } from "@/lib/customAgents";
 import type { StreamBatcher } from "@/lib/streamBatcher";
 import type {
   AttachedFile,
@@ -541,6 +542,13 @@ export function dispatchStreamEvent(event: string, data: SSEEventData, ctx: Disp
       // library. Mirror the backend truth into the store so the Prompt Library page
       // and the "/" composer shortcut converge immediately instead of on next boot.
       if (Array.isArray(data.prompts)) s.setPromptLibrary(normalizePromptLibrary(data.prompts));
+      break;
+
+    case "custom_agents_updated":
+      // An agent-driven custom-agent tool (create/delete) mutated the persisted
+      // store. Mirror the backend truth into the store so the Custom Agents panel
+      // converges immediately instead of on next boot.
+      if (Array.isArray(data.agents)) s.setCustomAgents(normalizeCustomAgents(data.agents));
       break;
 
     case "mcp_servers_updated":

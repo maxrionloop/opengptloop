@@ -1,3 +1,5 @@
+import { API_ROUTES, routeUrl } from "@/app/api/routes";
+import { requestJson } from "@/lib/api";
 import type { BackendCustomAgent, CustomAgent } from "@/types";
 
 /**
@@ -67,6 +69,21 @@ export function findActiveCustomAgent(
 ): CustomAgent | null {
   if (!activeId || activeId === MAIN_AGENT_ID) return null;
   return agents.find((a) => a.id === activeId) ?? null;
+}
+
+/**
+ * Fetch the persisted Custom Agents from the backend (the SQLite source of truth).
+ * Used to refresh the Custom Agents panel on open so an agent created by any agent
+ * (create_agent tool) appears instantly instead of on next boot. Throws on failure
+ * so callers can keep the previous list and surface an error.
+ */
+export async function fetchCustomAgents(signal?: AbortSignal): Promise<CustomAgent[]> {
+  const data = await requestJson<{ agents?: unknown }>(
+    routeUrl(API_ROUTES.customAgentsList),
+    undefined,
+    signal,
+  );
+  return normalizeCustomAgents(data.agents ?? []);
 }
 
 /** Convert a Custom Agent into the backend/wire format sent with a turn. */

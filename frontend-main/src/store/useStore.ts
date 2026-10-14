@@ -400,6 +400,8 @@ interface AppState {
   addCustomAgent: (input: Omit<CustomAgent, "id" | "createdAt" | "updatedAt">) => CustomAgent;
   updateCustomAgent: (id: string, patch: Partial<Omit<CustomAgent, "id" | "createdAt">>) => void;
   deleteCustomAgent: (id: string) => void;
+  /** Replace the whole list (used after a backend refresh / agent-driven mutation). */
+  setCustomAgents: (agents: CustomAgent[]) => void;
   /** Select which agent chat turns run as: a Custom Agent id, or null for the built-in Main Agent. */
   setActiveCustomAgent: (id: string | null) => void;
 
@@ -1764,6 +1766,24 @@ export const useStore = create<AppState>()(
           // Deleting the active agent falls back to the built-in Main Agent.
           activeCustomAgentId: s.activeCustomAgentId === id ? null : s.activeCustomAgentId,
         })),
+
+      // Mirror the backend custom-agent list into the store. Used when an agent's
+      // custom-agent tools (create/delete) mutate the shared store mid-turn: the
+      // `custom_agents_updated` event carries the complete list, and the panel
+      // refresh on open fetches the same truth — so the panel converges immediately.
+      setCustomAgents: (agents) =>
+        set((s) => {
+          const normalized = normalizeCustomAgents(agents);
+          const ids = new Set(normalized.map((a) => a.id));
+          return {
+            customAgents: normalized,
+            // Deleting the active agent elsewhere falls back to the Main Agent.
+            activeCustomAgentId:
+              s.activeCustomAgentId && !ids.has(s.activeCustomAgentId)
+                ? null
+                : s.activeCustomAgentId,
+          };
+        }),
 
       setActiveCustomAgent: (id) =>
         set(() => ({ activeCustomAgentId: id && id !== MAIN_AGENT_ID ? id : null })),
