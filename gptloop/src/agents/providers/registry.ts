@@ -34,6 +34,9 @@ import { openadapterProvider } from "./openadapter.js";
 import { xkiroProvider } from "./xkiro.js";
 import { apinexProvider } from "./apinex.js";
 import { clineProvider } from "./cline.js";
+import { tokenHarborProvider } from "./tokenharbor.js";
+import { commandCodeProvider } from "./commandcode.js";
+import { codeCraftApiProvider } from "./codecraftapi.js";
 
 /**
  * ProviderRegistry maps a provider id to a Provider implementation.
@@ -106,6 +109,9 @@ export const ALL_PROVIDERS: Provider[] = [
   xkiroProvider,
   apinexProvider,
   clineProvider,
+  tokenHarborProvider,
+  commandCodeProvider,
+  codeCraftApiProvider,
 ];
 
 export function createProviderRegistry(): ProviderRegistry {

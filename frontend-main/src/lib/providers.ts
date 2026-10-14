@@ -84,4 +84,7 @@ export const FALLBACK_PROVIDERS: ProviderMeta[] = [
   { id: "xkiro", label: "xKiro AI", defaultBaseUrl: "https://api.xkiro.com/v1" },
   { id: "apinex", label: "APInex", defaultBaseUrl: "https://api.apinex.bond/v1" },
   { id: "cline", label: "Cline", defaultBaseUrl: "https://api.cline.bot/api/v1" },
+  { id: "tokenharbor", label: "Token Harbor", defaultBaseUrl: "https://tokenharbor.ai/v1" },
+  { id: "commandcode", label: "Command Code", defaultBaseUrl: "https://api.commandcode.ai/provider/v1" },
+  { id: "codecraftapi", label: "CodeCraft API", defaultBaseUrl: "https://codecraftapi.com/v1" },
 ];
