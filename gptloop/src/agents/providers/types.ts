@@ -43,6 +43,22 @@ export interface ToolCall {
   };
 }
 
+/** Accumulated result of one non-streaming chat completion (mirrors one streamed run). */
+export interface ChatCompletionResult {
+  /** Full answer text (may be empty when the model produced none). */
+  text: string;
+  /** Full reasoning text (may be empty; never used as answer content). */
+  reasoning: string;
+  /** Fully-formed tool calls requested by the model (empty when none). */
+  toolCalls: ToolCall[];
+  finishReason: string | null;
+  /**
+   * Token usage reported for the request, when the provider supplies it.
+   * Absent when the provider does not report usage.
+   */
+  usage?: UsageInfo;
+}
+
 export interface ModelPricing {
   /** Price per 1M prompt tokens (in USD when known). Null when unknown. */
   prompt?: number | null;
@@ -105,4 +121,14 @@ export interface Provider {
   readonly metadata: ProviderMetadata;
   listModels(apiKey: string, baseUrl?: string): Promise<ProviderModel[]>;
   streamChatCompletion(options: ChatCompletionOptions): AsyncGenerator<StreamDelta, void, unknown>;
+  /**
+   * Non-streaming chat completion: one request, one accumulated result.
+   *
+   * Optional so older/custom providers that only implement streaming keep
+   * working — callers must check for its presence and keep their streaming
+   * behavior when it is absent. The base OpenAI-compatible provider implements
+   * it (with a strict-server minimal-body retry); providers with a different
+   * wire protocol override it (e.g. Ollama Cloud's `/api/chat`).
+   */
+  chatCompletion?(options: ChatCompletionOptions): Promise<ChatCompletionResult>;
 }

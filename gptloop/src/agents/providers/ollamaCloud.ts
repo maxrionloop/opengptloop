@@ -1,8 +1,10 @@
 import { OpenAICompatibleProvider } from "./base.js";
 import type {
   ChatCompletionOptions,
+  ChatCompletionResult,
   ProviderModel,
   StreamDelta,
+  ToolCall,
   ToolCallDelta,
 } from "./types.js";
 
@@ -110,6 +112,59 @@ class OllamaCloudProvider extends OpenAICompatibleProvider {
     } finally {
       reader.releaseLock();
     }
+  }
+
+  /**
+   * Non-streaming variant of the Ollama `/api/chat` call (`stream: false`
+   * answers with a single JSON object instead of NDJSON frames).
+   */
+  override async chatCompletion(options: ChatCompletionOptions): Promise<ChatCompletionResult> {
+    const body: Record<string, unknown> = {
+      model: options.model,
+      messages: normalizeMessages(options.messages),
+      stream: false,
+    };
+    const tools = normalizeTools(options.tools);
+    if (tools.length > 0) body.tools = tools;
+
+    const response = await fetch(`${this.apiRoot(options.baseUrl)}/chat`, {
+      method: "POST",
+      headers: this.headers(options.apiKey),
+      body: JSON.stringify(body),
+      signal: options.signal,
+    });
+
+    let payload: Record<string, unknown> | null = null;
+    try {
+      payload = (await response.json()) as Record<string, unknown>;
+    } catch {
+      payload = null;
+    }
+    if (!response.ok || !payload) {
+      throw new Error(
+        `${this.metadata.label} error (${response.status}): ${await safeText(response)}`,
+      );
+    }
+    if (typeof payload.error === "string") throw new Error(String(payload.error));
+
+    const message = (payload.message as Record<string, unknown>) ?? {};
+    const toolCalls: ToolCall[] = (openAiStyleToolCalls(message.tool_calls) ?? [])
+      .filter((delta) => (delta.function?.name ?? "").length > 0)
+      .map((delta) => ({
+        id: delta.id ?? null,
+        type: "function" as const,
+        function: {
+          name: delta.function?.name ?? "",
+          arguments: delta.function?.arguments ?? "",
+        },
+      }));
+    return {
+      text: extractText(message.content),
+      reasoning: extractText(message.thinking ?? message.reasoning ?? message.reasoning_content ?? ""),
+      toolCalls,
+      finishReason: payload.done === true ? ((payload.done_reason as string) ?? "stop") : null,
+      usage: parseOllamaUsage(payload) ?? undefined,
+    };
   }
 }
 
