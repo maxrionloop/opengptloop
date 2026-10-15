@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Check, ListChecks, Pencil, Plus, Trash2 } from "lucide-react";
+import { Check, ListChecks, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { DEFAULT_PLAN_MODE_PROMPT } from "@/lib/taskModes";
 import { Modal } from "@/components/ui/Modal";
+import { ImportTaskModesModal } from "@/components/panels/ImportTaskModesModal";
 import { Button, EmptyState, Field, PanelHeader, TextArea, TextInput, Toggle } from "@/components/ui/primitives";
 import { cn } from "@/utils/cn";
 
@@ -35,6 +36,7 @@ export function TaskModesPanel() {
 
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [planDraft, setPlanDraft] = useState(planModePrompt);
   const [planSaved, setPlanSaved] = useState(false);
 
@@ -178,7 +180,7 @@ export function TaskModesPanel() {
         </ul>
       )}
 
-      <div className="mt-4">
+      <div className="mt-4 flex flex-wrap gap-2">
         <Button
           onClick={() => {
             setError(null);
@@ -187,7 +189,12 @@ export function TaskModesPanel() {
         >
           <Plus className="h-4 w-4" /> New custom mode
         </Button>
+        <Button variant="outline" onClick={() => setImportOpen(true)}>
+          <Upload className="h-4 w-4" /> Import from file
+        </Button>
       </div>
+
+      <ImportTaskModesModal open={importOpen} onClose={() => setImportOpen(false)} />
 
       <Modal
         open={Boolean(draft)}
