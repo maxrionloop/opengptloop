@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Check, FileText, Pencil, Plus, RefreshCw, RotateCcw, Sparkles, Trash2 } from "lucide-react";
+import { Check, FileText, Pencil, Plus, RefreshCw, RotateCcw, Sparkles, Trash2, Upload } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { fetchMainAgentSystemPrompt } from "@/lib/customAgentTools";
 import { Modal } from "@/components/ui/Modal";
+import { ImportMainAgentPromptsModal } from "@/components/panels/ImportMainAgentPromptsModal";
 import { Button, EmptyState, Field, PanelHeader, TextArea, TextInput, Toggle } from "@/components/ui/primitives";
 import { cn } from "@/utils/cn";
 
@@ -39,6 +40,7 @@ export function MainAgentPromptsPanel() {
 
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   // Built-in Main Agent prompt template load status (used to pre-fill / reload).
   const [templateLoading, setTemplateLoading] = useState(false);
@@ -221,7 +223,7 @@ export function MainAgentPromptsPanel() {
         </ul>
       )}
 
-      <div className="mt-4">
+      <div className="mt-4 flex flex-wrap gap-2">
         <Button
           onClick={() => {
             setError(null);
@@ -231,7 +233,12 @@ export function MainAgentPromptsPanel() {
         >
           <Plus className="h-4 w-4" /> Create system prompt
         </Button>
+        <Button variant="outline" onClick={() => setImportOpen(true)}>
+          <Upload className="h-4 w-4" /> Import from file
+        </Button>
       </div>
+
+      <ImportMainAgentPromptsModal open={importOpen} onClose={() => setImportOpen(false)} />
 
       <Modal
         open={Boolean(draft)}
