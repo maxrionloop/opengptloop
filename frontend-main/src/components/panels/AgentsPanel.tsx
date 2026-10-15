@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bot, Check, ChevronLeft, Pencil, Plus, RefreshCw, Search, Trash2, Wrench, X } from "lucide-react";
+import { Bot, Check, ChevronLeft, Pencil, Plus, RefreshCw, Search, Trash2, Upload, Wrench, X } from "lucide-react";
 import { useStore } from "@/store/useStore";
+import { ImportSubAgentsModal } from "@/components/panels/ImportSubAgentsModal";
 
 import { SUB_AGENT_TOOLS, fetchSubAgentTools, type SubAgentToolMeta } from "@/lib/subAgentTools";
 import { AVAILABLE_CONNECTORS, fetchConnectorTools } from "@/lib/connectors";
@@ -83,6 +84,7 @@ export function AgentsPanel() {
 
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   // The catalog of grantable tools, fetched live from the backend (restricted tools already
   // excluded server-side). Falls back to the bundled list if the backend is unreachable.
@@ -229,11 +231,16 @@ export function AgentsPanel() {
         </ul>
       )}
 
-      <div className="mt-4">
+      <div className="mt-4 flex flex-wrap gap-2">
         <Button onClick={() => { setError(null); setDraft(empty()); }}>
           <Plus className="h-4 w-4" /> New sub-agent
         </Button>
+        <Button variant="outline" onClick={() => setImportOpen(true)}>
+          <Upload className="h-4 w-4" /> Import sub-agent
+        </Button>
       </div>
+
+      <ImportSubAgentsModal open={importOpen} onClose={() => setImportOpen(false)} />
 
       <Modal
         open={Boolean(draft)}
