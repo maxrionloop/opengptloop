@@ -119,6 +119,29 @@ function sanitizeSummaryThreshold(value: unknown): number | undefined {
   return n;
 }
 
+/** Coerce the per-turn context-management method ("summarization" default). */
+function sanitizeContextManagementMethod(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const v = value.trim().toLowerCase();
+  if (v === "sliding_window" || v === "sliding-window" || v === "slidingwindow" || v === "window") {
+    return "sliding_window";
+  }
+  if (v === "summarization" || v === "summarisation" || v === "auto" || v === "summary") {
+    return "summarization";
+  }
+  return undefined;
+}
+
+/** Coerce the per-turn sliding-window truncate fraction (0.05..0.9), or undefined. */
+function sanitizeSlidingWindowTruncatePercent(value: unknown): number | undefined {
+  const n =
+    typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : NaN;
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  const fraction = n > 1 ? n / 100 : n;
+  if (!Number.isFinite(fraction)) return undefined;
+  return Math.min(0.9, Math.max(0.05, fraction));
+}
+
 interface StreamBody {
   chat_id?: string;
   user_message?: string;
@@ -218,6 +241,16 @@ interface StreamBody {
    * Defaults to the server summaryThreshold (90%).
    */
   summary_threshold?: unknown;
+  /**
+   * Context-management method for this turn ("summarization" default, or
+   * "sliding_window"). From Settings → Context management.
+   */
+  context_management_method?: unknown;
+  /**
+   * Fraction of the window freed per sliding-window trigger (0.05..0.9,
+   * default 0.3). From Settings → Sliding-window truncate percent.
+   */
+  sliding_window_truncate_percent?: unknown;
 }
 
 /**
@@ -670,6 +703,10 @@ export function buildChatRouter(
           mcpServers: resolveMcpServers(body),
           contextLimit: sanitizeContextLimit(body.context_limit),
           summaryThreshold: sanitizeSummaryThreshold(body.summary_threshold),
+          contextManagementMethod: sanitizeContextManagementMethod(body.context_management_method),
+          slidingWindowTruncatePercent: sanitizeSlidingWindowTruncatePercent(
+            body.sliding_window_truncate_percent,
+          ),
         };
 
         void ceoAgent
@@ -724,6 +761,10 @@ export function buildChatRouter(
           mcpServers: resolveMcpServers(body),
           contextLimit: sanitizeContextLimit(body.context_limit),
           summaryThreshold: sanitizeSummaryThreshold(body.summary_threshold),
+          contextManagementMethod: sanitizeContextManagementMethod(body.context_management_method),
+          slidingWindowTruncatePercent: sanitizeSlidingWindowTruncatePercent(
+            body.sliding_window_truncate_percent,
+          ),
         };
 
         void multiAgent
@@ -780,6 +821,10 @@ export function buildChatRouter(
         mcpServers: resolveMcpServers(body),
         contextLimit: sanitizeContextLimit(body.context_limit),
         summaryThreshold: sanitizeSummaryThreshold(body.summary_threshold),
+        contextManagementMethod: sanitizeContextManagementMethod(body.context_management_method),
+        slidingWindowTruncatePercent: sanitizeSlidingWindowTruncatePercent(
+          body.sliding_window_truncate_percent,
+        ),
       };
 
       // Custom Agent mode: when the active agent is a user-created top-level Custom Agent, run this

@@ -85,6 +85,10 @@ export interface RunCeoRequest {
    * Defaults to the server summaryThreshold (90%).
    */
   summaryThreshold?: number;
+  /** Context-management method ("summarization" default, or "sliding_window"). */
+  contextManagementMethod?: string;
+  /** Fraction freed per sliding-window trigger (default 0.3). */
+  slidingWindowTruncatePercent?: number;
 }
 
 /** Role of an agent inside a CEO multi-agent system. */

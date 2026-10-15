@@ -56,6 +56,13 @@ export interface AppConfig {
    * handoff. Default 0.9 (90%). Overridable via SUMMARY_THRESHOLD env.
    */
   summaryThreshold?: number;
+  /**
+   * Fraction of the context window freed per sliding-window truncation
+   * (0.05..0.9). Default 0.3 (30%). Overridable via
+   * SLIDING_WINDOW_TRUNCATE_PERCENT env; the frontend Settings value wins
+   * per turn when present.
+   */
+  slidingWindowTruncatePercent?: number;
 }
 
 function parseCorsOrigins(raw: string | undefined): string[] | "*" {
@@ -106,6 +113,13 @@ function parseSummaryThreshold(raw: string | undefined): number {
   return n;
 }
 
+function parseSlidingWindowTruncatePercent(raw: string | undefined): number {
+  const n = raw !== undefined && raw.trim() !== "" ? Number(raw) : NaN;
+  const fraction = Number.isFinite(n) && n > 1 ? n / 100 : n;
+  if (!Number.isFinite(fraction) || fraction <= 0) return 0.3;
+  return Math.min(0.9, Math.max(0.05, fraction));
+}
+
 export const config: AppConfig = {
   port: Number(process.env.PORT ?? 8787),
   workspaceRoot: resolveWorkspaceRoot(),
@@ -127,6 +141,9 @@ export const config: AppConfig = {
   memoryAgentInterval: parseMemoryAgentInterval(process.env.MEMORY_AGENT_INTERVAL),
   summaryThreshold: parseSummaryThreshold(
     process.env.SUMMARY_THRESHOLD ?? process.env.CONTEXT_SUMMARY_THRESHOLD,
+  ),
+  slidingWindowTruncatePercent: parseSlidingWindowTruncatePercent(
+    process.env.SLIDING_WINDOW_TRUNCATE_PERCENT,
   ),
 };
 

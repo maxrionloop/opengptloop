@@ -130,6 +130,10 @@ interface ResolvedRunContext {
   contextLimit: number | null;
   /** Utilization fraction (0..1) triggering summarization (server default). */
   summaryThreshold: number;
+  /** Context-management method from Settings ("summarization" default). */
+  contextManagementMethod?: string;
+  /** Fraction freed per sliding-window trigger (default 0.3). */
+  slidingWindowTruncatePercent?: number;
 }
 
 export class ScheduleRunner {
@@ -303,6 +307,8 @@ export class ScheduleRunner {
       mcpServers: ctx.mcpServers,
       contextLimit: ctx.contextLimit,
       summaryThreshold: ctx.summaryThreshold,
+      contextManagementMethod: ctx.contextManagementMethod,
+      slidingWindowTruncatePercent: ctx.slidingWindowTruncatePercent,
     };
   }
 
@@ -409,6 +415,11 @@ export class ScheduleRunner {
       memoryAgentInterval,
       contextLimit: manualContextLimit(settings.manualContextLimits, provider, model),
       summaryThreshold: config.summaryThreshold ?? 0.9,
+      contextManagementMethod: normalizeScheduleContextMethod(settings.contextManagementMethod),
+      slidingWindowTruncatePercent: normalizeScheduleTruncatePercent(
+        settings.slidingWindowTruncatePercent,
+        config.slidingWindowTruncatePercent,
+      ),
     };
   }
 
@@ -516,6 +527,27 @@ function clampInterval(value: unknown): number {
   const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
   if (!Number.isFinite(n)) return 3;
   return Math.min(50, Math.max(1, Math.floor(n)));
+}
+
+function normalizeScheduleContextMethod(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const v = value.trim().toLowerCase();
+  if (v === "sliding_window" || v === "sliding-window" || v === "window") return "sliding_window";
+  if (v === "summarization" || v === "summarisation" || v === "auto" || v === "summary") {
+    return "summarization";
+  }
+  return undefined;
+}
+
+function normalizeScheduleTruncatePercent(value: unknown, fallback?: number): number | undefined {
+  const n =
+    typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : NaN;
+  if (Number.isFinite(n) && n > 0) {
+    const fraction = n > 1 ? n / 100 : n;
+    if (Number.isFinite(fraction)) return Math.min(0.9, Math.max(0.05, fraction));
+  }
+  if (typeof fallback === "number" && Number.isFinite(fallback) && fallback > 0) return fallback;
+  return undefined;
 }
 
 function normalizeSearchProvider(

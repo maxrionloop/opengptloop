@@ -61,6 +61,10 @@ export interface ChannelRunContext {
    * identical to web turns without a per-turn override.
    */
   summaryThreshold: number;
+  /** Context-management method from Settings ("summarization" default). */
+  contextManagementMethod?: string;
+  /** Fraction freed per sliding-window trigger (default 0.3). */
+  slidingWindowTruncatePercent?: number;
 }
 
 /**
@@ -150,6 +154,11 @@ export function resolveChannelRunContext(
     systemPromptOverride: mainAgentPrompts.getActivePromptText(),
     contextLimit: manualContextLimit(settings.manualContextLimits, provider, model),
     summaryThreshold: config.summaryThreshold ?? 0.9,
+    contextManagementMethod: normalizeChannelContextMethod(settings.contextManagementMethod),
+    slidingWindowTruncatePercent: normalizeChannelTruncatePercent(
+      settings.slidingWindowTruncatePercent,
+      config.slidingWindowTruncatePercent,
+    ),
   };
 }
 
@@ -194,6 +203,27 @@ function parseMemoryAgentInterval(value: unknown, fallback: number): number {
   const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
   if (!Number.isFinite(n)) return fallback;
   return Math.min(50, Math.max(1, Math.floor(n)));
+}
+
+function normalizeChannelContextMethod(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const v = value.trim().toLowerCase();
+  if (v === "sliding_window" || v === "sliding-window" || v === "window") return "sliding_window";
+  if (v === "summarization" || v === "summarisation" || v === "auto" || v === "summary") {
+    return "summarization";
+  }
+  return undefined;
+}
+
+function normalizeChannelTruncatePercent(value: unknown, fallback?: number): number | undefined {
+  const n =
+    typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : NaN;
+  if (Number.isFinite(n) && n > 0) {
+    const fraction = n > 1 ? n / 100 : n;
+    if (Number.isFinite(fraction)) return Math.min(0.9, Math.max(0.05, fraction));
+  }
+  if (typeof fallback === "number" && Number.isFinite(fallback) && fallback > 0) return fallback;
+  return undefined;
 }
 
 function normalizeSubAgentList(raw: unknown): SubAgentDefinition[] {

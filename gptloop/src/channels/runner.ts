@@ -428,6 +428,8 @@ export class ChannelTurnRunner {
       mcpServers: ctx.mcpServers,
       contextLimit: ctx.contextLimit,
       summaryThreshold: ctx.summaryThreshold,
+      contextManagementMethod: ctx.contextManagementMethod,
+      slidingWindowTruncatePercent: ctx.slidingWindowTruncatePercent,
     };
 
     this.running.set(chat.id, { startedAt: Date.now(), agentName });

@@ -45,6 +45,9 @@ export interface RunHeadAgentArgs {
   usageScope?: "team" | "ceo";
   /** Provider id snapshot for display (when known). */
   providerId?: string;
+  contextLimit?: number | null;
+  contextManagementMethod?: string;
+  slidingWindowTruncatePercent?: number;
 }
 
 export async function runHeadAgent(args: RunHeadAgentArgs): Promise<TeamAgentRunResult> {
@@ -77,5 +80,8 @@ export async function runHeadAgent(args: RunHeadAgentArgs): Promise<TeamAgentRun
     signal: args.signal,
     usageScope: args.usageScope ?? (args.ceo ? "ceo" : "team"),
     providerId: args.providerId,
+    contextLimit: typeof args.contextLimit === "number" ? args.contextLimit : null,
+    contextManagementMethod: args.contextManagementMethod,
+    slidingWindowTruncatePercent: args.slidingWindowTruncatePercent,
   });
 }

@@ -144,6 +144,7 @@ const ICONS: Record<string, typeof Terminal> = {
   knowledge_search: Search,
   embed_url: Link2,
   attach_files: Paperclip,
+  sliding_window_truncated: History,
 };
 
 /* ------------------------------------------------------------------ shared UI */
@@ -313,6 +314,7 @@ export function ToolChip({ tool }: { tool: ToolActivity }) {
   if (tool.name === "disconnect_channels") return <DisconnectChannelChip tool={tool} />;
   if (tool.name === "get_channel_status") return <ChannelStatusChip tool={tool} />;
   if (tool.name === "send_message_to_communication_channel") return <SendChannelMessageChip tool={tool} />;
+  if (tool.name === "sliding_window_truncated") return <SlidingWindowChip tool={tool} />;
   if (isConnectorTool(tool.name)) return <ConnectorChip tool={tool} />;
   if (isMcpTool(tool.name)) return <McpChip tool={tool} />;
   return <GenericChip tool={tool} />;
@@ -3141,6 +3143,54 @@ function SendChannelMessageChip({ tool }: { tool: ToolActivity }) {
           )}
           {!data && !error && <div className="text-[var(--muted)]">Sending the message…</div>}
         </>
+      )}
+    />
+  );
+}
+
+function SlidingWindowChip({ tool }: { tool: ToolActivity }) {
+  const { data } = parts(tool);
+  const removed =
+    typeof data?.removed_messages === "number" ? data.removed_messages : null;
+  const freed =
+    typeof data?.freed_tokens_estimate === "number" ? data.freed_tokens_estimate : null;
+  const percent =
+    typeof data?.truncate_percent === "number" ? Math.round(data.truncate_percent * 100) : null;
+  const preview = Array.isArray(data?.preview) ? (data.preview as unknown[]) : [];
+  const lines = preview.filter((p): p is string => typeof p === "string").slice(0, 30);
+  return (
+    <Shell
+      icon={<History className="h-3.5 w-3.5" />}
+      label={tool.label || "Sliding window: removed old context"}
+      status={tool.status}
+      expandable
+      panel={() => (
+        <div className="flex flex-col gap-2">
+          <div className="text-[var(--fg)]">
+            The oldest context was deleted first (newest preserved) so the agent can keep
+            working. System prompt, memory, knowledge, and latest user input were preserved.
+            {removed !== null && freed !== null && (
+              <>
+                {" "}Removed {removed} message(s) (~{freed.toLocaleString("en-US")} tokens
+                {percent !== null ? `, target ${percent}%` : ""}).
+              </>
+            )}
+          </div>
+          {lines.length > 0 ? (
+            <div className="flex flex-col gap-1">
+              <div className="text-[11px] font-medium uppercase tracking-wide text-[var(--subtle)]">
+                Deleted tokens ({lines.length}{preview.length > lines.length ? "+" : ""})
+              </div>
+              <Pre>
+                {lines.map((line, i) => (
+                  <div key={i}>{line}</div>
+                ))}
+              </Pre>
+            </div>
+          ) : (
+            <div className="text-[var(--muted)]">Deleted content preview unavailable.</div>
+          )}
+        </div>
       )}
     />
   );

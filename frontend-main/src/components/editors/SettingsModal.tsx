@@ -412,6 +412,75 @@ export function SettingsModal() {
             </p>
           </section>
 
+          {/* Context management */}
+          <section className="space-y-3 border-t border-[var(--border)] pt-5">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--subtle)]">Context management</h3>
+            <Field label="Context management method">
+              <Select
+                value={settings.contextManagementMethod ?? "summarization"}
+                onChange={(e) =>
+                  setSettings({
+                    contextManagementMethod: e.target.value === "sliding_window" ? "sliding_window" : "summarization",
+                  })
+                }
+              >
+                <option value="summarization">Auto context summarization (default)</option>
+                <option value="sliding_window">Sliding window (delete oldest tokens)</option>
+              </Select>
+            </Field>
+            <p className="text-xs text-[var(--muted)]">
+              Auto summarization pauses at 90% context usage, summarizes, and resumes. Sliding
+              window pauses at 99%, deletes the oldest ~30% tokens (chat data, reasoning, and
+              tool calls/results — system prompt, memory, knowledge, and latest user input are
+              preserved), then resumes so the agent can work forever.
+            </p>
+            {(settings.contextManagementMethod ?? "summarization") === "sliding_window" && (
+              <>
+                <Field label="Tokens to truncate when limit reached" hint="default 30%">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="range"
+                      min={5}
+                      max={90}
+                      step={5}
+                      value={Math.round((settings.slidingWindowTruncatePercent ?? 0.3) * 100)}
+                      onChange={(e) => {
+                        const n = Number(e.target.value);
+                        setSettings({
+                          slidingWindowTruncatePercent: Number.isFinite(n)
+                            ? Math.min(0.9, Math.max(0.05, Math.round(n) / 100))
+                            : 0.3,
+                        });
+                      }}
+                      className="h-1.5 flex-1 cursor-pointer appearance-none rounded-full bg-[var(--border)] accent-[var(--secondary)]"
+                    />
+                    <input
+                      type="number"
+                      min={5}
+                      max={90}
+                      step={5}
+                      value={Math.round((settings.slidingWindowTruncatePercent ?? 0.3) * 100)}
+                      onChange={(e) => {
+                        const n = Number(e.target.value);
+                        setSettings({
+                          slidingWindowTruncatePercent: Number.isFinite(n)
+                            ? Math.min(0.9, Math.max(0.05, Math.round(n) / 100))
+                            : 0.3,
+                        });
+                      }}
+                      className="w-20 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg)] px-2 py-1.5 text-sm text-[var(--fg)] outline-none focus:border-[var(--secondary)]"
+                    />
+                    <span className="text-xs text-[var(--muted)]">%</span>
+                  </div>
+                </Field>
+                <p className="text-xs text-[var(--muted)]">
+                  When the window hits 99%, the oldest tokens are deleted first (never the
+                  newest) until this percent of the window is freed. Default is 30%.
+                </p>
+              </>
+            )}
+          </section>
+
           {/* Multi-agent teams */}
           <section className="space-y-3 border-t border-[var(--border)] pt-5">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--subtle)]">Agent teams (multi-agent)</h3>

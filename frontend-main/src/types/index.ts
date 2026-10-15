@@ -907,6 +907,17 @@ export interface Settings {
    * Main Agent turns stay blocked until one is entered.
    */
   manualContextLimits: Record<string, number>;
+  /**
+   * Context-management method: "summarization" (Auto context summarization,
+   * default) or "sliding_window" (delete oldest tokens at 99%). The backend
+   * runs exactly one method per turn.
+   */
+  contextManagementMethod: "summarization" | "sliding_window";
+  /**
+   * Fraction of the window freed per sliding-window trigger (0.05..0.9).
+   * Default 0.3 (30%). Only used when contextManagementMethod is sliding_window.
+   */
+  slidingWindowTruncatePercent: number;
 }
 
 /** The four built-in reasoning-effort presets shown in Settings. */
@@ -995,6 +1006,10 @@ export interface StreamRequest {
   context_limit?: number;
   /** Utilization fraction (0..1) that triggers summarization this turn (server default 90%). */
   summary_threshold?: number;
+  /** Context-management method for this turn ("summarization" default, or "sliding_window"). */
+  context_management_method?: "summarization" | "sliding_window";
+  /** Fraction freed per sliding-window trigger (0.05..0.9, default 0.3). */
+  sliding_window_truncate_percent?: number;
 }
 
 /** SSE event payloads emitted by the gptloop agent. */
@@ -1077,6 +1092,26 @@ export interface SSEEventData {
   queued_remaining?: number;
   /** True when a replayed run was interrupted (e.g. backend restart) before finishing. */
   interrupted?: boolean;
+
+  // ---- Sliding-window truncation fields ----
+  /** Stable id for one pause→truncate→resume cycle. */
+  truncation_id?: string;
+  /** Number of old messages deleted in this truncation. */
+  removed_messages?: number;
+  /** Estimated tokens freed in this truncation. */
+  freed_tokens_estimate?: number;
+  /** Target tokens the truncation aimed to free. */
+  target_tokens?: number;
+  /** Fraction of the window freed (0.05..0.9). */
+  truncate_percent?: number;
+  /** Utilization before truncation (0..1+). */
+  utilization_before?: number;
+  /** Context-window limit the truncation was computed against. */
+  context_limit?: number;
+  /** Completed truncations this turn. */
+  completed_truncations?: number;
+  /** Bounded preview lines of the deleted messages. */
+  preview?: string[];
 
   // ---- Multi-agent team fields ----
   /** team_start: the team name. */

@@ -192,8 +192,9 @@ function buildStartRequest(convId: string, text: string): StreamRequest {
     ceo_agent: backendCeo ?? undefined,
     custom_agent: backendCustomAgent,
     system_prompt_override: systemPromptOverride,
-    // Effective context-window limit for automatic summarization handoff:
-    // provider catalog wins, else manual entry. Absent = backend handoff disabled.
+    // Effective context-window limit for automatic context management
+    // (summarization at 90% or sliding window at 99%):
+    // provider catalog wins, else manual entry. Absent = backend management disabled.
     context_limit:
       resolveContextLimit(
         store.models,
@@ -201,6 +202,8 @@ function buildStartRequest(convId: string, text: string): StreamRequest {
         settings.model,
         settings.manualContextLimits,
       ).limit ?? undefined,
+    context_management_method: settings.contextManagementMethod ?? "summarization",
+    sliding_window_truncate_percent: settings.slidingWindowTruncatePercent ?? 0.3,
   };
 }
 

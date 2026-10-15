@@ -30,6 +30,14 @@ import {
   markSubAgentResumed,
   shouldTriggerSummarization,
 } from "./summarization/index.js";
+import {
+  createSlidingWindowTruncationId,
+  executeSlidingWindowTruncation,
+  normalizeContextManagementMethod,
+  normalizeSlidingWindowTruncatePercent,
+  shouldTriggerSlidingWindow,
+  slidingWindowUtilizationOf,
+} from "./slidingWindow.js";
 
 /**
  * Tools a sub-agent may never use. This is the single canonical restricted set
@@ -91,6 +99,13 @@ export interface SubAgentRuntimeDeps {
    * Defaults to the server summaryThreshold (90%). Per-turn override, same as main agent.
    */
   summaryThreshold?: number;
+  /**
+   * Context-management method inherited from the parent turn
+   * ("summarization" default, or "sliding_window").
+   */
+  contextManagementMethod?: string;
+  /** Fraction freed per sliding-window trigger (default 0.3). */
+  slidingWindowTruncatePercent?: number;
 }
 
 /**
@@ -943,7 +958,9 @@ class SubAgentRunner {
     // auto-triggers for this run to avoid an indefinite retry loop.
     let lastPromptTokens: number | undefined;
     let handoffFailedThisRun = false;
+    let slidingWindowFailedThisRun = false;
     let completedHandoffs = 0;
+    let completedTruncations = 0;
 
     try {
       // Unbounded loop: the sub-agent has no iteration limit. It only stops when the model
@@ -1106,7 +1123,63 @@ class SubAgentRunner {
           // pause point before the next LLM generation — same as the main agent.
           // May run multiple times per sub-agent run whenever utilization reaches
           // the threshold again.
-          if (!handoffFailedThisRun) {
+          //
+          // Two mutually exclusive methods: summarization (default) or
+          // sliding_window (stop → delete oldest 30% → resume).
+          const subContextMethod = normalizeContextManagementMethod(
+            this.deps.contextManagementMethod,
+          );
+          if (subContextMethod === "sliding_window") {
+            if (!slidingWindowFailedThisRun) {
+              const contextLimit =
+                typeof this.deps.contextLimit === "number" ? this.deps.contextLimit : null;
+              if (shouldTriggerSlidingWindow(lastPromptTokens, contextLimit) && contextLimit) {
+                const truncatePercent = normalizeSlidingWindowTruncatePercent(
+                  this.deps.slidingWindowTruncatePercent ?? this.deps.config.slidingWindowTruncatePercent,
+                );
+                const utilizationBefore = slidingWindowUtilizationOf(lastPromptTokens, contextLimit);
+                const truncation = executeSlidingWindowTruncation({
+                  messages: history,
+                  contextLimit,
+                  truncatePercent,
+                });
+                if (truncation.removed.length > 0) {
+                  const truncationId = createSlidingWindowTruncationId();
+                  history.splice(0, history.length, ...truncation.kept);
+                  completedTruncations += 1;
+                  lastPromptTokens = undefined;
+                  send("sub_agent_sliding_window_truncated", {
+                    id: parentId,
+                    truncation_id: truncationId,
+                    sub_session_id: subSessionId,
+                    sub_agent: definition.name,
+                    removed_messages: truncation.removed.length,
+                    freed_tokens_estimate: truncation.freedTokens,
+                    target_tokens: truncation.targetTokens,
+                    truncate_percent: truncatePercent,
+                    utilization_before: utilizationBefore,
+                    context_limit: contextLimit,
+                    completed_truncations: completedTruncations,
+                    preview: truncation.preview,
+                    name: "sliding_window_truncated",
+                    label: `Sliding window (${definition.name}): removed ${truncation.removed.length} old message(s) (~${truncation.freedTokens.toLocaleString("en-US")} tokens)`,
+                    ok: true,
+                    result: {
+                      ok: true,
+                      data: {
+                        removed_messages: truncation.removed.length,
+                        freed_tokens_estimate: truncation.freedTokens,
+                        truncate_percent: truncatePercent,
+                        preview: truncation.preview,
+                      },
+                    },
+                  });
+                } else {
+                  slidingWindowFailedThisRun = true;
+                }
+              }
+            }
+          } else if (!handoffFailedThisRun) {
             const contextLimit =
               typeof this.deps.contextLimit === "number" ? this.deps.contextLimit : null;
             const threshold =

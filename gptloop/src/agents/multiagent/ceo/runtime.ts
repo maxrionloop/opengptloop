@@ -129,6 +129,10 @@ export interface CeoOrchestratorDeps {
   contextLimit?: number | null;
   /** Utilization fraction (0..1) that triggers sub-agent summarization (default 90%). */
   summaryThreshold?: number;
+  /** Context-management method for CEO-system agents ("summarization" default). */
+  contextManagementMethod?: string;
+  /** Fraction freed per sliding-window trigger (default 0.3). */
+  slidingWindowTruncatePercent?: number;
 }
 
 /**
@@ -242,6 +246,8 @@ export class CeoOrchestrator {
       getConversationContext: () => context.messages,
       contextLimit: typeof this.deps.contextLimit === "number" ? this.deps.contextLimit : null,
       summaryThreshold: this.deps.summaryThreshold ?? this.deps.config.summaryThreshold ?? 0.9,
+      contextManagementMethod: this.deps.contextManagementMethod,
+      slidingWindowTruncatePercent: this.deps.slidingWindowTruncatePercent,
     });
   }
 
@@ -487,10 +493,19 @@ export class CeoOrchestrator {
       temperature: this.deps.temperature,
       effort: this.deps.effort,
       providerId: this.deps.providerId,
+      contextLimit: typeof this.deps.contextLimit === "number" ? this.deps.contextLimit : null,
+      contextManagementMethod: this.deps.contextManagementMethod,
+      slidingWindowTruncatePercent: this.deps.slidingWindowTruncatePercent,
     };
 
     if (actor.role === "ceo") {
-      return runCeoAgent({ ...common, ceo: this.deps.ceo, teams: this.teams });
+      return runCeoAgent({
+        ...common,
+        ceo: this.deps.ceo,
+        teams: this.teams,
+        contextManagementMethod: this.deps.contextManagementMethod,
+        slidingWindowTruncatePercent: this.deps.slidingWindowTruncatePercent,
+      });
     }
     if (actor.role === "leader") {
       const team = actor.team!;

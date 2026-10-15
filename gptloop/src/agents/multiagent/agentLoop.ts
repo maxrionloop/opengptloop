@@ -18,6 +18,14 @@ import {
   EV_AGENT_TOOL_RESULT,
   type TeamAgentRunResult,
 } from "./types.js";
+import {
+  createSlidingWindowTruncationId,
+  executeSlidingWindowTruncation,
+  normalizeContextManagementMethod,
+  normalizeSlidingWindowTruncatePercent,
+  shouldTriggerSlidingWindow,
+  slidingWindowUtilizationOf,
+} from "../slidingWindow.js";
 
 /**
  * Parameters for one team agent's streaming Thought -> Action -> Observation loop. `messages` is
@@ -63,6 +71,12 @@ export interface TeamAgentLoopParams {
   usageScope?: "team" | "ceo";
   /** Provider id snapshot for display (when known). */
   providerId?: string;
+  /** Effective context-window limit (tokens) for sliding-window truncation. */
+  contextLimit?: number | null;
+  /** Context-management method ("summarization" default, or "sliding_window"). */
+  contextManagementMethod?: string;
+  /** Fraction freed per sliding-window trigger (default 0.3). */
+  slidingWindowTruncatePercent?: number;
 }
 
 /**
@@ -77,6 +91,9 @@ export async function runTeamAgentLoop(params: TeamAgentLoopParams): Promise<Tea
   const mcp = params.mcp;
 
   const answerAcrossTurns: string[] = [];
+  let lastPromptTokens: number | undefined;
+  let slidingWindowFailedThisRun = false;
+  let completedTruncations = 0;
 
   try {
     // eslint-disable-next-line no-constant-condition
@@ -135,6 +152,9 @@ export async function runTeamAgentLoop(params: TeamAgentLoopParams): Promise<Tea
           completion_tokens: requestUsage.completion_tokens,
           total_tokens: requestUsage.total_tokens,
         });
+        if (typeof requestUsage.prompt_tokens === "number") {
+          lastPromptTokens = requestUsage.prompt_tokens;
+        }
       }
 
       const namedCalls = toolCalls.filter((c) => c.function.name);
@@ -207,6 +227,62 @@ export async function runTeamAgentLoop(params: TeamAgentLoopParams): Promise<Tea
         }
 
         for (const imageMessage of imageMessages) messages.push(imageMessage);
+
+        // Sliding-window context management (secondary method): when the
+        // window hits 99%, stop (all tools done — safe pause point), delete
+        // the oldest ~30% tokens, then resume on the next loop iteration.
+        // Only runs when Settings selects sliding_window; summarization is
+        // the default and team agents otherwise run unbounded.
+        if (!slidingWindowFailedThisRun) {
+          const teamMethod = normalizeContextManagementMethod(params.contextManagementMethod);
+          if (teamMethod === "sliding_window") {
+            const teamLimit =
+              typeof params.contextLimit === "number" ? params.contextLimit : null;
+            if (shouldTriggerSlidingWindow(lastPromptTokens, teamLimit) && teamLimit) {
+              const truncatePercent = normalizeSlidingWindowTruncatePercent(
+                params.slidingWindowTruncatePercent,
+              );
+              const utilizationBefore = slidingWindowUtilizationOf(lastPromptTokens, teamLimit);
+              const truncation = executeSlidingWindowTruncation({
+                messages,
+                contextLimit: teamLimit,
+                truncatePercent,
+              });
+              if (truncation.removed.length > 0) {
+                const truncationId = createSlidingWindowTruncationId();
+                messages.splice(0, messages.length, ...truncation.kept);
+                completedTruncations += 1;
+                lastPromptTokens = undefined;
+                send("sliding_window_truncated", {
+                  truncation_id: truncationId,
+                  utilization_before: utilizationBefore,
+                  context_limit: teamLimit,
+                  removed_messages: truncation.removed.length,
+                  freed_tokens_estimate: truncation.freedTokens,
+                  target_tokens: truncation.targetTokens,
+                  truncate_percent: truncatePercent,
+                  completed_truncations: completedTruncations,
+                  preview: truncation.preview,
+                  id: truncationId,
+                  name: "sliding_window_truncated",
+                  label: `Sliding window: removed ${truncation.removed.length} old message(s) (~${truncation.freedTokens.toLocaleString("en-US")} tokens)`,
+                  ok: true,
+                  result: {
+                    ok: true,
+                    data: {
+                      removed_messages: truncation.removed.length,
+                      freed_tokens_estimate: truncation.freedTokens,
+                      truncate_percent: truncatePercent,
+                      preview: truncation.preview,
+                    },
+                  },
+                });
+              } else {
+                slidingWindowFailedThisRun = true;
+              }
+            }
+          }
+        }
         continue;
       }
 

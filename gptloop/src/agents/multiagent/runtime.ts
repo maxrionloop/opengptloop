@@ -127,6 +127,10 @@ export interface TeamOrchestratorDeps {
   contextLimit?: number | null;
   /** Utilization fraction (0..1) that triggers sub-agent summarization (default 90%). */
   summaryThreshold?: number;
+  /** Context-management method for team agents ("summarization" default). */
+  contextManagementMethod?: string;
+  /** Fraction freed per sliding-window trigger (default 0.3). */
+  slidingWindowTruncatePercent?: number;
 }
 
 /**
@@ -219,6 +223,8 @@ export class TeamOrchestrator {
       getConversationContext: () => context.messages,
       contextLimit: typeof this.deps.contextLimit === "number" ? this.deps.contextLimit : null,
       summaryThreshold: this.deps.summaryThreshold ?? this.deps.config.summaryThreshold ?? 0.9,
+      contextManagementMethod: this.deps.contextManagementMethod,
+      slidingWindowTruncatePercent: this.deps.slidingWindowTruncatePercent,
     });
   }
 
@@ -456,6 +462,9 @@ export class TeamOrchestrator {
       effort: this.deps.effort,
       usageScope: "team" as const,
       providerId: this.deps.providerId,
+      contextLimit: typeof this.deps.contextLimit === "number" ? this.deps.contextLimit : null,
+      contextManagementMethod: this.deps.contextManagementMethod,
+      slidingWindowTruncatePercent: this.deps.slidingWindowTruncatePercent,
     };
 
     if (actor.context.role === "leader") {

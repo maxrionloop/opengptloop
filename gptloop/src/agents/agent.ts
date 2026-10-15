@@ -51,6 +51,14 @@ import {
   markResumed,
   shouldTriggerSummarization,
 } from "./summarization/index.js";
+import {
+  createSlidingWindowTruncationId,
+  executeSlidingWindowTruncation,
+  normalizeContextManagementMethod,
+  normalizeSlidingWindowTruncatePercent,
+  shouldTriggerSlidingWindow,
+  slidingWindowUtilizationOf,
+} from "./slidingWindow.js";
 
 export interface RunAgentRequest {
   chatId: string;
@@ -167,6 +175,17 @@ export interface RunAgentRequest {
    * Defaults to the server summaryThreshold (90%). Per-turn override.
    */
   summaryThreshold?: number;
+  /**
+   * Context-management method for this turn: "summarization" (Auto context
+   * summarization, default) or "sliding_window" (delete oldest tokens at 99%).
+   * Per-turn override from Settings; absent = summarization.
+   */
+  contextManagementMethod?: string;
+  /**
+   * Fraction of the window freed per sliding-window trigger (0.05..0.9).
+   * Defaults to 0.3 (30%). Per-turn override from Settings.
+   */
+  slidingWindowTruncatePercent?: number;
 }
 
 /** Lightweight identity of the Custom Agent handling a turn (see agents/customagent/configuration). */
@@ -488,6 +507,8 @@ export class AgentRunner {
         // sub-agents trigger the SAME automatic summarization at 90% and continue.
         contextLimit: typeof request.contextLimit === "number" ? request.contextLimit : null,
         summaryThreshold: request.summaryThreshold ?? this.config.summaryThreshold ?? 0.9,
+        contextManagementMethod: request.contextManagementMethod,
+        slidingWindowTruncatePercent: request.slidingWindowTruncatePercent,
       });
 
       // Skill runtime for this turn — enumerates the user's skills (list_skills) and materializes
@@ -529,6 +550,8 @@ export class AgentRunner {
       // successful replacement resets usage tracking so growth can trigger again.
       let handoffFailedThisTurn = false;
       let completedHandoffs = 0;
+      let slidingWindowFailedThisTurn = false;
+      let completedTruncations = 0;
       let lastPromptTokens: number | undefined;
 
       // The agent runs with NO iteration cap. `limit: null` signals "unlimited" to any UI listener.
@@ -786,7 +809,78 @@ export class AgentRunner {
           // completed (no in-flight result is discarded), so this is the safe
           // pause point before the next LLM generation. May run multiple times
           // per session whenever utilization reaches the threshold again.
-          if (!handoffFailedThisTurn) {
+          //
+          // Two mutually exclusive methods (Settings → Context management):
+          //  - "summarization" (default): pause → summary agent → replace context.
+          //  - "sliding_window": pause (stop) → delete oldest 30% tokens → resume.
+          const contextMethod = normalizeContextManagementMethod(request.contextManagementMethod);
+          if (contextMethod === "sliding_window") {
+            if (!slidingWindowFailedThisTurn) {
+              const contextLimit =
+                typeof request.contextLimit === "number" ? request.contextLimit : null;
+              if (shouldTriggerSlidingWindow(lastPromptTokens, contextLimit) && contextLimit) {
+                const truncatePercent = normalizeSlidingWindowTruncatePercent(
+                  request.slidingWindowTruncatePercent ?? this.config.slidingWindowTruncatePercent,
+                );
+                const utilizationBefore = slidingWindowUtilizationOf(lastPromptTokens, contextLimit);
+                const truncation = executeSlidingWindowTruncation({
+                  messages: session.messages,
+                  contextLimit,
+                  truncatePercent,
+                });
+                if (truncation.removed.length > 0) {
+                  const isCustomAgent = Boolean(request.customAgent);
+                  const truncationId = createSlidingWindowTruncationId();
+                  // Atomic replacement: oldest truncatable messages are dropped;
+                  // protected head (memory/knowledge) + latest user input survive.
+                  session.messages = truncation.kept;
+                  completedTruncations += 1;
+                  // Fresh usage is required before another truncation: the stale
+                  // high reading must not retrigger before the next LLM call.
+                  lastPromptTokens = undefined;
+                  send("sliding_window_truncated", {
+                    truncation_id: truncationId,
+                    chat_id: request.chatId,
+                    agent: isCustomAgent ? "custom" : "main",
+                    ...(isCustomAgent && request.customAgent?.id
+                      ? { custom_agent_id: request.customAgent.id }
+                      : {}),
+                    ...(isCustomAgent && request.customAgent?.name
+                      ? { custom_agent_name: request.customAgent.name }
+                      : {}),
+                    removed_messages: truncation.removed.length,
+                    freed_tokens_estimate: truncation.freedTokens,
+                    target_tokens: truncation.targetTokens,
+                    truncate_percent: truncatePercent,
+                    utilization_before: utilizationBefore,
+                    context_limit: contextLimit,
+                    completed_truncations: completedTruncations,
+                    preview: truncation.preview,
+                    // Tool-chip shape so the chat renders a clickable block with
+                    // the deleted tokens inside its expandable result.
+                    id: truncationId,
+                    name: "sliding_window_truncated",
+                    label: `Sliding window: removed ${truncation.removed.length} old message(s) (~${truncation.freedTokens.toLocaleString("en-US")} tokens)`,
+                    ok: true,
+                    result: {
+                      ok: true,
+                      data: {
+                        removed_messages: truncation.removed.length,
+                        freed_tokens_estimate: truncation.freedTokens,
+                        truncate_percent: truncatePercent,
+                        preview: truncation.preview,
+                        message: `Deleted the oldest ${truncation.removed.length} message(s) (~${truncation.freedTokens} tokens, target ${truncation.targetTokens}) to stay within context. Newest context preserved.`,
+                      },
+                    },
+                  });
+                } else {
+                  // Nothing truncatable (only protected context remains) — block
+                  // further triggers this turn to avoid an infinite retry loop.
+                  slidingWindowFailedThisTurn = true;
+                }
+              }
+            }
+          } else if (!handoffFailedThisTurn) {
             const contextLimit =
               typeof request.contextLimit === "number" ? request.contextLimit : null;
             const threshold = request.summaryThreshold ?? this.config.summaryThreshold ?? 0.9;

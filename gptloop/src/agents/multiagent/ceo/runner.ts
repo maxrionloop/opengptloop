@@ -44,6 +44,9 @@ export interface RunCeoAgentArgs {
   effort?: string;
   /** Provider id snapshot for display (when known). */
   providerId?: string;
+  contextLimit?: number | null;
+  contextManagementMethod?: string;
+  slidingWindowTruncatePercent?: number;
 }
 
 export async function runCeoAgent(args: RunCeoAgentArgs): Promise<TeamAgentRunResult> {
@@ -71,5 +74,8 @@ export async function runCeoAgent(args: RunCeoAgentArgs): Promise<TeamAgentRunRe
     signal: args.signal,
     usageScope: "ceo",
     providerId: args.providerId,
+    contextLimit: typeof args.contextLimit === "number" ? args.contextLimit : null,
+    contextManagementMethod: args.contextManagementMethod,
+    slidingWindowTruncatePercent: args.slidingWindowTruncatePercent,
   });
 }

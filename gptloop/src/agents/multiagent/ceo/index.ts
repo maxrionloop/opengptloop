@@ -202,6 +202,8 @@ export class CeoAgentRunner {
         signal,
         contextLimit: typeof request.contextLimit === "number" ? request.contextLimit : null,
         summaryThreshold: request.summaryThreshold ?? this.config.summaryThreshold ?? 0.9,
+        contextManagementMethod: request.contextManagementMethod,
+        slidingWindowTruncatePercent: request.slidingWindowTruncatePercent,
       });
 
       await orchestrator.run(request.userMessage, firstMessageContext);

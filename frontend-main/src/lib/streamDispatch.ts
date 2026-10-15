@@ -908,6 +908,87 @@ export function dispatchStreamEvent(event: string, data: SSEEventData, ctx: Disp
       });
       break;
 
+    case "sliding_window_truncated": {
+      // Sliding-window context management removed the oldest tokens so the
+      // agent can keep working. Rendered as a clickable tool block (same as
+      // any GenericChip) so the user can expand it to see which tokens were
+      // deleted. Team/CEO truncations carry agent_id/role and land in the
+      // same main flow so nothing is ever silent.
+      const truncationId =
+        typeof data.truncation_id === "string" && data.truncation_id
+          ? data.truncation_id
+          : typeof data.id === "string" && data.id
+            ? data.id
+            : uid("tool");
+      const removed =
+        typeof data.removed_messages === "number" && Number.isFinite(data.removed_messages)
+          ? data.removed_messages
+          : 0;
+      const freed =
+        typeof data.freed_tokens_estimate === "number" && Number.isFinite(data.freed_tokens_estimate)
+          ? data.freed_tokens_estimate
+          : 0;
+      const label =
+        typeof data.label === "string" && data.label
+          ? data.label
+          : `Sliding window: removed ${removed} old message(s) (~${freed.toLocaleString("en-US")} tokens)`;
+      s.upsertTool(convId, msgId, {
+        id: truncationId,
+        name: "sliding_window_truncated",
+        label,
+        status: "ok",
+        result: (data.result ?? {
+          ok: true,
+          data: {
+            removed_messages: removed,
+            freed_tokens_estimate: freed,
+            truncate_percent:
+              typeof data.truncate_percent === "number" ? data.truncate_percent : undefined,
+            preview: Array.isArray(data.preview) ? data.preview : [],
+          },
+        }) as never,
+      });
+      break;
+    }
+
+    case "sub_agent_sliding_window_truncated": {
+      const truncationId =
+        typeof data.truncation_id === "string" && data.truncation_id
+          ? data.truncation_id
+          : typeof data.id === "string" && data.id
+            ? data.id
+            : uid("tool");
+      const subName = typeof data.sub_agent === "string" && data.sub_agent ? data.sub_agent : "sub-agent";
+      const removed =
+        typeof data.removed_messages === "number" && Number.isFinite(data.removed_messages)
+          ? data.removed_messages
+          : 0;
+      const freed =
+        typeof data.freed_tokens_estimate === "number" && Number.isFinite(data.freed_tokens_estimate)
+          ? data.freed_tokens_estimate
+          : 0;
+      const label =
+        typeof data.label === "string" && data.label
+          ? data.label
+          : `Sliding window (${subName}): removed ${removed} old message(s) (~${freed.toLocaleString("en-US")} tokens)`;
+      s.upsertTool(convId, msgId, {
+        id: truncationId,
+        name: "sliding_window_truncated",
+        label,
+        status: "ok",
+        result: (data.result ?? {
+          ok: true,
+          data: {
+            removed_messages: removed,
+            freed_tokens_estimate: freed,
+            sub_agent: subName,
+            preview: Array.isArray(data.preview) ? data.preview : [],
+          },
+        }) as never,
+      });
+      break;
+    }
+
     case "error":
       s.applyAssistantDelta(convId, msgId, {
         contentDelta: `\n\n⚠️ ${String(data.message ?? "Agent error")}`,

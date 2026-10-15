@@ -76,6 +76,22 @@ import {
 } from "@/lib/taskModes";
 import { normalizePromptLibrary, newPromptLibraryId } from "@/lib/promptLibrary";
 import { manualLimitKey, sanitizeManualContextLimits } from "@/lib/contextMeter";
+
+function sanitizeContextManagementMethod(raw: unknown): "summarization" | "sliding_window" {
+  const v = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (v === "sliding_window" || v === "sliding-window" || v === "window") return "sliding_window";
+  return "summarization";
+}
+
+function sanitizeSlidingWindowTruncatePercent(raw: unknown): number {
+  const n =
+    typeof raw === "number" ? raw : typeof raw === "string" && raw.trim() !== "" ? Number(raw) : NaN;
+  if (Number.isFinite(n) && n > 0) {
+    const fraction = n > 1 ? n / 100 : n;
+    if (Number.isFinite(fraction)) return Math.min(0.9, Math.max(0.05, fraction));
+  }
+  return 0.3;
+}
 import {
   DEFAULT_PROFILE_ID,
   findActiveProfile,
@@ -679,6 +695,8 @@ const defaultSettings: Settings = {
   memoryAgentEnabled: "yes",
   memoryAgentInterval: 3,
   manualContextLimits: {},
+  contextManagementMethod: "summarization",
+  slidingWindowTruncatePercent: 0.3,
 };
 
 function touch(conv: Conversation): Conversation {
@@ -1023,6 +1041,13 @@ export const useStore = create<AppState>()(
             // sanitize so a corrupt entry can never break limit resolution.
             manualContextLimits: sanitizeManualContextLimits(
               (p.settings as { manualContextLimits?: unknown } | undefined)?.manualContextLimits,
+            ),
+            contextManagementMethod: sanitizeContextManagementMethod(
+              (p.settings as { contextManagementMethod?: unknown } | undefined)?.contextManagementMethod,
+            ),
+            slidingWindowTruncatePercent: sanitizeSlidingWindowTruncatePercent(
+              (p.settings as { slidingWindowTruncatePercent?: unknown } | undefined)
+                ?.slidingWindowTruncatePercent,
             ),
           },
           subAgents: mergeSubAgentsWithDefaults(
