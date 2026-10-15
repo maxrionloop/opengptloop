@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
-import { Bookmark, Check, ClipboardCopy, Pencil, Play, Plus, Search, Trash2 } from "lucide-react";
+import { Bookmark, Check, ClipboardCopy, Pencil, Play, Plus, Search, Trash2, Upload } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { Modal } from "@/components/ui/Modal";
+import { ImportPromptLibraryModal } from "@/components/panels/ImportPromptLibraryModal";
 import { Button, EmptyState, Field, PanelHeader, TextArea, TextInput } from "@/components/ui/primitives";
 import { cn } from "@/utils/cn";
 
@@ -35,6 +36,7 @@ export function PromptLibraryPanel() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -103,7 +105,12 @@ export function PromptLibraryPanel() {
         >
           <Plus className="h-4 w-4" /> Save prompt
         </Button>
+        <Button variant="outline" onClick={() => setImportOpen(true)}>
+          <Upload className="h-4 w-4" /> Import
+        </Button>
       </div>
+
+      <ImportPromptLibraryModal open={importOpen} onClose={() => setImportOpen(false)} />
 
       {items.length === 0 ? (
         <EmptyState icon={<Bookmark className="h-8 w-8" />}>
