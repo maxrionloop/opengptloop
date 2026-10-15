@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { Check, FilePlus2, FileText, FolderTree, Pencil, Plus, Sparkles, Trash2, Upload } from "lucide-react";
+import { ImportSkillsModal } from "@/components/panels/ImportSkillsModal";
 import { useStore } from "@/store/useStore";
 import type { SkillFile } from "@/types";
 import { Modal } from "@/components/ui/Modal";
@@ -45,6 +46,7 @@ export function SkillsPanel() {
 
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   const save = () => {
     if (!draft) return;
@@ -130,11 +132,16 @@ export function SkillsPanel() {
         </ul>
       )}
 
-      <div className="mt-4">
+      <div className="mt-4 flex flex-wrap gap-2">
         <Button onClick={() => { setError(null); setDraft(empty()); }}>
           <Plus className="h-4 w-4" /> New skill
         </Button>
+        <Button variant="outline" onClick={() => setImportOpen(true)}>
+          <Upload className="h-4 w-4" /> Import skill
+        </Button>
       </div>
+
+      <ImportSkillsModal open={importOpen} onClose={() => setImportOpen(false)} />
 
       <SkillEditor draft={draft} error={error} setDraft={setDraft} onClose={() => setDraft(null)} onSave={save} />
     </div>
