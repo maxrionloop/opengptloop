@@ -10,6 +10,7 @@ import {
   Search,
   Sparkles,
   Trash2,
+  Upload,
   Wrench,
   X,
 } from "lucide-react";
@@ -18,6 +19,7 @@ import { fetchCustomAgentTools, fetchMainAgentSystemPrompt, type CustomAgentTool
 import { AVAILABLE_CONNECTORS, fetchConnectorTools } from "@/lib/connectors";
 import { fetchMcpEditorTools, humanizeMcpToolName } from "@/lib/mcp";
 import { MAIN_AGENT_ID, fetchCustomAgents } from "@/lib/customAgents";
+import { ImportCustomAgentsModal } from "@/components/panels/ImportCustomAgentsModal";
 import { Modal } from "@/components/ui/Modal";
 import { Button, EmptyState, Field, PanelHeader, TextArea, TextInput, Toggle } from "@/components/ui/primitives";
 import { cn } from "@/utils/cn";
@@ -96,6 +98,7 @@ export function CustomAgentsPanel() {
 
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   // Backend is the source of truth (agents can be created/deleted by any agent
   // mid-turn via the create_agent / delete_agent tools). Refresh on open so the
   // panel converges immediately instead of showing a stale store copy.
@@ -401,7 +404,7 @@ export function CustomAgentsPanel() {
         </ul>
       )}
 
-      <div className="mt-4">
+      <div className="mt-4 flex flex-wrap gap-2">
         <Button
           onClick={() => {
             setError(null);
@@ -412,7 +415,12 @@ export function CustomAgentsPanel() {
         >
           <Plus className="h-4 w-4" /> Create custom agent
         </Button>
+        <Button variant="outline" onClick={() => setImportOpen(true)}>
+          <Upload className="h-4 w-4" /> Import custom agent
+        </Button>
       </div>
+
+      <ImportCustomAgentsModal open={importOpen} onClose={() => setImportOpen(false)} />
 
       <Modal
         open={Boolean(draft)}
