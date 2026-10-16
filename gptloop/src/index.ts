@@ -98,6 +98,14 @@ function main(): void {
   // the Main Agent runs with. It never creates a new agent — it only changes the Main Agent's system
   // prompt (see chat.ts, which applies the active prompt as a systemPromptOverride).
   const mainAgentPrompts = new MainAgentPromptManager(db.appState);
+  // One-time migration: every stored custom system prompt must carry an exact 20-digit id
+  // (the id shape the save/delete/list tools and the panel rely on). Prompts saved before
+  // 20-digit ids existed are remapped here, following the active selection when needed.
+  try {
+    mainAgentPrompts.ensureTwentyDigitIds();
+  } catch {
+    // best effort — unmigrated rows still load; new saves always mint 20-digit ids
+  }
   // Prompt Library: user-saved reusable prompts (title + optional short
   // description + prompt text), persisted in the SQLite app_state repository.
   // The frontend syncs the same document, so prompts survive restarts.
@@ -122,6 +130,16 @@ function main(): void {
   agent.setCustomAgents(customAgents);
   multiAgent.setCustomAgents(customAgents);
   ceoAgent.setCustomAgents(customAgents);
+
+  // Custom System Prompts (the SAME store the Custom system prompts panel reads):
+  // the save_custom_system_prompt / list_available_custom_system_prompt /
+  // delete_custom_system_prompt tools write straight into `mainAgentPrompts`, so a prompt the
+  // agent saves appears in the panel immediately (via the `main_agent_prompts_updated` event).
+  // Every entry carries an exact 20-digit id. Sub-agents, chat mode, and the background memory
+  // agent never receive the runtime.
+  agent.setCustomSystemPrompts(mainAgentPrompts);
+  multiAgent.setCustomSystemPrompts(mainAgentPrompts);
+  ceoAgent.setCustomSystemPrompts(mainAgentPrompts);
 
   // Schedules (persistent cron): the store persists schedules + history in the
   // SQLite database; the runner executes due schedules through the EXISTING

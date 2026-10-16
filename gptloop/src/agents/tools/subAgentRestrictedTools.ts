@@ -29,6 +29,9 @@
  *  - Prompt-library tools (only for main/custom/team/CEO agents):
  *      save_prompt_in_prompt_library, delete_prompt_from_prompt_library,
  *      list_available_prompts_in_prompt_library
+ *  - Custom-system-prompt tools (only for main/custom/team/CEO agents):
+ *      save_custom_system_prompt, delete_custom_system_prompt,
+ *      list_available_custom_system_prompt
  *  - Agent-driven custom-agent management tools (only for main/custom/team/CEO agents):
  *      create_agent, list_available_agents, delete_agent
  *
@@ -89,6 +92,10 @@ export const SUB_AGENT_RESTRICTED_TOOLS: readonly string[] = [
   "save_prompt_in_prompt_library",
   "delete_prompt_from_prompt_library",
   "list_available_prompts_in_prompt_library",
+  // Custom-system-prompt management tools — only for main/custom/team/CEO agents, never sub-agents.
+  "save_custom_system_prompt",
+  "delete_custom_system_prompt",
+  "list_available_custom_system_prompt",
   // Agent-driven custom-agent management tools — only for main/custom/team/CEO agents.
   "create_agent",
   "list_available_agents",

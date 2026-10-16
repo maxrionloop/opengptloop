@@ -33,6 +33,9 @@ export const SCHEDULE_ID_LENGTH = 16;
 /** Prompt-library entries carry a 20-character alphanumeric ID. */
 export const PROMPT_LIBRARY_ID_LENGTH = 20;
 
+/** Custom system prompts carry a 20-digit numeric ID (`^[0-9]{20}$`). */
+export const CUSTOM_SYSTEM_PROMPT_ID_LENGTH = 20;
+
 /** Schedule runs carry a 12-character alphanumeric ID. */
 export const SCHEDULE_RUN_ID_LENGTH = 12;
 
@@ -104,6 +107,25 @@ export function createScheduleRunId(): string {
  */
 export function createPromptLibraryId(): string {
   return randomId(PROMPT_LIBRARY_ID_LENGTH);
+}
+
+/**
+ * Create a new 20-digit custom-system-prompt ID (`^[0-9]{20}$`, 10^20 combinations).
+ * Each user-saved custom system prompt carries its own id. Digits only by design so the
+ * model can copy the id verbatim and the delete tool can validate it with a strict pattern.
+ */
+export function createCustomSystemPromptId(): string {
+  const bytes = crypto.randomBytes(CUSTOM_SYSTEM_PROMPT_ID_LENGTH);
+  let out = "";
+  for (let i = 0; i < CUSTOM_SYSTEM_PROMPT_ID_LENGTH; i += 1) {
+    out += String(bytes[i]! % 10);
+  }
+  return out;
+}
+
+/** True when `value` is an exact 20-digit custom-system-prompt ID. */
+export function isCustomSystemPromptId(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9]{20}$/.test(value);
 }
 
 /** True when `value` looks like a usable session id (bounded, printable, path-safe). */

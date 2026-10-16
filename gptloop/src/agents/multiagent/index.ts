@@ -13,6 +13,7 @@ import { mergeDefaultSkills, resolveDefaultSkills } from "../skills/index.js";
 import { createTodoRuntime } from "../todos.js";
 import { createPromptLibraryRuntime } from "../promptLibrary.js";
 import { createCustomAgentsRuntime } from "../customAgents.js";
+import { createCustomSystemPromptsRuntime } from "../customSystemPrompts.js";
 import { resolveDefaultSubAgents } from "../sub-agents/index.js";
 import { ConnectorRuntime } from "../connectors/index.js";
 import { McpRuntime, type McpManager } from "../mcp/index.js";
@@ -62,6 +63,7 @@ export class MultiAgentRunner {
   private channelManager?: import("../../channels/manager.js").ChannelManager;
   private promptLibrary?: import("../tools/types.js").PromptLibraryRuntime;
   private customAgents?: import("../tools/types.js").CustomAgentsRuntime;
+  private customSystemPrompts?: import("../tools/types.js").CustomSystemPromptsRuntime;
 
   /**
    * Attach the persistent prompt library (called once at boot). When set, every team agent
@@ -81,6 +83,19 @@ export class MultiAgentRunner {
     manager?: import("../customagent/index.js").CustomAgentManager,
   ): void {
     this.customAgents = manager ? createCustomAgentsRuntime(manager) : undefined;
+  }
+
+  /**
+   * Attach the persistent custom-system-prompt store (called once at boot). When set, every team
+   * agent (head/leader + members) granted the custom-system-prompt tools can save, list, and
+   * delete reusable system prompts; every mutation emits a `custom_system_prompts_updated` event.
+   */
+  setCustomSystemPrompts(
+    manager?: import("../mainagentprompt/index.js").MainAgentPromptManager,
+  ): void {
+    this.customSystemPrompts = manager
+      ? createCustomSystemPromptsRuntime(manager)
+      : undefined;
   }
 
   /**
@@ -184,6 +199,7 @@ export class MultiAgentRunner {
         knowledge,
         promptLibrary: this.promptLibrary,
         customAgents: this.customAgents,
+        customSystemPrompts: this.customSystemPrompts,
         skills,
         todos,
         subAgentDefinitions,

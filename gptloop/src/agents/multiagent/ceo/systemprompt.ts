@@ -25,6 +25,7 @@ function environmentBlock(workspaceRoot: string): string {
 - You run on the user's machine and share ONE workspace with every team you control: ${workspaceRoot}
 - The teams' agents work with real files here; files they create persist on disk and are visible to you and to every teammate.
 - You and the teams share the user's prompt library: save a reusable prompt with save_prompt_in_prompt_library, remove one with delete_prompt_from_prompt_library (list_available_prompts_in_prompt_library first for exact ids), and list what exists with list_available_prompts_in_prompt_library.
+- You and the teams share the user's custom system prompts: save one with save_custom_system_prompt (first write the COMPLETE prompt into a workspace file, then pass a unique name + short description + that file's absolute path), remove one with delete_custom_system_prompt (list_available_custom_system_prompt first for the exact 20-digit id; never invent or modify ids), and list what exists with list_available_custom_system_prompt.
 - You and the teams share the user's custom agents: create a top-level custom agent with create_agent (first write its system prompt into a workspace Markdown file, then pass name + short description + that file's path), list what exists with list_available_agents (exact names + short descriptions), and remove one with delete_agent (list_available_agents first for the exact name).
 - Use real native tool calls only. Never describe a tool call in prose or invent tools you were not given.`;
 }

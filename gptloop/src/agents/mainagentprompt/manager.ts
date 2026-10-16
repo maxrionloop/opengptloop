@@ -1,5 +1,5 @@
 import type { AppStateRepo } from "../../database/repositories/appStateRepo.js";
-import { createMainAgentPromptId } from "../../database/ids.js";
+import { createCustomSystemPromptId, isCustomSystemPromptId } from "../../database/ids.js";
 import {
   normalizeMainAgentPromptConfig,
   type MainAgentPromptConfig,
@@ -40,7 +40,7 @@ export class MainAgentPromptManager {
     const out: MainAgentPromptConfig[] = [];
     const seen = new Set<string>();
     for (const item of raw) {
-      const config = normalizeMainAgentPromptConfig(item, { id: createMainAgentPromptId(), now });
+      const config = normalizeMainAgentPromptConfig(item, { id: createCustomSystemPromptId(), now });
       if (!config || seen.has(config.id)) continue;
       seen.add(config.id);
       out.push(config);
@@ -79,13 +79,20 @@ export class MainAgentPromptManager {
     return text.length > 0 ? active.content : null;
   }
 
-  /** Create and persist a new prompt. Throws when the name is empty. */
+  /** Create and persist a new prompt with an exact 20-digit id. Throws when the name is empty. */
   create(input: CreateMainAgentPromptInput): MainAgentPromptConfig {
     const name = (input.name ?? "").trim();
     if (!name) throw new Error("A prompt name is required.");
     const now = Date.now();
+    let id = createCustomSystemPromptId();
+    // Guarantee uniqueness against the current list (retry on the astronomically
+    // unlikely collision instead of ever persisting a duplicate id).
+    const seen = new Set(this.list().map((p) => p.id));
+    for (let attempts = 0; attempts < 5 && seen.has(id); attempts += 1) {
+      id = createCustomSystemPromptId();
+    }
     const config: MainAgentPromptConfig = {
-      id: createMainAgentPromptId(),
+      id,
       name,
       description: (input.description ?? "").trim(),
       content: input.content ?? "",
@@ -147,5 +154,47 @@ export class MainAgentPromptManager {
 
   private persist(configs: MainAgentPromptConfig[]): void {
     this.appState.set("mainAgentPrompts", configs);
+  }
+
+  /**
+   * One-time migration ensuring every stored prompt carries an exact 20-digit id
+   * (`^[0-9]{20}$`). Prompts saved before 20-digit ids existed keep their name,
+   * description, content, and timestamps — only the id is remapped. When the
+   * remapped prompt was the active one, the active selection follows it so the Main
+   * Agent keeps running with the same instructions. Called once at backend boot;
+   * returns how many prompts were remapped. Never throws.
+   */
+  ensureTwentyDigitIds(): number {
+    try {
+      const all = this.list();
+      if (all.length === 0) return 0;
+      const seen = new Set<string>();
+      const remap = new Map<string, string>();
+      for (const entry of all) {
+        if (isCustomSystemPromptId(entry.id) && !seen.has(entry.id)) {
+          seen.add(entry.id);
+          continue;
+        }
+        let next = createCustomSystemPromptId();
+        for (let attempts = 0; attempts < 5 && seen.has(next); attempts += 1) {
+          next = createCustomSystemPromptId();
+        }
+        seen.add(next);
+        remap.set(entry.id, next);
+      }
+      if (remap.size === 0) return 0;
+      const activeId = this.getActiveId();
+      const next = all.map((entry) => {
+        const replacement = remap.get(entry.id);
+        return replacement ? { ...entry, id: replacement, updatedAt: Date.now() } : entry;
+      });
+      this.persist(next);
+      if (activeId && remap.has(activeId)) {
+        this.appState.set("activeMainAgentPromptId", remap.get(activeId)!);
+      }
+      return remap.size;
+    } catch {
+      return 0;
+    }
   }
 }

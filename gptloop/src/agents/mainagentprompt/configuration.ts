@@ -10,7 +10,7 @@
  * This file owns the persistent CONFIGURATION shape and its defensive normalization.
  */
 export interface MainAgentPromptConfig {
-  /** Stable unique id (16-character alphanumeric). */
+  /** Stable unique id (exact 20 digits, `^[0-9]{20}$`). */
   id: string;
   /** Human-readable prompt name (required). */
   name: string;

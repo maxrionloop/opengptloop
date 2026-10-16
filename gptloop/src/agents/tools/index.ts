@@ -42,6 +42,9 @@ import { knowledgeDeleteTool } from "./knowledge_delete.js";
 import { savePromptInPromptLibraryTool } from "./save_prompt_in_prompt_library.js";
 import { deletePromptFromPromptLibraryTool } from "./delete_prompt_from_prompt_library.js";
 import { listAvailablePromptsInPromptLibraryTool } from "./list_available_prompts_in_prompt_library.js";
+import { saveCustomSystemPromptTool } from "./save_custom_system_prompt.js";
+import { deleteCustomSystemPromptTool } from "./delete_custom_system_prompt.js";
+import { listAvailableCustomSystemPromptTool } from "./list_available_custom_system_prompt.js";
 import { embedUrlTool } from "./embedUrl.js";
 import { attachFilesTool } from "./attachFiles.js";
 import { waitTool } from "./wait.js";
@@ -169,6 +172,12 @@ export {
   listAvailablePromptsInPromptLibraryTool,
   requirePromptLibrary,
 } from "./list_available_prompts_in_prompt_library.js";
+export { saveCustomSystemPromptTool } from "./save_custom_system_prompt.js";
+export { deleteCustomSystemPromptTool } from "./delete_custom_system_prompt.js";
+export {
+  listAvailableCustomSystemPromptTool,
+  requireCustomSystemPrompts,
+} from "./list_available_custom_system_prompt.js";
 export { submitPlanTool } from "./submit_plan.js";
 export { askUserTool, ASK_ANSWERED, ASK_TIMEOUT, ASK_CHANNEL_UNAVAILABLE } from "./askuser.js";
 export { embedUrlTool } from "./embedUrl.js";
@@ -316,6 +325,9 @@ export function createToolRegistry(): ToolRegistry {
     savePromptInPromptLibraryTool,
     deletePromptFromPromptLibraryTool,
     listAvailablePromptsInPromptLibraryTool,
+    saveCustomSystemPromptTool,
+    deleteCustomSystemPromptTool,
+    listAvailableCustomSystemPromptTool,
     embedUrlTool,
     attachFilesTool,
     waitTool,
@@ -409,6 +421,9 @@ export const tools = {
   savePromptInPromptLibraryTool,
   deletePromptFromPromptLibraryTool,
   listAvailablePromptsInPromptLibraryTool,
+  saveCustomSystemPromptTool,
+  deleteCustomSystemPromptTool,
+  listAvailableCustomSystemPromptTool,
   embedUrlTool,
   attachFilesTool,
   waitTool,

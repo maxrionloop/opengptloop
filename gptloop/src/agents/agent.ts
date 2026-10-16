@@ -27,6 +27,7 @@ import { createMemoryRuntime } from "./memory.js";
 import { createKnowledgeRuntime } from "./knowledge.js";
 import { createPromptLibraryRuntime } from "./promptLibrary.js";
 import { createCustomAgentsRuntime } from "./customAgents.js";
+import { createCustomSystemPromptsRuntime } from "./customSystemPrompts.js";
 import type { KnowledgeFile, MemoryFile, MemoryRuntime, TodoItem } from "./tools/types.js";
 import type { MemoryAgentService } from "./memoryagent/index.js";
 import { ALL_MULTI_AGENT_TOOL_NAMES } from "./tools/teamTools.js";
@@ -303,6 +304,22 @@ export class AgentRunner {
   private customAgentsManager?: import("./customagent/index.js").CustomAgentManager;
 
   /**
+   * Attach the persistent custom-system-prompt store (called once at boot). When set, the
+   * custom-system-prompt tools (save_custom_system_prompt / list_available_custom_system_prompt /
+   * delete_custom_system_prompt) can save, list, and delete reusable system prompts for the Main
+   * Agent and every Custom Agent (both run through this core runtime). Every mutation emits a
+   * `custom_system_prompts_updated` event so the frontend mirrors it immediately. When unset, the
+   * tools return a structured "unavailable" error and never touch storage.
+   */
+  setCustomSystemPrompts(
+    manager?: import("./mainagentprompt/index.js").MainAgentPromptManager,
+  ): void {
+    this.customSystemPromptsManager = manager;
+  }
+
+  private customSystemPromptsManager?: import("./mainagentprompt/index.js").MainAgentPromptManager;
+
+  /**
    * Execute a full autonomous turn: stream reasoning + tokens, run tools natively, and
    * loop (Thought -> Action -> Observation) until the model produces a final answer with
    * no further tool calls. The loop is UNBOUNDED — there is no iteration limit; the agent
@@ -362,6 +379,16 @@ export class AgentRunner {
       // memory agent.
       const customAgentsRuntime = this.customAgentsManager
         ? createCustomAgentsRuntime(this.customAgentsManager)
+        : undefined;
+
+      // Custom-system-prompts runtime for this turn — a bridge over the persistent store
+      // (the SQLite app_state document the frontend syncs) so the custom-system-prompt tools
+      // (save_custom_system_prompt / list_available_custom_system_prompt /
+      // delete_custom_system_prompt) can save, list, and delete reusable system prompts.
+      // Present for the Main Agent and every Custom Agent (same core runtime), and team/CEO
+      // agents — never for sub-agents, chat mode, or the memory agent.
+      const customSystemPromptsRuntime = this.customSystemPromptsManager
+        ? createCustomSystemPromptsRuntime(this.customSystemPromptsManager)
         : undefined;
 
       // "First user input" = no prior user turn exists in this session's history. On that first
@@ -708,6 +735,7 @@ export class AgentRunner {
               knowledge: knowledgeRuntime,
               promptLibrary: promptLibraryRuntime,
               customAgents: customAgentsRuntime,
+              customSystemPrompts: customSystemPromptsRuntime,
               schedules: scheduleRuntime,
               toolCallId: toolCall.id ?? undefined,
               chatId: request.chatId,

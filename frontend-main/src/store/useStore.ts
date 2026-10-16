@@ -68,7 +68,7 @@ import { enforceSingleActiveCeo, normalizeCeoAgents } from "@/lib/defaultCeo";
 import { MAIN_AGENT_ID, normalizeCustomAgents } from "@/lib/customAgents";
 import { normalizeConnectors } from "@/lib/connectors";
 import { normalizeMcpServers } from "@/lib/mcp";
-import { normalizeMainAgentPrompts } from "@/lib/mainAgentPrompts";
+import { normalizeMainAgentPrompts, newMainAgentPromptId } from "@/lib/mainAgentPrompts";
 import {
   DEFAULT_PLAN_MODE_PROMPT,
   normalizePlanModePrompt,
@@ -426,6 +426,8 @@ interface AppState {
   addMainAgentPrompt: (input: Omit<MainAgentPrompt, "id" | "createdAt" | "updatedAt">) => MainAgentPrompt;
   updateMainAgentPrompt: (id: string, patch: Partial<Omit<MainAgentPrompt, "id" | "createdAt">>) => void;
   deleteMainAgentPrompt: (id: string) => void;
+  /** Replace the whole list (used after a backend refresh / agent-driven mutation). */
+  setMainAgentPrompts: (prompts: MainAgentPrompt[]) => void;
   /** Activate one custom system prompt for the Main Agent, or null to use the built-in prompt. */
   setActiveMainAgentPrompt: (id: string | null) => void;
 
@@ -1825,7 +1827,7 @@ export const useStore = create<AppState>()(
       // the built-in Main Agent system prompt.
       addMainAgentPrompt: (input) => {
         const now = Date.now();
-        const prompt: MainAgentPrompt = { id: uid("mprompt"), createdAt: now, updatedAt: now, ...input };
+        const prompt: MainAgentPrompt = { id: newMainAgentPromptId(), createdAt: now, updatedAt: now, ...input };
         set((s) => ({ mainAgentPrompts: [prompt, ...s.mainAgentPrompts] }));
         return prompt;
       },
@@ -1843,6 +1845,24 @@ export const useStore = create<AppState>()(
           // Deleting the active prompt falls back to the built-in Main Agent system prompt.
           activeMainAgentPromptId: s.activeMainAgentPromptId === id ? null : s.activeMainAgentPromptId,
         })),
+
+      // Mirror the backend prompt list into the store. Used when an agent's
+      // custom-system-prompt tools (save/delete) mutate the shared store mid-turn: the
+      // `main_agent_prompts_updated` event carries the complete list, and the panel
+      // refresh on open fetches the same truth — so the panel converges immediately.
+      setMainAgentPrompts: (prompts) =>
+        set((s) => {
+          const normalized = normalizeMainAgentPrompts(prompts);
+          const ids = new Set(normalized.map((p) => p.id));
+          return {
+            mainAgentPrompts: normalized,
+            // Deleting the active prompt elsewhere falls back to the built-in prompt.
+            activeMainAgentPromptId:
+              s.activeMainAgentPromptId && !ids.has(s.activeMainAgentPromptId)
+                ? null
+                : s.activeMainAgentPromptId,
+          };
+        }),
 
       setActiveMainAgentPrompt: (id) => set(() => ({ activeMainAgentPromptId: id || null })),
 

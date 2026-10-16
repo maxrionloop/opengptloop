@@ -317,6 +317,50 @@ export interface PromptLibraryRuntime {
 }
 
 /**
+ * A custom-system-prompt entry as surfaced by the custom-system-prompt tools.
+ * `content` is intentionally NOT part of the list shape: the tools expose the
+ * name/short description/exact 20-digit id needed to find and delete an entry,
+ * while the full prompt text stays in the library (and in the frontend's synced state).
+ */
+export interface CustomSystemPromptEntryInfo {
+  /** Stable unique id (exact 20 digits) used to delete the prompt. */
+  id: string;
+  /** Unique human-readable name of the custom system prompt. */
+  name: string;
+  /** Short description of the purpose and behavior (may be empty). */
+  description: string;
+}
+
+/** Fields accepted by the custom-system-prompt save operation (mirrors the tool's zod schema). */
+export interface CustomSystemPromptSaveInput {
+  /** A unique, human-readable name for the custom system prompt. */
+  name: string;
+  /** A short description of the purpose and behavior. */
+  description?: string;
+  /** Absolute filesystem path to the existing file holding the complete prompt. */
+  filePath: string;
+}
+
+/**
+ * Runtime bridge injected into the ToolContext for the top-level agent surfaces that may manage
+ * the user's custom system prompts (the built-in Main Agent, Custom Agents, and every agent inside
+ * a multi-agent team or CEO system). It is backed by the SAME persistent MainAgentPromptManager
+ * the Custom system prompts panel reads (the SQLite `mainAgentPrompts` app_state document the
+ * frontend syncs to), so a prompt saved by an agent shows up in the panel immediately
+ * (every mutation also emits a `main_agent_prompts_updated` SSE event).
+ * Absent from the sub-agent, chat-mode, and memory-agent tool contexts, so those surfaces can never
+ * read or mutate the library.
+ */
+export interface CustomSystemPromptsRuntime {
+  /** List every saved prompt as name + short description + exact 20-digit id (newest first). */
+  list(): ToolResult;
+  /** Save a prompt from a workspace file; emits `main_agent_prompts_updated` on success. */
+  save(input: CustomSystemPromptSaveInput, ctx: ToolContext): Promise<ToolResult>;
+  /** Delete a prompt by its exact 20-digit id; emits `main_agent_prompts_updated` on success. */
+  remove(promptId: string, ctx: ToolContext): ToolResult;
+}
+
+/**
  * A custom agent as surfaced by the custom-agent management tools. Only the
  * identity fields are exposed (exact name + short description) — never the
  * full system prompt or tool allow-list, so listing stays compact and safe
@@ -715,6 +759,11 @@ export interface ToolContext {
    * chat mode, and the memory agent, which is why the custom-agent management tools are
    * unavailable there. */
   customAgents?: CustomAgentsRuntime;
+  /** Custom-system-prompts runtime — present ONLY for the top-level surfaces that may manage the
+   * user's saved custom system prompts (Main Agent, Custom Agents, team agents, and the CEO system
+   * agents). Absent for sub-agents, chat mode, and the memory agent, which is why the
+   * custom-system-prompt tools are unavailable there. */
+  customSystemPrompts?: CustomSystemPromptsRuntime;
   /** Schedule runtime — present for main-agent tool calls and forwarded to sub-agent tool calls so
    * an agent granted the schedule_* tools can manage the persistent cron system. Absent when the
    * backend schedule system is unavailable. */

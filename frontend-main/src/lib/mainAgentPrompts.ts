@@ -13,6 +13,28 @@ import type { MainAgentPrompt } from "@/types";
  * normalization and the active-prompt lookup.
  */
 
+/** Length of every custom-system-prompt id: exact 20 digits (matches the backend). */
+export const MAIN_AGENT_PROMPT_ID_LENGTH = 20;
+
+/**
+ * Generate an exact 20-digit custom-system-prompt id (`^[0-9]{20}$`, 10^20
+ * combinations). Uses crypto randomness when available. Every prompt created in
+ * the panel — and every prompt the agent saves through its tools — carries one.
+ */
+export function newMainAgentPromptId(length = MAIN_AGENT_PROMPT_ID_LENGTH): string {
+  const bytes = new Uint8Array(length);
+  if (typeof crypto !== "undefined" && "getRandomValues" in crypto) {
+    crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  let out = "";
+  for (let i = 0; i < length; i += 1) {
+    out += String(bytes[i]! % 10);
+  }
+  return out;
+}
+
 /** Defensive normalize of one stored/loaded prompt into a well-formed value, or null when unusable. */
 export function normalizeMainAgentPrompt(raw: unknown): MainAgentPrompt | null {
   if (!raw || typeof raw !== "object") return null;
